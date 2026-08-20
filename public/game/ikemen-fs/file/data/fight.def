@@ -22,7 +22,7 @@ name = IKEMEN1              ;Name of motif
 author = Ohmga Shironeko    ;Motif author name
 versiondate = 03,14,2026    ;Version date of motif (MM-DD-YYYY) 
 ikemenversion = 1.0         ;Version of I.K.E.M.E.N motif is compatible with (Ikemen nightly)
-localcoord = 1280,720 	;Local coordinate space width and height
+localcoord = 1280,720   ;Local coordinate space width and height
 
 ;-----------------------------------------------------------
 ;Directories are checked in this order:
@@ -46,7 +46,7 @@ font4 = ikemen1/fonts/PowerbarNum.def
 font5 = ikemen1/fonts/Action.def
 font6 = ikemen1/fonts/ComboCounter.def
 font7 = ikemen1/fonts/HitNum.def
-font8 = ikemen1/fonts/Pixel.def
+font8 = ikemen1/fonts/Menu1.def
 font9 = ikemen1/fonts/Round.def
 fightfx.sff = fightfx.sff ;Legacy Mugen common effects
 fightfx.air = fightfx.air ;Legacy Mugen common effects
@@ -3046,7 +3046,7 @@ ctrl.time = 50              ;Time players get control after starting fight
 ; KO
 KO.time    = 0              ;Time to show KO component
 KO.offset  = 540, 400       ;Component for KO display
-KO.anim    = 529 		;Dummy Animation to let bg play out
+KO.anim    = 529                ;Dummy Animation to let bg play out
 KO.bg0.anim = 533
 KO.bg0.offset  = 830, 400
 KO.bg1.anim = 532
@@ -3059,7 +3059,7 @@ KO.snd     = 2,0            ;Sound to play for KO announcement
 
 ; Double KO
 DKO.offset = 640, 400
-DKO.anim    = 534		;Dummy animation to let bg play out
+DKO.anim    = 534               ;Dummy animation to let bg play out
 DKO.bg0.anim = 535
 DKO.bg0.offset  = 640, 400
 DKO.bg1.anim = 536
