@@ -4,6 +4,69 @@ This file contains everything needed to continue working on FightingGameEngine-W
 
 ---
 
+## Working on This Project (MANDATORY WORKFLOW)
+
+Every agent working on this project **must** follow this workflow. No exceptions.
+
+### 1. Before Starting Work
+
+- Read this file (AGENT.md) in full — it contains architecture, build process, pitfalls, and all context.
+- Read `TODO.md` — this is the authoritative task list. Pick the next uncompleted task.
+- Read `PROGRESS.md` — understand what's been done and what state the project is in.
+- Read `FINDINGS.md` — check if someone already discovered what you're about to investigate.
+- If the task requires understanding the old projects, look at `FightingGameEngine` (Dolmexica, what failed) and `FightingGameEngine-Demo` (UI components to reuse).
+
+### 2. During Work
+
+- **Document everything** as it happens. Don't wait until the end.
+- If you discover something unexpected (a bug, a compatibility issue, a better approach), add it to `FINDINGS.md` immediately with a new F-number (increment from the last one).
+- If you make a mistake, document it in `FINDINGS.md` — the whole point is that future agents learn from it.
+- If something works better than expected, document it in `FINDINGS.md` as a breakthrough.
+
+### 3. After Every Work Session (MANDATORY)
+
+Before finishing, you **must** update all three docs:
+
+**TODO.md**:
+- Mark completed tasks as `[x]`
+- Add any new tasks discovered during work
+- Update task descriptions if scope changed
+- Re-estimate or reorder if needed
+
+**PROGRESS.md**:
+- Add a new session entry with today's date
+- List concrete work done (files created/modified, features implemented, bugs fixed)
+- Update the "Current Status" and "Next Steps" sections
+- Record any key decisions made
+
+**FINDINGS.md**:
+- Add entries for any discoveries, mistakes, or breakthroughs using the format:
+  ```
+  ## F-00N | Short Title
+   **Date**: YYYY-MM-DD | **Type**: Finding / Mistake / Breakthrough
+  
+  Description of what happened, why it matters, and what to do about it.
+  
+  **Lesson**: One-line takeaway for future agents.
+  ```
+- Each entry gets a unique `F-00N` number (incrementing)
+
+### 4. Commit and Push
+
+After updating docs, commit with a clear message describing what was done. Push to `main`.
+
+### 5. Communication
+
+When reporting back to the user, be concise. Do NOT:
+- Re-list every file created (the git commit already shows this)
+- Re-explain what AGENT.md already covers
+- Summarize the docs — the user can read them
+
+Do:
+- State what was accomplished (1-2 sentences)
+- State what's broken or needs attention
+- Suggest the next actionable step
+
 ## Project Overview
 
 **Goal**: Build a browser-based MUGEN fighting game platform using IKEMEN GO v2 compiled to WebAssembly, deployed on Vercel, with characters/stages served from a separate GitHub repo via jsDelivr CDN.
