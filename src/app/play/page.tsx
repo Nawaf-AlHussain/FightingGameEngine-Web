@@ -42,7 +42,6 @@ export default function PlayPage() {
         const API_FILE_BASE = '/api/ikemen-fs/file/';
         const API_MANIFEST = '/api/ikemen-fs/manifest';
 
-        // @ts-expect-error overriding global fetch
         window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
           const url = typeof input === 'string' ? input : input.toString();
 
@@ -93,8 +92,8 @@ export default function PlayPage() {
 
         // --- 6. Initialize VFS with our API manifest URL ---
         log('Initializing VFS manifest...');
-        // @ts-expect-error ikemenVfsInit is global from vfs.js
-        const nFiles = await globalThis.ikemenVfsInit(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const nFiles = await (globalThis as any).ikemenVfsInit(
           '/api/ikemen-fs/manifest',
           [
             'external/script/main.lua',
@@ -117,7 +116,8 @@ export default function PlayPage() {
 
         // --- 7. Load and run WASM ---
         log('Fetching IKEMEN GO WASM (~22 MB)...');
-        const go = new Go();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const go = new (globalThis as any).Go() as any;
         go.argv = ['ikemen'];
         go.env = { GOGC: '100', GOMEMLIMIT: '800MiB' };
 
