@@ -1,5 +1,4 @@
 'use client';
-
 import { useEffect, useRef } from 'react';
 
 // This page loads the IKEMEN GO WASM engine.
@@ -28,14 +27,72 @@ export default function PlayPage() {
       };
 
       try {
+        // --- 0. Install keyboard bridge BEFORE anything else ---
+        // The WASM engine's pollEvents() reads from these arrays each frame.
+        // This bypasses the Go syscall/js event callback pipeline entirely.
+        const g = globalThis as any;
+        g.__ikemenKeyDown = [];
+        g.__ikemenKeyUp = [];
+
+        // Track held keys to avoid duplicate down/up events
+        const heldKeys = new Set<string>();
+
+        const onKeyDown = (e: KeyboardEvent) => {
+          // Always push to the bridge array (engine polls these)
+          if (!heldKeys.has(e.code)) {
+            heldKeys.add(e.code);
+            g.__ikemenKeyDown.push(e.code);
+          }
+          // Prevent browser defaults for game-relevant keys
+          if (
+            e.code.startsWith('Arrow') ||
+            e.code.startsWith('Key') ||
+            e.code.startsWith('Digit') ||
+            e.code === 'Enter' ||
+            e.code === 'Space' ||
+            e.code === 'Escape' ||
+            e.code === 'Tab' ||
+            e.code === 'ShiftLeft' ||
+            e.code === 'ShiftRight' ||
+            e.code === 'ControlLeft' ||
+            e.code === 'ControlRight' ||
+            e.code === 'AltLeft' ||
+            e.code === 'AltRight'
+          ) {
+            e.preventDefault();
+          }
+        };
+
+        const onKeyUp = (e: KeyboardEvent) => {
+          if (heldKeys.has(e.code)) {
+            heldKeys.delete(e.code);
+            g.__ikemenKeyUp.push(e.code);
+          }
+          if (
+            e.code.startsWith('Arrow') ||
+            e.code.startsWith('Key') ||
+            e.code.startsWith('Digit') ||
+            e.code === 'Enter' ||
+            e.code === 'Space' ||
+            e.code === 'Escape' ||
+            e.code === 'ShiftLeft' ||
+            e.code === 'ShiftRight'
+          ) {
+            e.preventDefault();
+          }
+        };
+
+        // Capture phase = runs before any other handlers
+        window.addEventListener('keydown', onKeyDown, true);
+        window.addEventListener('keyup', onKeyUp, true);
+        log('Keyboard bridge installed.');
+
         // --- 1. Pin devicePixelRatio to 1 (glfw-js expects this) ---
         Object.defineProperty(window, 'devicePixelRatio', {
           value: 1, writable: false, configurable: true,
         });
 
         // --- 2. Patch VFS fetch base URL ---
-        // The original vfs.js fetches from './ikemen-fs/file/<vpath>'.
-        // We intercept globalThis.fetch so that VFS requests go to our API route.
         const originalFetch = window.fetch;
         const VFS_FILE_PREFIX = './ikemen-fs/file/';
         const VFS_MANIFEST_URL = './ikemen-fs/manifest.json';
@@ -45,14 +102,12 @@ export default function PlayPage() {
         window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
           const url = typeof input === 'string' ? input : input.toString();
 
-          // Rewrite VFS file requests to API route
           if (url.startsWith(VFS_FILE_PREFIX)) {
             const vpath = url.slice(VFS_FILE_PREFIX.length);
             const rewritten = API_FILE_BASE + encodeURIComponent(vpath).replace(/%2F/gi, '/');
             return originalFetch(rewritten, init);
           }
 
-          // Rewrite manifest request
           if (url === VFS_MANIFEST_URL || url.startsWith('./ikemen-fs/manifest.json')) {
             return originalFetch(API_MANIFEST, init);
           }
@@ -80,7 +135,6 @@ export default function PlayPage() {
         } else {
           log('GPU: Hardware accelerated');
         }
-        // Clean up probe contexts
         const any = document.createElement('canvas');
         const soft = any.getContext('webgl2');
         for (const ctx of [hw, soft]) {
@@ -92,8 +146,7 @@ export default function PlayPage() {
 
         // --- 6. Initialize VFS with our API manifest URL ---
         log('Initializing VFS manifest...');
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const nFiles = await (globalThis as any).ikemenVfsInit(
+        const nFiles = await (g.ikemenVfsInit as any)(
           '/api/ikemen-fs/manifest',
           [
             'external/script/main.lua',
@@ -116,8 +169,7 @@ export default function PlayPage() {
 
         // --- 7. Load and run WASM ---
         log('Fetching IKEMEN GO WASM (~22 MB)...');
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const go = new (globalThis as any).Go() as any;
+        const go = new (g.Go as any)();
         go.argv = ['ikemen'];
         go.env = { GOGC: '100', GOMEMLIMIT: '800MiB' };
 
@@ -134,7 +186,7 @@ export default function PlayPage() {
           result = await WebAssembly.instantiate(bytes, go.importObject);
         }
 
-        log('Starting engine... (watch console for output)');
+        log('Starting engine... (keyboard bridge active)');
 
         // --- 7b. Auto-focus the engine canvas once created ---
         const focusCanvas = () => {
@@ -150,11 +202,9 @@ export default function PlayPage() {
           if (focusCanvas()) focusObserver.disconnect();
         });
         focusObserver.observe(document.body, { childList: true, subtree: true });
-        // Poll as fallback in case MutationObserver misses it
         const focusInterval = setInterval(() => {
           if (focusCanvas()) clearInterval(focusInterval);
         }, 200);
-        // Click-to-focus: if user clicks anywhere on page, refocus canvas
         const clickHandler = () => focusCanvas();
         document.addEventListener('click', clickHandler);
 
@@ -162,6 +212,8 @@ export default function PlayPage() {
         clearInterval(focusInterval);
         focusObserver.disconnect();
         document.removeEventListener('click', clickHandler);
+        window.removeEventListener('keydown', onKeyDown, true);
+        window.removeEventListener('keyup', onKeyUp, true);
         log('Engine exited.');
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -179,14 +231,14 @@ export default function PlayPage() {
 
   return (
     <div className="min-h-screen bg-black flex flex-col items-center justify-center p-4">
-      {/* Boot log — visible during loading, hidden once engine renders */}
+      {/* Boot log */}
       <pre
         ref={bootRef}
         id="boot"
         className="w-full max-w-2xl text-sm text-green-400 font-mono whitespace-pre-wrap leading-relaxed mb-4"
         style={{ maxHeight: '200px', overflow: 'hidden' }}
       />
-      {/* The engine creates its own canvas element via glfw-js */}
+      {/* The engine creates its own canvas element */}
       <div ref={canvasContainerRef} id="game-container" />
     </div>
   );
