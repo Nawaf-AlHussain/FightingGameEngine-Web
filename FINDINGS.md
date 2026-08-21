@@ -5,6 +5,66 @@ A living document for reporting **findings**, **mistakes**, and **breakthroughs*
 Format: newest entries at the top. Each entry gets a unique ID for cross-referencing.
 
 ---
+
+## F-019 | RollbackNetcode=1 causes severe in-fight GC stutter with arena stub (root cause of unplayable combat lag)
+**Date**: 2026-08-21 | **Type**: Finding (root cause of in-fight lag)
+
+User reported fights as "completely unplayable" — severe stutter during
+actual combat, while boot/attract mode was previously smooth. Symptom
+profile pointed to per-frame work that only happens during `game()`, not
+during menu rendering.
+
+`config.ini` shipped with `RollbackNetcode = 1`. IKEMEN GO's rollback
+netcode clones the entire game state every frame so it can rewind to a
+previous state when late input arrives. In native builds this uses Go's
+experimental `arena` package for batch allocation (allocate many objects
+in a single arena, free the whole arena in one call — zero GC scanning).
+
+Per F-007, we replaced `arena` with a heap-allocation stub (`New[T]()`
+does `new(T)`, `MakeSlice` does `make`, `Free()` is a no-op). So with
+`RollbackNetcode = 1`:
+
+- Every frame: engine allocates a fresh full copy of game state on the
+  Go heap (players, helpers, projectiles, explods, afterimages, etc.)
+- Previous frame's clone becomes garbage
+- `GOGC=100` triggers frequent GC scans of this growing heap
+- Each GC pause = 5-50ms hitch = visible stutter
+- Compounds with normal per-frame allocation, so pauses get worse as a
+  fight progresses (more helpers/projectiles/afterimages active)
+
+Attract mode didn't show this because it's short and the user wasn't
+actively comparing — but the same `game()` call was always doing this
+work. The fix isn't "make attract mode smooth", it's "stop the wasteful
+per-frame clone for local play where there's no network opponent to
+reconcile with".
+
+**Fix**: Set `RollbackNetcode = 0` in `config.ini`. Local play has no
+network peer, so there's nothing to roll back to — the clone is pure
+overhead. Rollback can be re-enabled per-match in Phase 4 (online
+multiplayer) once we either (a) rebuild the WASM with a real arena
+implementation for GOOS=js, or (b) accept the GC overhead only when a
+peer is actually connected.
+
+**Secondary changes** (same commit, lower-confidence suspects, easy to
+revert individually):
+- `VSync = 0` — engine-side vsync on top of browser rAF causes
+  double-buffered frame pacing. Browser rAF already syncs to display
+  refresh. Engine vsync is redundant in WASM and can cause frame drops.
+- `TickInterpolation = 0` — extra interpolated render between physics
+  ticks. Reduces GPU work per frame. Visual smoothness tradeoff is
+  acceptable for 60fps physics; revisit if movement looks choppy.
+
+**Lesson**: When a feature (rollback netcode) depends on a platform
+primitive (arena allocation) that you've stubbed out, disable the
+feature by default — don't ship with the stub and the feature both
+active. The stub preserves API correctness but not performance
+characteristics. F-007 flagged this risk explicitly ("May need
+revisiting for rollback netcode") but the config was never updated to
+match. Always trace the consequences of a stub through to the config
+layer.
+
+---
+
 ## F-018 | BootLoadingMode=0 in f_commandLine() freezes WASM main thread
 **Date**: 2026-08-21 | **Type**: Finding (root cause of freeze)
 
