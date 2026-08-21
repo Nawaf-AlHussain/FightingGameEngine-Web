@@ -186,12 +186,22 @@ function PlayPageInner() {
         if (cancelled) return;
 
         // --- 8. Build command-line args to SKIP ALL MENUS ---
-        // IKEMEN GO's main.lua checks: if -p1 && -p2 && -loadmotif → main.f_commandLine()
-        // This bypasses title screen, character select, and VS screen.
+        // main.lua has TWO quick-match triggers:
+        //   Line 1176: -p1 && -p2 && NO -loadmotif → f_commandLine() EARLY (lightweight)
+        //   Line 4063: -p1 && -p2 && -loadmotif    → f_commandLine() LATE (heavy)
+        //
+        // The LATE path (with -loadmotif) calls start.f_selectReset(true) which
+        // loads the full motif (9.1 MB system.sff, 3.6 MB system.snd, select.def
+        // roster init) synchronously — this blocks the WASM main thread and
+        // causes the "broken record" freeze.
+        //
+        // The EARLY path (without -loadmotif) skips f_selectReset, calls
+        // loadFightScreen() instead (lightweight), and uses addChar()/addStage()
+        // directly. This matches the attract mode pattern (f_demoStart) which
+        // also never calls f_selectReset and runs smoothly.
         const argv = ['ikemen'];
         argv.push('-p1', p1);
         argv.push('-p2', p2);
-        argv.push('-loadmotif', 'data/ikemen1/system.def');
         argv.push('-s', stage);
         if (p2ai) {
           argv.push('-p2.ai', p2ai);
