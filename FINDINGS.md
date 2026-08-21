@@ -6,6 +6,75 @@ Format: newest entries at the top. Each entry gets a unique ID for cross-referen
 
 ---
 
+## F-024 | Frame-skip tight loop blocks browser (Go source issue, no WASM rebuild available)
+**Date**: 2026-08-21 | **Type**: Finding (architectural limitation)
+
+After F-023 (vfs.js Promise cache) was fixed, the "broken record" complete
+freeze was replaced by "very laggy, becomes unresponsive after a while."
+Analysis of the Go source (`system.go:807-864`) revealed the root cause:
+
+The `await()` function has a frame-skip optimization:
+```go
+func (s *System) await(fps int) bool {
+    if !s.frameSkip {
+        gfx.EndFrame()
+        s.window.SwapBuffers()  // yields to browser via rAF
+        ...
+    }
+    // Note: if frameSkip is true, SwapBuffers is NOT called!
+
+    switch {
+    case diff >= 0 && diff < waitDuration+2*time.Millisecond:
+        time.Sleep(diff)  // yields to browser via setTimeout
+        fallthrough
+    case now.Sub(s.redrawWait.lastDraw) > 250*time.Millisecond:
+        fallthrough
+    case diff >= -17*time.Millisecond:
+        s.redrawWait.lastDraw = now
+        s.frameSkip = false
+    default:
+        s.frameSkip = true  // frame skip activated
+    }
+}
+```
+
+When the engine falls behind schedule (diff < -17ms):
+1. `frameSkip` is set to `true`
+2. Next frame: `SwapBuffers()` is SKIPPED (no rAF yield)
+3. `time.Sleep()` is SKIPPED (diff < 0, hits default case)
+4. Game loop spins tightly: `renderFrame()` → `update()` → `await()` → repeat
+5. Only yield is the 250ms safety valve (`now.Sub(lastDraw) > 250ms`)
+
+Result: ~4 FPS with 250ms freezes. The browser eventually kills the tab
+for being unresponsive.
+
+**Why this doesn't affect native builds**: The OS scheduler prevents
+true busy-looping. In WASM, the main thread IS the browser tab — a
+tight loop blocks everything.
+
+**Fix requires**: Modifying `system.go` to always call `SwapBuffers()`
+even during frame skip, then rebuilding the WASM. The Go SDK is NOT
+available (`~/go-sdk/` missing), so a rebuild is not currently possible.
+
+**Workaround applied**: Reduce per-frame workload so the engine never
+falls behind:
+- Resolution: 16:9 (1280x720) → 4:3 (640x480) = 3x fewer pixels
+- Framerate: 60 → 30 = 2x more time per frame
+- AfterImageMax: 512 → 128, ExplodMax: 512 → 128
+- HelperMax: 56 → 32, ProjectileMax: 256 → 64
+
+This gives the engine ~6x more headroom. If it still falls behind at
+30fps/4:3, the only remaining option is to rebuild the WASM with the
+Go source fix.
+
+**Lesson**: Frame-skip optimizations from native engines don't translate
+to WASM. In native, skipping a frame means "don't render, but still
+yield to OS." In WASM, skipping a frame means "don't render, don't yield,
+burn CPU." Any port of a game engine to WASM must ensure the main loop
+ALWAYS yields, even when skipping frames.
+
+---
+
 ## F-023 | vfs.js fetchFile rejected-promise cache creates infinite microtask storm (ROOT CAUSE of 7.3s freeze)
 **Date**: 2026-08-21 | **Type**: Finding (root cause — confirmed via Chrome trace)
 
