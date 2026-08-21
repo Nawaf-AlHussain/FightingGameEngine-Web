@@ -149,26 +149,38 @@ function PlayPageInner() {
           }
         }
 
-        // --- 6. Initialize VFS with our API manifest URL ---
-        log('Initializing VFS manifest...');
+        // --- 6. PRELOAD ALL VFS FILES (LAG FIX) ---
+        // Previously only 3 files were preloaded. The other ~97 loaded on-demand
+        // during the fight, causing massive stuttering (system.sff = 9.1MB,
+        // system.snd = 3.6MB, fight.snd = 6.3MB all fetched mid-fight).
+        // Now we fetch the manifest, get all paths, and preload everything.
+        log('Fetching file manifest...');
+        const manifestResp = await originalFetch(API_MANIFEST);
+        const manifest = await manifestResp.json();
+        const allFiles = Object.keys(manifest.files);
+        const totalBytes = Object.values(manifest.files).reduce((a: number, b: any) => a + (b as number), 0);
+        log('Preloading ' + allFiles.length + ' files (' + (totalBytes / 1e6).toFixed(1) + ' MB)...');
+
+        const setBootLine = (prefix: string, text: string) => {
+          if (cancelled) return;
+          const lines = boot.textContent.split('\n');
+          const idx = lines.findIndex(l => l.startsWith(prefix));
+          if (idx >= 0) lines[idx] = prefix + text;
+          else lines.push(prefix + text);
+          boot.textContent = lines.join('\n');
+          boot.scrollTop = boot.scrollHeight;
+        };
+
         const nFiles = await (g.ikemenVfsInit as any)(
           '/api/ikemen-fs/manifest',
-          [
-            'external/script/main.lua',
-            'save/config.json',
-            'save/stats.json',
-          ],
+          allFiles,
           (got: number, total: number) => {
             if (cancelled) return;
-            const done = total && got >= total;
-            boot.textContent = boot.textContent.replace(/\nDownloading game data[^\n]*/g, '')
-              + (done
-                ? '\nDownloading game data: complete.'
-                : `\nDownloading game data: ${(got / 1e6).toFixed(1)}${total ? ' / ' + (total / 1e6).toFixed(1) : ''} MB`);
-            boot.scrollTop = boot.scrollHeight;
+            const pct = total > 0 ? Math.round((got / total) * 100) : 0;
+            setBootLine('[LOAD] ', (got / 1e6).toFixed(1) + ' / ' + (total / 1e6).toFixed(1) + ' MB (' + pct + '%)');
           }
         );
-        log(`VFS ready: ${nFiles} files.`);
+        log('VFS ready: ' + nFiles + ' files preloaded.');
 
         if (cancelled) return;
 
