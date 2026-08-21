@@ -149,11 +149,10 @@ function PlayPageInner() {
           }
         }
 
-        // --- 6. PRELOAD ALL VFS FILES (LAG FIX) ---
-        // Previously only 3 files were preloaded. The other ~97 loaded on-demand
-        // during the fight, causing massive stuttering (system.sff = 9.1MB,
-        // system.snd = 3.6MB, fight.snd = 6.3MB all fetched mid-fight).
-        // Now we fetch the manifest, get all paths, and preload everything.
+        // --- 6. Set aspect ratio for VFS config patching ---
+        (g as any).ikemenAspect = '16:9';
+
+        // --- 7. PRELOAD ALL VFS FILES ---
         log('Fetching file manifest...');
         const manifestResp = await originalFetch(API_MANIFEST);
         const manifest = await manifestResp.json();
@@ -184,14 +183,14 @@ function PlayPageInner() {
 
         if (cancelled) return;
 
-        // --- 7. Build command-line args to SKIP ALL MENUS ---
+        // --- 8. Build command-line args to SKIP ALL MENUS ---
         // IKEMEN GO's main.lua checks: if -p1 && -p2 && -loadmotif → main.f_commandLine()
         // This bypasses title screen, character select, and VS screen.
         const argv = ['ikemen'];
         argv.push('-p1', p1);
         argv.push('-p2', p2);
         argv.push('-loadmotif', 'data/ikemen1/system.def');
-        argv.push('-stage', stage);
+        argv.push('-s', stage);
         if (p2ai) {
           argv.push('-p2.ai', p2ai);
         }
@@ -201,7 +200,7 @@ function PlayPageInner() {
 
         log(`Starting engine with args: ${argv.slice(1).join(' ')}`);
 
-        // --- 8. Load and run WASM ---
+        // --- 9. Load and run WASM ---
         log('Fetching IKEMEN GO WASM (~22 MB)...');
         const go = new (g.Go as any)();
         go.argv = argv;
@@ -229,7 +228,7 @@ function PlayPageInner() {
           setTimeout(() => { if (boot) boot.style.display = 'none'; }, 1000);
         }
 
-        // --- 9. Auto-focus the engine canvas once created ---
+        // --- 10. Auto-focus the engine canvas once created ---
         const focusCanvas = () => {
           const canvas = document.querySelector('canvas');
           if (canvas && canvas.width > 0) {
@@ -249,7 +248,7 @@ function PlayPageInner() {
         clickHandler = () => focusCanvas();
         document.addEventListener('click', clickHandler);
 
-        // --- 10. Run the engine ---
+        // --- 11. Run the engine ---
         // main.f_commandLine() will run the fight and call os.exit() when done.
         // In Go WASM, os.exit() terminates the goroutine and go.run() resolves.
         await go.run(result.instance);

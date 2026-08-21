@@ -948,8 +948,10 @@ function main.f_commandLine()
 		start.f_selectReset(true)
 	end
 	setCredits(-1)
-	-- No need for asynchronous loading when running from command line. Fixes race conditions with Turns teammate faces
-	modifyGameOption('Config.BootLoadingMode', 0)
+        -- Use async loading (1) so the browser event loop stays alive
+        -- during asset loading. Sync (0) freezes the main thread in WASM,
+        -- starving audio buffers and rendering.
+        modifyGameOption('Config.BootLoadingMode', 1)
 	if not loadMotif then
 		loadFightScreen()
 	end
