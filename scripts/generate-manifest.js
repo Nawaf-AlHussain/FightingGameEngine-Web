@@ -21,10 +21,16 @@ function walkDir(dir, base = '') {
 const dataRoot = path.join(__dirname, '..', 'public', 'game', 'ikemen-fs', 'file');
 const manifest = walkDir(dataRoot);
 
-// Ensure save directories exist as virtual entries (the engine creates these)
-manifest['save/config.ini'] = 0;
-manifest['save/config.json'] = 0;
-manifest['save/stats.json'] = 0;
+// Ensure save directory exists as a virtual entry. The engine creates these
+// at runtime if missing, but listing them in the manifest lets the VFS
+// resolve stat() calls without a network fetch.
+// NOTE: only add entries for files that DON'T already exist on disk —
+// walkDir already picked up real files with their actual sizes.
+// Previously this overwrote save/config.ini (4982 bytes) with 0, causing
+// the engine to think config.ini was empty and ignore all our settings.
+if (!manifest['save/config.ini']) manifest['save/config.ini'] = 0;
+if (!manifest['save/config.json']) manifest['save/config.json'] = 0;
+if (!manifest['save/stats.json']) manifest['save/stats.json'] = 0;
 
 const outPath = path.join(__dirname, '..', 'public', 'game', 'ikemen-fs', 'manifest.json');
 fs.writeFileSync(outPath, JSON.stringify({ files: manifest }, null, 0)); // compact JSON

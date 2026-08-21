@@ -6,8 +6,73 @@ Format: newest entries at the top. Each entry gets a unique ID for cross-referen
 
 ---
 
+## F-020 | VFS patches RollbackNetcode at boot — config.ini value is ignored (F-019 was wrong root cause)
+**Date**: 2026-08-21 | **Type**: Mistake / Finding (corrects F-019)
+
+User reported "no change at all" after F-019 (disabling RollbackNetcode in
+config.ini). Investigation of `vfs.js:600` revealed:
+
+```js
+const nc = (globalThis.ikemenNetcode === 'rollback') ? 1 : 0;
+const cfg = contents.get('save/config.ini');
+if (cfg) {
+  const text = new TextDecoder().decode(cfg);
+  const patched = text.replace(/^(\s*RollbackNetcode\s*=\s*)[0-9]+/mi, '$1' + nc);
+  if (patched !== text) contents.set('save/config.ini', new TextEncoder().encode(patched));
+}
+```
+
+The VFS **already patches `RollbackNetcode=0`** at boot (because our play
+page doesn't set `globalThis.ikemenNetcode='rollback'`). So the value in
+config.ini was never authoritative — it gets overwritten in memory before
+the engine reads it.
+
+**Implication**: RollbackNetcode was ALREADY 0 during the user's "laggy"
+tests. F-019's fix was redundant. The in-fight lag has a different cause.
+
+**Lesson**: Before attributing a perf problem to a config value, verify
+the value is actually read at runtime — check for runtime patches,
+overrides, or environment variables that might supersede the file. The
+vfs.js boot sequence is a "shadow config" layer that silently rewrites
+config.ini before the engine sees it.
+
+---
+
+## F-021 | Manifest generator overwrote real file sizes with 0 (config.ini silently "empty")
+**Date**: 2026-08-21 | **Type**: Finding (manifest bug)
+
+`scripts/generate-manifest.js` unconditionally set:
+```js
+manifest['save/config.ini'] = 0;
+manifest['save/config.json'] = 0;
+manifest['save/stats.json'] = 0;
+```
+
+AFTER `walkDir()` had already populated `save/config.ini` with its real
+size (4982 bytes). The override zeroed it out. Effect: the VFS manifest
+reported config.ini as 0 bytes, so `stat('save/config.ini').size`
+returned 0. The engine may have skipped reading it or read it as empty,
+falling back to hardcoded defaults for any setting not patched by vfs.js.
+
+This didn't fully break the engine because vfs.js separately fetches
+config.ini via HTTP (line 542) for its own boot-time patching, and that
+fetch got the real file. But the engine's own stat-based size checks
+were wrong.
+
+**Fix**: Changed to `if (!manifest['save/config.ini']) manifest[...] = 0`
+— only add the entry if walkDir didn't find the real file.
+
+**Lesson**: When adding "ensure exists" defaults, check whether the key
+already exists first. A `manifest[key] = 0` after `walkDir()` is a
+silent override, not a fallback.
+
+---
+
 ## F-019 | RollbackNetcode=1 causes severe in-fight GC stutter with arena stub (root cause of unplayable combat lag)
 **Date**: 2026-08-21 | **Type**: Finding (root cause of in-fight lag)
+**Status**: ❌ WRONG — see F-020. RollbackNetcode was already 0 via VFS patch.
+Kept for cross-reference and because the lesson about stub+feature
+interaction is still valid for Phase 4.
 
 User reported fights as "completely unplayable" — severe stutter during
 actual combat, while boot/attract mode was previously smooth. Symptom
