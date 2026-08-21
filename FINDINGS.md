@@ -6,6 +6,66 @@ Format: newest entries at the top. Each entry gets a unique ID for cross-referen
 
 ---
 
+## F-022 | `while loading() do refresh() end` loop in f_commandLine() blocks WASM main thread (ROOT CAUSE of in-fight freeze)
+**Date**: 2026-08-21 | **Type**: Finding (root cause — breaks the "broken record" freeze)
+
+User reported fights as "completely frozen, broken record sound, can't
+interact with tab" after commit 8133c60 (menu skip architecture). The
+attract mode (smooth) and our /play fight (frozen) both call the same
+`game()` function — so the engine itself works. The difference is the
+boot path:
+
+**Attract mode (smooth)** — `main.f_demoStart()` (main.lua:3513):
+```lua
+loadStart(start.f_buildLoadStartParams())
+game()  -- called IMMEDIATELY, no loading wait loop
+```
+
+**f_commandLine() (frozen)** — main.lua:1160:
+```lua
+loadStart(table.concat(t_params, ', '))
+while loading() do
+    refresh()
+end
+game()
+```
+
+The `while loading() do refresh() end` loop is unique to f_commandLine().
+In WASM, `refresh()` inside this loading loop does NOT call `SwapBuffers`
+(there's nothing to render during loading), so it never yields to the
+browser via `requestAnimationFrame`. The loop becomes a tight CPU-burning
+spin that blocks the main thread completely.
+
+Symptom match: "broken record sound" = Web Audio thread keeps playing
+the same buffer (runs on separate thread), but the main thread can't
+advance frames (blocked in the spin loop). Audio repeats, screen frozen.
+
+**Fix**: Removed the `while loading() do refresh() end` loop. Call
+`game()` directly after `loadStart()`, matching `f_demoStart()`. The
+`game()` function has its own internal frame loop that properly yields
+via `SwapBuffers` → `requestAnimationFrame`, and it handles loading
+completion internally (the attract mode path proves this works).
+
+**Why F-018 was partially right but incomplete**: F-018 correctly
+identified that `BootLoadingMode=0` caused sync loading. Setting
+`BootLoadingMode=1` made loading async — but the `while loading()` loop
+was STILL there, spinning tightly. With async loading, `loading()`
+returns true for a while (loading in progress), and the loop spins
+calling `refresh()` which doesn't yield. F-018 reduced the freeze
+duration (loading itself became non-blocking) but didn't eliminate the
+spin loop that blocked AFTER loading started.
+
+**Also removed**: MutationObserver + setInterval(200ms) for canvas focus
+(played once on /play, ran forever during fight). Replaced with single
+setTimeout(1000ms). These weren't the root cause but added overhead.
+
+**Lesson**: When a function works in one code path (attract mode) but
+freezes in another (f_commandLine), diff the two paths line by line.
+The difference IS the bug. Don't theorize about GC, rollback, or config
+values until you've compared the working path to the broken path.
+
+---
+
 ## F-020 | VFS patches RollbackNetcode at boot — config.ini value is ignored (F-019 was wrong root cause)
 **Date**: 2026-08-21 | **Type**: Mistake / Finding (corrects F-019)
 

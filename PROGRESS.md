@@ -1,5 +1,54 @@
 # PROGRESS — Fighting Game Engine Web
 
+## Session: August 21, 2026 (Night 3) — ROOT CAUSE FOUND: while-loading loop blocks main thread
+
+### Work Done
+
+#### Identified root cause by diffing working vs broken code paths (F-022)
+User confirmed the smooth attract mode was on Vercel BEFORE commit 8133c60 (menu skip). Both attract mode and our /play fight call the same `game()` function — the engine works. The difference is the boot path:
+
+- **Attract mode (smooth)**: `main.f_demoStart()` calls `loadStart()` then `game()` directly
+- **f_commandLine() (frozen)**: `loadStart()` then `while loading() do refresh() end` then `game()`
+
+The `while loading() do refresh() end` loop is unique to f_commandLine(). In WASM, `refresh()` inside this loading loop doesn't call `SwapBuffers` (nothing to render), so it never yields to the browser via `requestAnimationFrame`. The loop becomes a tight CPU-burning spin that blocks the main thread — matching the "broken record sound" symptom (audio thread runs, main thread blocked).
+
+**Fix**: Removed the loop. Call `game()` directly after `loadStart()`, matching the attract mode pattern. `game()` has its own internal frame loop that properly yields via SwapBuffers.
+
+#### Reverted instrumentation from previous session
+- Removed `GODEBUG=gctrace=1` (was flooding console with GC traces, adding synchronous I/O overhead)
+- Removed frame-time monitor (rAF loop + setInterval)
+- Removed canvas size logger (setInterval)
+- These made the freeze WORSE (from "unplayable lag" to "completely frozen")
+
+#### Removed persistent timers from play page
+- Removed `MutationObserver` on `document.body` (ran forever during fight, fired on every DOM mutation including boot log updates)
+- Removed `setInterval(focusCanvas, 200)` (ran forever during fight)
+- Replaced with single `setTimeout(focusCanvas, 1000)` — one attempt, then done
+
+#### Kept good changes from previous session
+- Static VFS file serving (`/game/ikemen-fs/file/` instead of `/api/ikemen-fs/file/`) — faster boot, no serverless cold starts
+- Manifest generator fix (F-021) — no longer overwrites real file sizes with 0
+- F-019 config changes (RollbackNetcode=0, VSync=0, TickInterpolation=0) — redundant but harmless
+
+### Current Status
+- **Engine**: WASM boots via f_commandLine() — loading loop removed, game() called directly
+- **Frontend**: Clean play page — no persistent timers, no MutationObserver
+- **Deployment**: On Vercel, fix pushing now
+- **Lag diagnosis**: ROOT CAUSE FOUND AND FIXED (F-022)
+
+### Next Steps
+1. **User tests the fix** — verify fights are now smooth (should match attract mode performance)
+2. **If smooth**: test fight input (WASD/UIO/JKL), disable native pause menu, proceed to Phase 2
+3. **If still laggy**: the issue is inside `game()` itself, not the loading loop. Would need to profile with Chrome DevTools Performance tab.
+
+### Key Decisions
+- Modified main.lua (data file, not WASM) — no rebuild needed. This is the correct approach for Lua-level fixes.
+- Used Python script to make the edit (preserves tabs — the Edit tool converts tabs to spaces, which would show the entire file as changed in git)
+- Did NOT revert F-019's config changes — they're redundant (VFS patches RollbackNetcode=0 anyway) but not harmful
+- Kept static VFS change — genuine improvement regardless of lag cause
+
+---
+
 ## Session: August 21, 2026 (Night 2) — Lag Diagnosis Round 2: Instrumentation + Static VFS
 
 ### Work Done

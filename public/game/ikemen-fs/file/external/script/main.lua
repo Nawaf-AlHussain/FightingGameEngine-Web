@@ -1158,13 +1158,16 @@ function main.f_commandLine()
 		table.insert(t_params, 'pausemenu=false')
 	end
 	loadStart(table.concat(t_params, ', '))
-	while loading() do
-		-- Pump the engine while waiting: on the single-threaded wasm build the
-		-- loader can only make progress when the main loop runs, so a bare
-		-- busy-wait here deadlocks the whole quick-match path. (The -ip wait
-		-- loop above already does this.)
-		refresh()
-	end
+	-- Do NOT use `while loading() do refresh() end` here.
+	-- In WASM, refresh() inside this loading loop does not call SwapBuffers
+	-- (nothing to render during loading), so it never yields to the browser
+	-- via requestAnimationFrame. The loop becomes a tight CPU-burning spin
+	-- that blocks the main thread - audio plays but frames do not advance
+	-- (broken record symptom).
+	-- Instead, call game() directly. game() has its own internal frame loop
+	-- that properly yields via SwapBuffers while loading completes.
+	-- This matches the attract mode path (main.f_demoStart) which calls
+	-- game() immediately after loadStart() and runs smoothly.
 	game()
 	if flags['-log'] ~= nil then
 		main.f_printTable(getGameStats().Matches[matchNo()], flags['-log'])
