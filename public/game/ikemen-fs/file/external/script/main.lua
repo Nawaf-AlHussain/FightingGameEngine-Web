@@ -939,9 +939,11 @@ end
 function main.f_commandLine()
 	local flags = getCommandLineFlags()
 	local loadMotif = flags['-loadmotif'] ~= nil
-	if loadMotif then
-		main.f_default()
-	end
+	-- Always call f_default() to initialize main.* config vars.
+	-- f_demoStart (attract mode) does this, and our early path (no
+	-- -loadmotif) was skipping it, leaving fightscreen/motif/matchWins
+	-- etc. in stale states that caused extra per-frame work.
+	main.f_default()
 	main.pauseMenu = loadMotif
 	setGameMode('quickvs')
 	if loadMotif then
