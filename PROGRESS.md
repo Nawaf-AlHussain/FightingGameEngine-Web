@@ -1,5 +1,44 @@
 # PROGRESS — Fighting Game Engine Web
 
+## Session: August 21, 2026 (Night 5) — Frame-skip tight loop identified (F-024), workload reduction workaround
+
+### Work Done
+
+#### Identified frame-skip tight loop as the remaining performance issue (F-024)
+After F-023 (vfs.js Promise cache) eliminated the "broken record" complete freeze, the user reported "very laggy, becomes unresponsive after a while." This is a different symptom — the engine runs but at very low FPS.
+
+Analysis of the Go source (`/tmp/ikemen-go-web/src/system.go:807-864`) revealed that the `await()` function's frame-skip logic skips both `SwapBuffers()` (rAF yield) and `time.Sleep()` (setTimeout yield) when the engine falls behind schedule. This creates a tight loop that blocks the browser for up to 250ms at a time, resulting in ~4 FPS.
+
+The real fix requires modifying `system.go` to always call `SwapBuffers()` even during frame skip, then rebuilding the WASM. However, the Go SDK is NOT available (`~/go-sdk/` missing), so a rebuild is not currently possible.
+
+#### Applied workload reduction workaround
+To prevent the engine from falling behind in the first place:
+- Resolution: 16:9 (1280x720) → 4:3 (640x480) — 3x fewer pixels to render
+- Framerate: 60 → 30 — 2x more time per frame (33ms instead of 16ms)
+- AfterImageMax: 512 → 128, ExplodMax: 512 → 128 — less per-frame allocation
+- HelperMax: 56 → 32, ProjectileMax: 256 → 64 — fewer entities to update
+
+Combined, this gives the engine ~6x more headroom per frame. If the engine can complete a frame in 33ms at 640x480 with reduced limits, it won't enter frame-skip mode and the tight loop won't trigger.
+
+### Current Status
+- **Engine**: vfs.js Promise cache fixed (F-023), workload reduced (F-024 workaround)
+- **Frontend**: 4:3 aspect ratio, 30fps target
+- **Deployment**: On Vercel, workaround pushing now
+- **Lag diagnosis**: Microtask storm fixed (F-023). Frame-skip tight loop worked around (F-024). If still laggy, WASM rebuild is required.
+
+### Next Steps
+1. **User tests the workaround** — verify fights are now playable (even if not 60fps)
+2. **If playable**: proceed with fight input testing, pause menu fix, Phase 2
+3. **If still laggy**: the only remaining option is to rebuild the WASM with the Go source fix. This requires installing Go 1.21 and rebuilding from the energyjp fork. The fix is a one-line change in system.go: move `s.window.SwapBuffers()` outside the `if !s.frameSkip` block.
+4. **Long-term**: Consider running the WASM in a Web Worker to prevent main-thread blocking. This is a major architectural change but would make frame-skip safe.
+
+### Key Decisions
+- Used workload reduction instead of Go source fix because Go SDK is unavailable
+- Chose 4:3 + 30fps as a reasonable compromise — not ideal but should be playable
+- Kept all previous fixes (vfs.js Promise cache, static VFS, manifest fix, main.lua while-loop removal, -loadmotif removal) — all are correct improvements regardless of the frame-skip issue
+
+---
+
 ## Session: August 21, 2026 (Night 4) — ROOT CAUSE CONFIRMED via Chrome trace: vfs.js Promise cache storm
 
 ### Work Done
