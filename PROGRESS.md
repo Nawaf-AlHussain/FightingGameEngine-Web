@@ -1,5 +1,61 @@
 # PROGRESS — Fighting Game Engine Web
 
+## Session: August 21, 2026 (Late PM) — Architecture Overhaul: Skip Menus
+
+### Work Done
+
+#### KEY BREAKTHROUGH: IKEMEN GO has built-in CLI quick match (no recompilation needed)
+- Discovered that `main.lua` (line 4061) checks for `-p1`, `-p2`, `-loadmotif` command-line args
+- When all three are present, it calls `main.f_commandLine()` which skips title screen, character select, and VS screen
+- We pass these via `go.argv` in `wasm_exec.js` — Go's WASM equivalent of `os.Args`
+- **Zero WASM changes required** — this was always there, just not utilized
+
+#### Architecture Changed to Demo2 Pattern (Website UI + Engine Only for Fights)
+- Created `/local` page — pure React character select screen:
+  - Game mode selection (VS CPU / VS Player / Training)
+  - P1 and P2 character slots with confirm/lock-in
+  - CPU difficulty slider (1-8) for AI modes
+  - Stage selection
+  - Extensible design — add more characters/stages to the arrays
+- Modified `/play` page to accept URL query parameters:
+  - `?p1=kfm&p2=kfm&stage=stages/stage0-720.def&p2ai=5`
+  - Builds `go.argv` with `-p1`, `-p2`, `-loadmotif`, `-stage`, `-p2.ai` flags
+  - Boot log fades out once fight starts
+  - After fight ends (os.exit caught), auto-redirects to `/local`
+- Updated `/lobby` page — PRESS START now navigates to `/local` instead of `/play`
+
+#### New Flow
+```
+/lobby (title) → /local (React char select) → /play?p1=kfm&p2=kfm&stage=... (engine boots directly into fight)
+```
+
+#### Committed and Pushed
+- Commit `8133c60`: `feat: skip IKEMEN menus - React UI handles character select, engine only fights`
+- Pushed to `origin/main` — Vercel auto-deploy triggered
+
+### Current Status
+- **Engine**: WASM boots directly into fights (no menus)
+- **Frontend**: Lobby → Character Select → Fight flow complete
+- **Deployment**: On Vercel, auto-deployed from push
+- **Input**: Poll-based keyboard bridge active. Config.ini key mappings correct in theory (w/a/s/d for P1, arrows for P2). WASD keys need real-world testing during fight.
+- **Assets**: 1 character (KFM), 1 stage (stage0-720)
+
+### Known Issues
+1. **Fight input untested**: WASD + UIO/JKL mappings are in config.ini and jsCodeToKey looks correct, but only "1" (Start) was verified working previously. Menu navigation keys were broken; fight keys may work differently. Needs testing.
+2. **Engine canvas not fullscreen**: The engine creates its own canvas but it may not fill the viewport. May need CSS adjustments.
+3. **No escape/pause during fight**: Pressing Escape opens IKEMEN's native pause menu (EscOpensMenu=1 in config). This should be disabled or intercepted.
+4. **Only 1 character and 1 stage**: Character select shows KFM only. Need asset pipeline (Phase 2) for more.
+5. **Fight end detection is crude**: We rely on os.exit() throwing an error. If the engine hangs after the fight, the user is stuck.
+
+### Next Steps
+1. **Test the fight**: Deploy and verify the engine actually loads and fights with CLI args
+2. **Test fight input**: Verify WASD, UIO, JKL work during gameplay
+3. **Add more characters/stages to VFS**: At minimum a few more to make select screen useful
+4. **Disable native pause menu**: Set `EscOpensMenu=0` or intercept Escape key
+5. **Add Escape to quit fight**: Navigate back to /local when pressing Escape
+
+---
+
 ## Session: August 21, 2026 (PM) — Phase 1 Foundation
 
 ### Work Done

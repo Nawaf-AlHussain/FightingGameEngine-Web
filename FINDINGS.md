@@ -54,6 +54,109 @@ The WebMUGEN kit's `vfs.js` fetches files from `./ikemen-fs/file/<vpath>` (relat
 
 ---
 
+## F-011 | Go WASM syscall/js event callback pipeline is broken for keyboard events
+**Date**: 2026-08-21 | **Type**: Finding
+
+The Go WASM event delivery mechanism (js.FuncOf -> _makeFuncWrapper -> _pendingEvent -> _resume() -> handleEvent()) fails to deliver keyboard events from JavaScript to Go. Events registered via document.addEventListener('keydown', jsFunc) never reach the Go callback. The Go->JS direction (calling js.Global().Get(), .Call(), .String()) works perfectly.
+
+**Workaround**: Poll-based keyboard bridge — JS pushes key codes into window.__ikemenKeyDown/__ikemenKeyUp arrays, Go reads them in pollEvents(). This works because Go->JS calls are reliable.
+
+**Likely root cause**: The main goroutine blocks in SwapBuffers() (channel receive waiting for requestAnimationFrame). When _resume() is called to deliver a pending event, the interaction between channel-based blocking and event delivery may have a race condition or deadlock. The WebMUGEN GRAIL.md hints at this: "Per-frame input sampling misses single-frame synthetic events; hold keys >= 100ms."
+
+**Lesson**: When a cross-language event pipeline fails silently, check if the main goroutine is blocked in a way that prevents event delivery. A poll-based bridge (JS writes, Go reads) is more reliable than callback-based bridges (JS calls Go) in WASM.
+
+---
+
+## F-012 | Poll-based keyboard bridge only works for Start (1) key — other keys still broken
+**Date**: 2026-08-21 | **Type**: Finding (unresolved)
+
+After implementing the poll-based keyboard bridge and fixing config.ini key names to use lowercase/KP_ format, only the "1" key (Start for P1) works. Movement keys (w/a/s/d) and action keys (u/i/o/j/k/l) do not register.
+
+**Most likely causes** (in order of probability):
+1. jsCodeToKey mapping mismatch: The Go code reads strings from __ikemenKeyDown and looks them up in jsCodeToKey (which maps "KeyW" to keyW). This should work, but there may be a subtle string encoding issue.
+2. Config.ini VFS loading: The engine may not be reading the modified config.ini, falling back to defaults that don't match the keyboard layout.
+3. OnKeyPressed timing: The poll bridge calls OnKeyPressed inside pollEvents(), but this may be processed at a point in the frame loop where key state is not checked.
+
+**Next step**: Add console.log on both JS and Go sides to trace the full data path from keydown event to config lookup to command matching.
+
+**Lesson**: When a workaround appears to partially work (1 key), don't assume the mechanism is correct. The 1 key may work through a different code path than the other keys.
+
+---
+
+## F-017 | IKEMEN GO has built-in CLI quick match — no WASM changes needed to skip menus
+**Date**: 2026-08-21 | **Type**: Breakthrough
+
+F-013 concluded that "No equivalent to startDirectMatch exists" for IKEMEN GO. This was WRONG. IKEMEN GO's `main.lua` (line 4061) has a built-in command-line quick match:
+
+```lua
+if getCommandLineValue("-p1") ~= nil 
+   and getCommandLineValue("-p2") ~= nil 
+   and getCommandLineValue("-loadmotif") ~= nil then
+  main.f_commandLine()  -- Skips ALL menus, goes straight to fight
+end
+```
+
+We pass these via `go.argv` in `wasm_exec.js` (Go's WASM equivalent of `os.Args`):
+```js
+go.argv = ['ikemen', '-p1', 'kfm', '-p2', 'kfm', '-loadmotif', 'data/ikemen1/system.def', '-stage', 'stages/stage0-720.def', '-p2.ai', '5'];
+```
+
+This means the entire architecture change (React UI + engine only for fights) was achievable WITHOUT any Go source modifications or WASM recompilation. The 22MB WASM binary already had this capability.
+
+**Impact**: Saved hours of Go development, compilation, and testing. The Demo2 pattern is now fully replicated using IKEMEN's existing CLI interface.
+
+**Additional flags supported**: `-p1.ai`, `-p2.ai` (AI level 1-8), `-stage` (stage path), `-r` (rounds), `-time` (round time), `-tmode1`/`-tmode2` (team mode).
+
+**Lesson**: Before writing new code to bypass a system, read the system's source code thoroughly. The developers may have already provided the escape hatch you need. The `main.f_commandLine()` function was there all along.
+
+---
+
+## F-013 | Demo2 input architecture is the correct target pattern for IKEMEN GO WASM
+**Date**: 2026-08-21 | **Type**: Breakthrough
+
+After analyzing Demo2's complete input system (use-local-two-player.ts, wasm-loader.ts, GameCanvas.tsx, use-fight-state.ts), the correct architecture for the IKEMEN GO WASM project is clear: the website handles ALL menus and character selection via React, and the engine loads only during fights. Input flows from React keyboard capture -> MUGEN input string conversion -> synchronous engine injection via ccall every frame.
+
+Key Demo2 patterns to replicate:
+- GameCanvas dynamically loads engine and calls startDirectMatch(p1Char, p2Char, stage) to bypass menus
+- use-local-two-player captures keyboard in a React hook, pumps to engine via requestAnimationFrame loop
+- use-fight-state polls engine exports for life/power/round state, drives React HUD overlays
+- use-ai-player sets difficulty after fight starts via polling roundState >= 2
+
+**Challenge for IKEMEN GO**: No equivalent to startDirectMatch exists. Need to find or create a Lua entry point that starts a match programmatically, bypassing the menu system.
+
+**Lesson**: Study the working system thoroughly before designing the replacement. Demo2's architecture (website UI + engine-as-renderer) is proven and should be replicated, not reinvented.
+
+---
+
+## F-014 | Menu lag in IKEMEN GO WASM but 60 FPS in fights
+**Date**: 2026-08-21 | **Type**: Finding
+
+The IKEMEN GO WASM engine's menu screens (title, character select) are visually laggy with stuttering and low FPS. However, the actual fight gameplay runs at smooth 60 FPS. This suggests the menu rendering path uses more CPU-intensive operations (WebGL text rendering, Lua script execution for animations, frequent texture switching) compared to the fight path (pre-compiled ZSS bytecode, batched sprite rendering, minimal per-frame allocation).
+
+**Solution**: Architectural — bypass engine menus entirely. The Demo2 pattern (website handles all menus in React, engine only runs during fights) naturally eliminates this problem because the engine never renders menus.
+
+**Lesson**: When an engine's non-core features (menus, UI) perform poorly in WASM, don't try to fix them. Replace them with native web UI instead.
+
+---
+
+## F-015 | uint8_t overflow caused 3 wasted input fix attempts (Dolmexica lesson)
+**Date**: 2026-08-21 | **Type**: Mistake (carried over, documented for cross-reference)
+
+The P2 input bug in the Dolmexica engine had three failed fix attempts because all three patched downstream consumers while the data source (mRemoteButtons) was corrupted by a uint8_t overflow. UP=8, DOWN=9, START=10 don't fit in 8 bits. Three attempts: (1) OR into hasPressedXSingle -> double-input, (2) external-first pattern -> broke jump/crouch, (3) correct location but data still corrupted. Fourth attempt: changed uint8_t to uint32_t -> everything worked.
+
+**Lesson**: Always verify the data path end-to-end before patching consumers. If the source data is corrupted, fixing how it's consumed is wasted effort.
+
+---
+
+## F-016 | StringToKeyLUT uses lowercase for letters, uppercase for special keys
+**Date**: 2026-08-21 | **Type**: Finding
+
+The WASM backend's KeyToStringLUT in input_js.go maps letters to lowercase (a-z), arrow keys to uppercase (UP, DOWN, LEFT, RIGHT), and numpad keys to KP_ prefix (KP_1, KP_7). The SDL desktop backend uses different names (W, Up, Num1). A lowercase fallback was added to StringToKey(): `strings.ToLower(s)` is tried if the exact match fails. Config.ini for the WASM build must use the WASM naming convention: w, a, s, d, UP, DOWN, KP_1, KP_7.
+
+**Lesson**: When porting between backends with different key naming conventions, add a fallback lookup rather than requiring exact matches. The user shouldn't need to know the internal naming scheme.
+
+---
+
 ## F-001 | Go WASM performance is NOT universally bad
 **Date**: 2026-08-21 | **Type**: Finding
 

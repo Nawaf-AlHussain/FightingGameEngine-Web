@@ -37,27 +37,32 @@
 ## Phase 1 — Core Playable
 
 - [x] Next.js project setup with App Router
+- [x] Character select screen (basic)
+  - [x] P1/P2 character selection with confirm/lock-in
+  - [x] Game mode selection (VS CPU / VS Player / Training)
+  - [x] CPU difficulty slider (1-8)
+  - [x] Stage selection
+  - [ ] Fetch roster from `FightingGameEngine/Assets/manifest.json`
+  - [ ] Show download progress for on-demand characters
+  - [ ] Palette selection (if applicable)
+- [x] Game modes (basic framework)
+  - [x] Local 2P (two players, one keyboard)
+  - [x] VS AI (with difficulty 1-8)
+  - [x] Training mode (passes -tmode1 flag)
+  - [ ] AI vs AI (watch mode)
+- [x] **Engine boots directly into fight (no menus)**
+  - [x] Discovered IKEMEN GO's built-in CLI quick match (-p1, -p2, -loadmotif)
+  - [x] Play page reads URL params and passes via go.argv
+  - [x] Fight end auto-redirects to character select
 - [ ] Clone the Persona 5 UI from FightingGameEngine-Demo
   - [ ] `WipeTransition` component
   - [ ] `FightOverlays` component
   - [ ] `MoveListPopup` component
   - [ ] `useSoundEffects` hook
   - [ ] `game.css` (full P5-style design system)
-- [ ] Character select screen
-  - Fetch roster from `FightingGameEngine/Assets/manifest.json`
-  - Show download progress for on-demand characters
-  - Palette selection (if applicable)
-- [ ] Stage select screen
-  - Fetch stages from manifest
-  - Preview images
-- [ ] Game modes
-  - Local 2P (two players, one keyboard)
-  - VS AI (with difficulty: Easy/Normal/Hard)
-  - Training mode
-  - AI vs AI (watch mode)
 - [ ] Touch controls for mobile
-  - Virtual D-pad + action buttons
-  - Multi-touch support
+  - [ ] Virtual D-pad + action buttons
+  - [ ] Multi-touch support
 
 ---
 
