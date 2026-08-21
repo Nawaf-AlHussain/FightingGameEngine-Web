@@ -54,7 +54,7 @@
   // returning player's saved copy would pin them to the old screenpack. Bump
   // this whenever the shipped theme changes, or nobody who has played before
   // will see it - at the cost of resetting their key bindings).
-  const PERSIST_PREFIX = 'ikemen-vfs11:';
+  const PERSIST_PREFIX = 'ikemen-vfs12:';
   const PERSIST_MAX = 512 * 1024;
   const persistTimers = new Map();
 
