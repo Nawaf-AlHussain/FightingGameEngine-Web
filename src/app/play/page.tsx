@@ -152,13 +152,7 @@ function PlayPageInner() {
         }
 
         // --- 6. Set aspect ratio for VFS config patching ---
-        // Use 4:3 (640x480) instead of 16:9 (1280x720).
-        // 720p is 3x the pixels of 4:3. In WASM, every pixel comes out of the
-        // same main-thread budget as the game logic. At 720p the engine falls
-        // behind 60fps, enters frame-skip mode, and the frame-skip tight loop
-        // (which doesn't call SwapBuffers) blocks the browser event loop.
-        // 4:3 gives 3x more headroom per frame.
-        (g as any).ikemenAspect = '4:3';
+        (g as any).ikemenAspect = '16:9';
 
         // --- 7. PRELOAD ALL VFS FILES ---
         log('Fetching file manifest...');
