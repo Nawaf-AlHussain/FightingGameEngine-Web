@@ -135,7 +135,33 @@ export default function PlayPage() {
         }
 
         log('Starting engine... (watch console for output)');
+
+        // --- 7b. Auto-focus the engine canvas once created ---
+        const focusCanvas = () => {
+          const canvas = document.querySelector('canvas');
+          if (canvas && canvas.width > 0) {
+            canvas.setAttribute('tabindex', '0');
+            (canvas as HTMLCanvasElement).focus();
+            return true;
+          }
+          return false;
+        };
+        const focusObserver = new MutationObserver(() => {
+          if (focusCanvas()) focusObserver.disconnect();
+        });
+        focusObserver.observe(document.body, { childList: true, subtree: true });
+        // Poll as fallback in case MutationObserver misses it
+        const focusInterval = setInterval(() => {
+          if (focusCanvas()) clearInterval(focusInterval);
+        }, 200);
+        // Click-to-focus: if user clicks anywhere on page, refocus canvas
+        const clickHandler = () => focusCanvas();
+        document.addEventListener('click', clickHandler);
+
         await go.run(result.instance);
+        clearInterval(focusInterval);
+        focusObserver.disconnect();
+        document.removeEventListener('click', clickHandler);
         log('Engine exited.');
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
