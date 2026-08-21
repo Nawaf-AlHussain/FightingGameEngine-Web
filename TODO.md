@@ -54,6 +54,12 @@
   - [x] Discovered IKEMEN GO's built-in CLI quick match (-p1, -p2, -loadmotif)
   - [x] Play page reads URL params and passes via go.argv
   - [x] Fight end auto-redirects to character select
+- [x] **Fix in-fight lag** (F-019)
+  - [x] Disable `RollbackNetcode` for local play (arena stub makes per-frame state cloning too expensive)
+  - [x] Disable `VSync` (redundant in WASM, browser rAF handles display sync)
+  - [x] Disable `TickInterpolation` (reduces per-frame GPU work)
+  - [ ] **User verifies fights are now smooth on Vercel** ← pending test
+  - [ ] If still laggy: profile with Chrome DevTools, check for software WebGL2, try `-nosound`
 - [ ] Clone the Persona 5 UI from FightingGameEngine-Demo
   - [ ] `WipeTransition` component
   - [ ] `FightOverlays` component

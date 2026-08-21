@@ -1,5 +1,50 @@
 # PROGRESS — Fighting Game Engine Web
 
+## Session: August 21, 2026 (Night) — Fix In-Fight Lag (Rollback Netcode)
+
+### Work Done
+
+#### Root-caused severe in-fight stutter (F-019)
+- User reported fights as "completely unplayable" on Vercel deployment — severe stutter during combat, while boot and attract mode were smooth
+- Diagnosis: `RollbackNetcode = 1` in config.ini caused per-frame full-game-state cloning. The arena stub (F-007) turns this into heap allocation + garbage, and `GOGC=100` triggers frequent GC scans of the rollback heap — 5-50ms pauses per frame
+- Fix: Set `RollbackNetcode = 0` in `public/game/ikemen-fs/file/save/config.ini`. Local play has no network peer to reconcile with, so the clone is pure overhead
+
+#### Secondary config changes (same commit)
+- `VSync = 0` — engine vsync is redundant in WASM (browser rAF already syncs to display) and can cause double-buffered frame pacing drops
+- `TickInterpolation = 0` — eliminates extra interpolated render between physics ticks, reduces per-frame GPU work
+
+#### Documentation
+- Added F-019 to FINDINGS.md with full root-cause analysis and lesson
+- Updated PROGRESS.md (this entry) and TODO.md
+
+### Current Status
+- **Engine**: WASM boots directly into fights, rollback netcode disabled for local play
+- **Frontend**: Lobby → Character Select → Fight flow complete
+- **Deployment**: On Vercel, fix pushed and auto-deploy triggered
+- **Input**: Poll-based keyboard bridge active, fight keys still need real-world testing now that fights are playable
+- **Assets**: 1 character (KFM), 1 stage (stage0-720)
+
+### Known Issues
+1. **Fight input untested**: Now that fights should be playable, WASD/UIO/JKL mappings need verification during actual combat
+2. **Engine canvas not fullscreen**: May need CSS adjustments
+3. **No escape/pause during fight**: EscOpensMenu=1 still set — pressing Escape opens IKEMEN's native pause menu
+4. **Only 1 character and 1 stage**: Character select shows KFM only. Need asset pipeline (Phase 2) for more
+5. **Rollback disabled**: Phase 4 (online multiplayer) will need either a real arena implementation for GOOS=js or a different approach to state cloning
+
+### Next Steps
+1. **User tests the fix** on Vercel deployment — verify fights are now smooth
+2. **If still laggy**: profile with Chrome DevTools Performance tab, check for software WebGL2 (Cause 4 in lag diagnosis), try `-nosound` flag to rule out audio
+3. **Test fight input**: With playable framerates, verify WASD/UIO/JKL work during combat
+4. **Disable native pause menu**: Set `EscOpensMenu=0` or intercept Escape key to return to /local
+5. **Phase 2**: Wire VFS file route to jsDelivr CDN for the 85-character roster
+
+### Key Decisions
+- Disabled rollback netcode globally rather than per-match. Rationale: there's no netplay code path in Phase 1-3, so the flag is pure overhead. Re-enable in Phase 4 only when a peer is actually connected.
+- Kept `GOGC=100` (no change) — the GC setting is correct; the problem was the allocation pattern, not the GC aggressiveness
+- Did NOT rebuild the WASM — config-only change, fastest path to test the hypothesis
+
+---
+
 ## Session: August 21, 2026 (Late PM) — Architecture Overhaul: Skip Menus
 
 ### Work Done

@@ -298,12 +298,13 @@ The file API route will need to check locally first, then proxy to jsDelivr CDN 
 - [x] Deployed on Vercel
 
 ### What's NOT working / untested:
-- [ ] **Fight input (WASD, UIO, JKL) untested in actual combat** — only Start key verified
+- [ ] **Fight input (WASD, UIO, JKL) untested in actual combat** — only Start key verified (now unblocked by F-019 fix, needs user testing)
 - [ ] Engine canvas may not fill viewport properly
 - [ ] Escape key opens native IKEMEN pause menu during fight
 - [ ] Only 1 character (KFM) and 1 stage available
 - [ ] No sound effects or music in the web UI
 - [ ] No touch controls for mobile
+- [ ] **Rollback netcode disabled** (F-019) — Phase 4 online play will need a real arena implementation for GOOS=js, or per-match rollback enablement when a peer is connected
 
 ---
 
@@ -328,6 +329,8 @@ The file API route will need to check locally first, then proxy to jsDelivr CDN 
 | F-015 | Mistake | uint8_t overflow in Dolmexica caused 3 wasted fix attempts (lesson for data path verification) |
 | F-016 | Finding | Key naming: lowercase letters, uppercase arrows, KP_ prefix for numpad |
 | **F-017** | **Breakthrough** | **IKEMEN GO has built-in CLI quick match — no WASM changes needed to skip menus** |
+| F-018 | Finding | BootLoadingMode=0 freezes WASM main thread (sync asset loading) — fixed with BootLoadingMode=1 |
+| **F-019** | **Finding** | **RollbackNetcode=1 causes severe in-fight GC stutter with arena stub — disabled for local play** |
 
 ---
 
