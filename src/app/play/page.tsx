@@ -24,15 +24,11 @@ function PlayPageInner() {
       // Hoist cleanup references so catch block can access them
       let onKeyDown: ((e: KeyboardEvent) => void) | null = null;
       let onKeyUp: ((e: KeyboardEvent) => void) | null = null;
-      let focusInterval: ReturnType<typeof setInterval> | null = null;
-      let focusObserver: MutationObserver | null = null;
       let clickHandler: (() => void) | null = null;
 
       const cleanup = () => {
         if (onKeyDown) window.removeEventListener('keydown', onKeyDown, true);
         if (onKeyUp) window.removeEventListener('keyup', onKeyUp, true);
-        if (focusInterval) clearInterval(focusInterval);
-        if (focusObserver) focusObserver.disconnect();
         if (clickHandler) document.removeEventListener('click', clickHandler);
       };
 
@@ -210,15 +206,7 @@ function PlayPageInner() {
         log('Fetching IKEMEN GO WASM (~22 MB)...');
         const go = new (g.Go as any)();
         go.argv = argv;
-        // GODEBUG=gctrace=1 prints GC events to stderr (captured by vfs.js writeStd → console).
-        // This lets us see if GC pauses are the lag cause. Each line shows:
-        //   gc N @Xms Y%: Z+... MB heap, ... MB goroots, ... MB goal, ... MB stacks
-        // If we see frequent GCs (>10/sec) or large pauses (>20ms), GC is the problem.
-        go.env = {
-          GOGC: '100',
-          GOMEMLIMIT: '800MiB',
-          GODEBUG: 'gctrace=1',
-        };
+        go.env = { GOGC: '100', GOMEMLIMIT: '800MiB' };
 
         const wasmUrl = '/game/ikemen.wasm';
         let result: WebAssembly.WebAssemblyInstantiatedSource;
@@ -243,6 +231,8 @@ function PlayPageInner() {
         }
 
         // --- 10. Auto-focus the engine canvas once created ---
+        // Single delayed attempt — no MutationObserver or setInterval.
+        // Those ran forever during the fight and interfered with the main thread.
         const focusCanvas = () => {
           const canvas = document.querySelector('canvas');
           if (canvas && canvas.width > 0) {
@@ -252,90 +242,16 @@ function PlayPageInner() {
           }
           return false;
         };
-        focusObserver = new MutationObserver(() => {
-          if (focusCanvas()) focusObserver?.disconnect();
-        });
-        focusObserver.observe(document.body, { childList: true, subtree: true });
-        focusInterval = setInterval(() => {
-          if (focusCanvas() && focusInterval) clearInterval(focusInterval);
-        }, 200);
+        // Try once after 1s (engine creates canvas during boot)
+        setTimeout(() => focusCanvas(), 1000);
+        // Also focus on click (user interaction)
         clickHandler = () => focusCanvas();
         document.addEventListener('click', clickHandler);
 
         // --- 11. Run the engine ---
         // main.f_commandLine() will run the fight and call os.exit() when done.
         // In Go WASM, os.exit() terminates the goroutine and go.run() resolves.
-        // (do NOT await — we want the frame monitor below to run in parallel)
-        const enginePromise = go.run(result.instance);
-
-        // --- 12. Frame-time monitor ---
-        // Measures actual rendering rate via requestAnimationFrame.
-        // The engine drives rAF internally (glfw-js SwapBuffers → rAF).
-        // If rAF callbacks are sparse, the engine is blocking the main thread
-        // (likely GC pauses or sync I/O). Logs every 5 seconds with stats.
-        {
-          let frames = 0;
-          let lastReport = performance.now();
-          let lastFrame = performance.now();
-          let maxDelta = 0;
-          let sumDelta = 0;
-          let reportInterval: ReturnType<typeof setInterval>;
-          const tick = () => {
-            const now = performance.now();
-            const dt = now - lastFrame;
-            lastFrame = now;
-            if (dt > maxDelta) maxDelta = dt;
-            sumDelta += dt;
-            frames++;
-          };
-          const report = () => {
-            const now = performance.now();
-            const wall = (now - lastReport) / 1000;
-            const avgDelta = frames > 0 ? sumDelta / frames : 0;
-            const fps = frames > 0 ? (frames / wall).toFixed(1) : '0.0';
-            // Only log if we have frames, otherwise engine hasn't started rendering yet
-            if (frames > 0) {
-              console.log(
-                `[perf] ${fps} fps over ${wall.toFixed(1)}s | ` +
-                `avg frame ${(avgDelta).toFixed(1)}ms | ` +
-                `worst frame ${maxDelta.toFixed(0)}ms`
-              );
-            }
-            frames = 0;
-            maxDelta = 0;
-            sumDelta = 0;
-            lastReport = now;
-          };
-          reportInterval = setInterval(report, 5000);
-          const rafLoop = () => {
-            tick();
-            if (!cancelled) requestAnimationFrame(rafLoop);
-            else clearInterval(reportInterval);
-          };
-          requestAnimationFrame(rafLoop);
-
-          // Also log canvas size when it appears (the engine creates it)
-          const canvasCheck = setInterval(() => {
-            const canvas = document.querySelector('canvas');
-            if (canvas && canvas.width > 0) {
-              const rect = canvas.getBoundingClientRect();
-              console.log(
-                `[canvas] backing=${canvas.width}x${canvas.height} ` +
-                `displayed=${Math.round(rect.width)}x${Math.round(rect.height)} ` +
-                `dpr=${window.devicePixelRatio}`
-              );
-              clearInterval(canvasCheck);
-            }
-          }, 500);
-
-          // Clean up monitor when engine exits
-          enginePromise.finally(() => {
-            clearInterval(reportInterval);
-            clearInterval(canvasCheck);
-          });
-        }
-
-        await enginePromise;
+        await go.run(result.instance);
 
         // Engine exited — fight is over.
         cleanup();
