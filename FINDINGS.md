@@ -5,6 +5,33 @@ A living document for reporting **findings**, **mistakes**, and **breakthroughs*
 Format: newest entries at the top. Each entry gets a unique ID for cross-referencing.
 
 ---
+## F-018 | BootLoadingMode=0 in f_commandLine() freezes WASM main thread
+**Date**: 2026-08-21 | **Type**: Finding (root cause of freeze)
+
+main.lua line 952 set BootLoadingMode=0, forcing synchronous asset loading.
+loadStart() blocked the browser main thread for seconds loading 29MB of
+sprites/sounds/fonts. Audio buffers starved (broken record sound) and no
+frames rendered (frozen screen).
+
+Attract mode worked because it used async loading (BootLoadingMode=1),
+which loads assets across multiple frames with refresh() calls that yield
+to the browser event loop.
+
+The f_commandLine() while-loading loop (line 1159-1165) calls refresh()
+each frame, but with BootLoadingMode=0, loading() returns false
+immediately so the loop never executes.
+
+**Fix**: Changed to BootLoadingMode=1. The while-loading loop now runs,
+calling refresh() which yields to the browser.
+
+**Secondary**: Lua checks flags['-s'], not flags['-stage']. Our stage arg
+was silently ignored.
+
+**Lesson**: When a native app works but WASM freezes, check for sync I/O
+that blocks the single-threaded browser event loop.
+
+---
+
 
 ## F-007 | Standard library `arena` package is unavailable for GOOS=js
 **Date**: 2026-08-21 | **Type**: Finding
