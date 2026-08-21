@@ -1,5 +1,52 @@
 # PROGRESS — Fighting Game Engine Web
 
+## Session: August 21, 2026 (Night 6) — WASM rebuilt with frame-skip yield fix (F-025)
+
+### Work Done
+
+#### Installed Go 1.21.13 and rebuilt the WASM from source
+- Downloaded and installed Go 1.21.13 to `/home/z/go-sdk/`
+- Cloned `energyjp/ikemen-go-web` fork (already in `/tmp/ikemen-go-web/`)
+- Discovered the fork uses `GOEXPERIMENT=arenas` — the real `arena` package IS available for `GOOS=js`, no stub needed (corrects F-007)
+- Built successfully with: `GOEXPERIMENT=arenas GOOS=js GOARCH=wasm CGO_ENABLED=0 go build -trimpath -o bin/ikemen-v2.wasm ./src`
+- Output: 23.1 MB WASM (slightly smaller than the 23.4 MB stub-based build)
+
+#### Applied frame-skip yield fix to system.go (F-025)
+Added a `time.Sleep(0)` call in the `default` case of the `await()` function's frame-skip logic, gated by `runtime.GOOS == "js"`. This yields one event loop cycle to the browser when the engine falls behind schedule, preventing the tight loop that was blocking the main thread.
+
+On native builds, the fix is a no-op (the `runtime.GOOS == "js"` check is false). This is a WASM-only fix.
+
+#### Replaced ikemen.wasm in the repo
+Copied the rebuilt `bin/ikemen-v2.wasm` to `public/game/ikemen.wasm`. The new binary includes:
+- The frame-skip yield fix (F-025)
+- The real `arena` package (not the stub) — rollback netcode state cloning now uses proper arena allocation
+- All energyjp fork optimizations (GL command buffer, allocation-free hot paths, frame cap)
+
+### Current Status
+- **Engine**: WASM rebuilt with frame-skip yield fix + real arena package
+- **Frontend**: 16:9, 60fps, default limits (restored to attract-mode config)
+- **Deployment**: On Vercel, new WASM pushing now
+- **Lag diagnosis**: All identified issues fixed (F-018 through F-025)
+
+### Next Steps
+1. **User tests the rebuilt WASM** — verify fights are now smooth at 60fps/16:9
+2. **If smooth**: test fight input (WASD/UIO/JKL), disable native pause menu, proceed to Phase 2
+3. **If still laggy**: upload a new Chrome trace — the frame-skip issue should be gone, any remaining lag would be a new issue
+
+### Key Decisions
+- Used `GOEXPERIMENT=arenas` instead of the arena stub — the energyjp fork's README documents this, and it's the correct approach
+- Gated the fix with `runtime.GOOS == "js"` so native builds are unaffected
+- Used `time.Sleep(0)` instead of `SwapBuffers()` because the WebGL renderer's `Await()` is a no-op, and `SwapBuffers` is only called for OpenGL-named renderers. `time.Sleep(0)` → `setTimeout(0)` is the universal WASM yield primitive.
+- Kept all previous JS-level fixes (vfs.js Promise cache, static VFS, manifest fix, main.lua while-loop removal, -loadmotif removal) — all are correct improvements
+
+### Build Environment (for future rebuilds)
+- Go SDK: `/home/z/go-sdk/go/bin/go` (Go 1.21.13)
+- Source: `/tmp/ikemen-go-web/` (energyjp fork, latest main)
+- Build command: `GOEXPERIMENT=arenas GOOS=js GOARCH=wasm CGO_ENABLED=0 go build -trimpath -o bin/ikemen-v2.wasm ./src`
+- Output: `/tmp/ikemen-go-web/bin/ikemen-v2.wasm` → copy to `public/game/ikemen.wasm`
+
+---
+
 ## Session: August 21, 2026 (Night 5) — Frame-skip tight loop identified (F-024), workload reduction workaround
 
 ### Work Done

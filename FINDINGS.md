@@ -6,6 +6,63 @@ Format: newest entries at the top. Each entry gets a unique ID for cross-referen
 
 ---
 
+## F-025 | WASM rebuilt with frame-skip yield fix (F-024 properly fixed)
+**Date**: 2026-08-21 | **Type**: Breakthrough (proper fix for F-024)
+
+Installed Go 1.21.13, cloned energyjp/ikemen-go-web fork, applied a one-line
+fix to `system.go`, and rebuilt the WASM binary.
+
+**Key discovery during build**: The energyjp fork uses `GOEXPERIMENT=arenas`,
+meaning the real Go `arena` package IS available for `GOOS=js`. The arena stub
+(F-007) was NOT needed — AGENT.md was wrong about this. The build command is:
+```
+GOEXPERIMENT=arenas GOOS=js GOARCH=wasm CGO_ENABLED=0 \
+  go build -trimpath -o bin/ikemen-v2.wasm ./src
+```
+
+**The fix** (in `src/system.go`, `await()` function, default case):
+```go
+default:
+    if diff < -150*time.Millisecond {
+        s.redrawWait.nextTime = now.Add(waitDuration)
+    }
+    s.frameSkip = true
+    // WASM: always yield to the browser event loop, even when behind schedule
+    if runtime.GOOS == "js" {
+        time.Sleep(0)  // schedules a 0ms setTimeout, yields to browser
+    }
+```
+
+When the engine falls behind schedule and enters frame-skip mode, it now
+calls `time.Sleep(0)` which translates to `setTimeout(callback, 0)` in the
+Go WASM runtime. This yields one event loop cycle to the browser, preventing
+the tight loop that was blocking the main thread.
+
+On native builds, `runtime.GOOS == "js"` is false, so the fix is a no-op —
+the OS scheduler handles yielding. This is a WASM-only fix.
+
+**Why this is the proper fix**: The original frame-skip logic assumed that
+skipping `SwapBuffers()` and `time.Sleep()` was safe because the OS would
+eventually preempt the thread. In WASM, there's no preemption — the main
+thread runs until it voluntarily yields. The fix adds that voluntary yield.
+
+**Build details**:
+- Go version: 1.21.13 (linux-amd64)
+- Source: energyjp/ikemen-go-web (latest main)
+- Arena: real `arena` package via `GOEXPERIMENT=arenas` (NOT the stub)
+- Output: 23.1 MB WASM (was 23.4 MB with stub — slightly smaller because
+  the real arena package is more optimized than the stub)
+- Build time: ~30 seconds
+
+**Lesson**: Always check if a fork has already solved the problem you're
+working around. F-007 documented the arena stub as necessary, but the
+energyjp fork's README-WEB.md clearly states `GOEXPERIMENT=arenas` is
+the build flag. The stub was from an earlier attempt that didn't know
+about this flag. Reading the fork's own documentation would have saved
+the stub effort entirely.
+
+---
+
 ## F-024 | Frame-skip tight loop blocks browser (Go source issue, no WASM rebuild available)
 **Date**: 2026-08-21 | **Type**: Finding (architectural limitation)
 
