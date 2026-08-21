@@ -1,16 +1,18 @@
 'use client';
-import { useEffect, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { useEffect, useRef, Suspense } from 'react';
 
-// This page loads the IKEMEN GO WASM engine.
-// The engine files (vfs.js, wasm_exec.js, ikemen.wasm) live in /game/.
-// The VFS manifest and file serving go through our API routes (/api/ikemen-fs/).
+// This page loads the IKEMEN GO WASM engine DIRECTLY into a fight.
+// Menu/UI is handled by the website (/local page). The engine only runs combat.
 //
-// We patch the VFS's relative URL base before it initializes so that
-// file fetches go to /api/ikemen-fs/file/ instead of ./ikemen-fs/file/.
+// How it skips menus: IKEMEN GO's main.lua checks for -p1, -p2, -loadmotif
+// command-line args. When all three are present, it calls main.f_commandLine()
+// which bypasses the title screen, character select, and VS screen entirely.
+// We pass these via go.argv (Go WASM's equivalent of os.Args).
 
-export default function PlayPage() {
+function PlayPageInner() {
   const bootRef = useRef<HTMLPreElement>(null);
-  const canvasContainerRef = useRef<HTMLDivElement>(null);
+  const searchParams = useSearchParams();
 
   useEffect(() => {
     let cancelled = false;
@@ -18,6 +20,21 @@ export default function PlayPage() {
     async function bootEngine() {
       const boot = bootRef.current;
       if (!boot) return;
+
+      // Hoist cleanup references so catch block can access them
+      let onKeyDown: ((e: KeyboardEvent) => void) | null = null;
+      let onKeyUp: ((e: KeyboardEvent) => void) | null = null;
+      let focusInterval: ReturnType<typeof setInterval> | null = null;
+      let focusObserver: MutationObserver | null = null;
+      let clickHandler: (() => void) | null = null;
+
+      const cleanup = () => {
+        if (onKeyDown) window.removeEventListener('keydown', onKeyDown, true);
+        if (onKeyUp) window.removeEventListener('keyup', onKeyUp, true);
+        if (focusInterval) clearInterval(focusInterval);
+        if (focusObserver) focusObserver.disconnect();
+        if (clickHandler) document.removeEventListener('click', clickHandler);
+      };
 
       const log = (msg: string) => {
         if (cancelled) return;
@@ -27,23 +44,28 @@ export default function PlayPage() {
       };
 
       try {
+        // --- Read match parameters from URL ---
+        const p1 = searchParams.get('p1') || 'kfm';
+        const p2 = searchParams.get('p2') || 'kfm';
+        const stage = searchParams.get('stage') || 'stages/stage0-720.def';
+        const p2ai = searchParams.get('p2ai') || '5';
+        const isTraining = searchParams.get('training') === '1';
+
+        log(`Match: P1=${p1} vs P2=${p2}${p2ai ? ` (CPU lv${p2ai})` : ''}`);
+        log(`Stage: ${stage}`);
+
         // --- 0. Install keyboard bridge BEFORE anything else ---
-        // The WASM engine's pollEvents() reads from these arrays each frame.
-        // This bypasses the Go syscall/js event callback pipeline entirely.
         const g = globalThis as any;
         g.__ikemenKeyDown = [];
         g.__ikemenKeyUp = [];
 
-        // Track held keys to avoid duplicate down/up events
         const heldKeys = new Set<string>();
 
-        const onKeyDown = (e: KeyboardEvent) => {
-          // Always push to the bridge array (engine polls these)
+        onKeyDown = (e: KeyboardEvent) => {
           if (!heldKeys.has(e.code)) {
             heldKeys.add(e.code);
             g.__ikemenKeyDown.push(e.code);
           }
-          // Prevent browser defaults for game-relevant keys
           if (
             e.code.startsWith('Arrow') ||
             e.code.startsWith('Key') ||
@@ -52,37 +74,22 @@ export default function PlayPage() {
             e.code === 'Space' ||
             e.code === 'Escape' ||
             e.code === 'Tab' ||
-            e.code === 'ShiftLeft' ||
-            e.code === 'ShiftRight' ||
-            e.code === 'ControlLeft' ||
-            e.code === 'ControlRight' ||
-            e.code === 'AltLeft' ||
-            e.code === 'AltRight'
+            e.code.startsWith('Shift') ||
+            e.code.startsWith('Control') ||
+            e.code.startsWith('Alt') ||
+            e.code.startsWith('Numpad')
           ) {
             e.preventDefault();
           }
         };
 
-        const onKeyUp = (e: KeyboardEvent) => {
+        onKeyUp = (e: KeyboardEvent) => {
           if (heldKeys.has(e.code)) {
             heldKeys.delete(e.code);
             g.__ikemenKeyUp.push(e.code);
           }
-          if (
-            e.code.startsWith('Arrow') ||
-            e.code.startsWith('Key') ||
-            e.code.startsWith('Digit') ||
-            e.code === 'Enter' ||
-            e.code === 'Space' ||
-            e.code === 'Escape' ||
-            e.code === 'ShiftLeft' ||
-            e.code === 'ShiftRight'
-          ) {
-            e.preventDefault();
-          }
         };
 
-        // Capture phase = runs before any other handlers
         window.addEventListener('keydown', onKeyDown, true);
         window.addEventListener('keyup', onKeyUp, true);
         log('Keyboard bridge installed.');
@@ -126,12 +133,10 @@ export default function PlayPage() {
         if (cancelled) return;
 
         // --- 5. WebGL2 hardware check ---
-        log('Checking GPU acceleration...');
         const strict = document.createElement('canvas');
         const hw = strict.getContext('webgl2', { failIfMajorPerformanceCaveat: true });
         if (!hw) {
-          log('WARNING: Software rendering detected. Turn on hardware acceleration.');
-          log('The game needs GPU acceleration for 60 FPS.');
+          log('WARNING: Software rendering. Enable hardware acceleration for 60 FPS.');
         } else {
           log('GPU: Hardware accelerated');
         }
@@ -167,10 +172,27 @@ export default function PlayPage() {
 
         if (cancelled) return;
 
-        // --- 7. Load and run WASM ---
+        // --- 7. Build command-line args to SKIP ALL MENUS ---
+        // IKEMEN GO's main.lua checks: if -p1 && -p2 && -loadmotif → main.f_commandLine()
+        // This bypasses title screen, character select, and VS screen.
+        const argv = ['ikemen'];
+        argv.push('-p1', p1);
+        argv.push('-p2', p2);
+        argv.push('-loadmotif', 'data/ikemen1/system.def');
+        argv.push('-stage', stage);
+        if (p2ai) {
+          argv.push('-p2.ai', p2ai);
+        }
+        if (isTraining) {
+          argv.push('-tmode1', '2'); // training mode
+        }
+
+        log(`Starting engine with args: ${argv.slice(1).join(' ')}`);
+
+        // --- 8. Load and run WASM ---
         log('Fetching IKEMEN GO WASM (~22 MB)...');
         const go = new (g.Go as any)();
-        go.argv = ['ikemen'];
+        go.argv = argv;
         go.env = { GOGC: '100', GOMEMLIMIT: '800MiB' };
 
         const wasmUrl = '/game/ikemen.wasm';
@@ -186,9 +208,16 @@ export default function PlayPage() {
           result = await WebAssembly.instantiate(bytes, go.importObject);
         }
 
-        log('Starting engine... (keyboard bridge active)');
+        log('Engine starting... (menus skipped, going straight to fight)');
 
-        // --- 7b. Auto-focus the engine canvas once created ---
+        // Hide the boot log once the engine starts
+        if (boot) {
+          boot.style.opacity = '0';
+          boot.style.transition = 'opacity 1s';
+          setTimeout(() => { if (boot) boot.style.display = 'none'; }, 1000);
+        }
+
+        // --- 9. Auto-focus the engine canvas once created ---
         const focusCanvas = () => {
           const canvas = document.querySelector('canvas');
           if (canvas && canvas.width > 0) {
@@ -198,25 +227,34 @@ export default function PlayPage() {
           }
           return false;
         };
-        const focusObserver = new MutationObserver(() => {
-          if (focusCanvas()) focusObserver.disconnect();
+        focusObserver = new MutationObserver(() => {
+          if (focusCanvas()) focusObserver?.disconnect();
         });
         focusObserver.observe(document.body, { childList: true, subtree: true });
-        const focusInterval = setInterval(() => {
-          if (focusCanvas()) clearInterval(focusInterval);
+        focusInterval = setInterval(() => {
+          if (focusCanvas() && focusInterval) clearInterval(focusInterval);
         }, 200);
-        const clickHandler = () => focusCanvas();
+        clickHandler = () => focusCanvas();
         document.addEventListener('click', clickHandler);
 
+        // --- 10. Run the engine ---
+        // main.f_commandLine() will run the fight and call os.exit() when done.
+        // In Go WASM, os.exit() terminates the goroutine and go.run() resolves.
         await go.run(result.instance);
-        clearInterval(focusInterval);
-        focusObserver.disconnect();
-        document.removeEventListener('click', clickHandler);
-        window.removeEventListener('keydown', onKeyDown, true);
-        window.removeEventListener('keyup', onKeyUp, true);
-        log('Engine exited.');
+
+        // Engine exited — fight is over.
+        cleanup();
+        log('Fight complete. Returning to select...');
+        window.location.href = '/local';
+
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
+        // Go WASM calls os.Exit() by throwing. Detect it and navigate back.
+        if (msg.includes('Go program has already exited') || msg.includes('unreachable')) {
+          cleanup();
+          window.location.href = '/local';
+          return;
+        }
         log('BOOT ERROR: ' + msg);
         console.error(e);
       }
@@ -227,11 +265,11 @@ export default function PlayPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [searchParams]);
 
   return (
-    <div className="min-h-screen bg-black flex flex-col items-center justify-center p-4">
-      {/* Boot log */}
+    <div className="min-h-screen bg-black flex flex-col items-center justify-center">
+      {/* Boot log (fades out once fight starts) */}
       <pre
         ref={bootRef}
         id="boot"
@@ -239,8 +277,20 @@ export default function PlayPage() {
         style={{ maxHeight: '200px', overflow: 'hidden' }}
       />
       {/* The engine creates its own canvas element */}
-      <div ref={canvasContainerRef} id="game-container" />
+      <div id="game-container" />
     </div>
+  );
+}
+
+export default function PlayPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-black flex items-center justify-center">
+        <span className="text-gray-500 font-mono text-sm">Loading...</span>
+      </div>
+    }>
+      <PlayPageInner />
+    </Suspense>
   );
 }
 
