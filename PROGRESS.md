@@ -1,5 +1,44 @@
 # PROGRESS — Fighting Game Engine Web
 
+## Session: August 21, 2026 (Night 2) — Lag Diagnosis Round 2: Instrumentation + Static VFS
+
+### Work Done
+
+#### F-019 was wrong — RollbackNetcode was already 0 (F-020)
+User reported "no change at all" after F-019. Investigation of `vfs.js:600` revealed the VFS already patches `RollbackNetcode=0` at boot (based on `globalThis.ikemenNetcode`, which our play page doesn't set). So the config.ini value was never authoritative. Rollback was already off during the laggy tests — the lag has a different cause.
+
+#### Fixed manifest generator bug (F-021)
+`scripts/generate-manifest.js` was unconditionally setting `manifest['save/config.ini'] = 0` AFTER `walkDir()` had already populated it with the real size (4982 bytes). The override zeroed it out. The VFS manifest was reporting config.ini as 0 bytes. Fixed to only add the entry if walkDir didn't find the real file. Regenerated manifest — config.ini now correctly shows 4982 bytes.
+
+#### Switched VFS file serving from serverless API to static assets
+`play_page.tsx` was rewriting VFS file requests to `/api/ikemen-fs/file/...` (serverless route with `no-store` cache, per-request disk read, cold-start risk). Changed to rewrite to `/game/ikemen-fs/file/...` (static assets served by Vercel edge CDN, HTTP/2 multiplexing, cacheable). This eliminates serverless latency from both boot preload AND any mid-fight lazy fetches. The API routes are kept for Phase 2 CDN proxying but no longer used for the base engine data.
+
+#### Added instrumentation for next test
+- `GODEBUG=gctrace=1` in go.env — prints Go GC events to stderr (captured by vfs.js → console). Will reveal if GC pauses are the lag cause.
+- Frame-time monitor in play_page.tsx — measures actual rAF rate, logs `[perf] N fps over Xs | avg frame Yms | worst frame Zms` every 5 seconds.
+- Canvas size logger — logs `[canvas] backing=WxH displayed=WxH dpr=N` when the engine canvas appears, to verify it's not rendering at an oversized backing store.
+
+### Current Status
+- **Engine**: WASM boots directly into fights, GC tracing and frame monitor active
+- **Frontend**: Lobby → Character Select → Fight flow complete
+- **Deployment**: On Vercel, instrumentation push will auto-deploy
+- **Lag diagnosis**: STILL OPEN — F-019 was wrong, need user to test with new instrumentation
+
+### Next Steps
+1. **User tests with instrumentation** — play a fight, copy the console output. The `[perf]` lines will show actual fps, and `gc N @Xms` lines will show if GC is the bottleneck.
+2. **Based on perf data**:
+   - If fps < 30 and GC lines are frequent → try `GOGC=200` or `GOGC=off` (counterintuitive but reduces GC frequency)
+   - If fps < 30 and NO GC lines → it's not GC, look at rendering (canvas size, shader complexity)
+   - If fps ≈ 60 but feels laggy → input latency, not rendering (check poll bridge)
+3. **Revert F-019 config changes if needed** — VSync=0 and TickInterpolation=0 are still in config.ini. If they don't help (or hurt), revert. RollbackNetcode=0 is redundant but harmless (VFS patches it anyway).
+
+### Key Decisions
+- Kept F-019's config changes in place — they're redundant but not harmful, and reverting them would add noise to the test
+- Switched to static file serving — this is a genuine improvement regardless of the lag cause (faster boot, no serverless cold starts)
+- Added instrumentation rather than guessing again — two wrong guesses (F-018, F-019) is enough; need actual data
+
+---
+
 ## Session: August 21, 2026 (Night) — Fix In-Fight Lag (Rollback Netcode)
 
 ### Work Done

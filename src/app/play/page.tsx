@@ -100,23 +100,29 @@ function PlayPageInner() {
         });
 
         // --- 2. Patch VFS fetch base URL ---
+        // VFS files live in public/game/ikemen-fs/file/ — serve them as STATIC
+        // assets from /game/ikemen-fs/file/ (Vercel edge CDN, HTTP/2, cached)
+        // instead of through the /api/ikemen-fs/file serverless route (cold
+        // starts, no cache, per-request disk read). This eliminates serverless
+        // latency from both boot preload AND any mid-fight lazy fetches.
         const originalFetch = window.fetch;
         const VFS_FILE_PREFIX = './ikemen-fs/file/';
         const VFS_MANIFEST_URL = './ikemen-fs/manifest.json';
-        const API_FILE_BASE = '/api/ikemen-fs/file/';
-        const API_MANIFEST = '/api/ikemen-fs/manifest';
+        const STATIC_FILE_BASE = '/game/ikemen-fs/file/';
+        const STATIC_MANIFEST = '/game/ikemen-fs/manifest.json';
 
         window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
           const url = typeof input === 'string' ? input : input.toString();
 
           if (url.startsWith(VFS_FILE_PREFIX)) {
             const vpath = url.slice(VFS_FILE_PREFIX.length);
-            const rewritten = API_FILE_BASE + encodeURIComponent(vpath).replace(/%2F/gi, '/');
+            // Don't double-encode — static file paths should match disk paths exactly
+            const rewritten = STATIC_FILE_BASE + vpath;
             return originalFetch(rewritten, init);
           }
 
           if (url === VFS_MANIFEST_URL || url.startsWith('./ikemen-fs/manifest.json')) {
-            return originalFetch(API_MANIFEST, init);
+            return originalFetch(STATIC_MANIFEST, init);
           }
 
           return originalFetch(input, init);
@@ -154,7 +160,7 @@ function PlayPageInner() {
 
         // --- 7. PRELOAD ALL VFS FILES ---
         log('Fetching file manifest...');
-        const manifestResp = await originalFetch(API_MANIFEST);
+        const manifestResp = await originalFetch(STATIC_MANIFEST);
         const manifest = await manifestResp.json();
         const allFiles = Object.keys(manifest.files);
         const totalBytes = Object.values(manifest.files).reduce((a: number, b: any) => a + (b as number), 0);
@@ -171,7 +177,7 @@ function PlayPageInner() {
         };
 
         const nFiles = await (g.ikemenVfsInit as any)(
-          '/api/ikemen-fs/manifest',
+          '/game/ikemen-fs/manifest.json',
           allFiles,
           (got: number, total: number) => {
             if (cancelled) return;
@@ -204,7 +210,15 @@ function PlayPageInner() {
         log('Fetching IKEMEN GO WASM (~22 MB)...');
         const go = new (g.Go as any)();
         go.argv = argv;
-        go.env = { GOGC: '100', GOMEMLIMIT: '800MiB' };
+        // GODEBUG=gctrace=1 prints GC events to stderr (captured by vfs.js writeStd → console).
+        // This lets us see if GC pauses are the lag cause. Each line shows:
+        //   gc N @Xms Y%: Z+... MB heap, ... MB goroots, ... MB goal, ... MB stacks
+        // If we see frequent GCs (>10/sec) or large pauses (>20ms), GC is the problem.
+        go.env = {
+          GOGC: '100',
+          GOMEMLIMIT: '800MiB',
+          GODEBUG: 'gctrace=1',
+        };
 
         const wasmUrl = '/game/ikemen.wasm';
         let result: WebAssembly.WebAssemblyInstantiatedSource;
@@ -251,7 +265,77 @@ function PlayPageInner() {
         // --- 11. Run the engine ---
         // main.f_commandLine() will run the fight and call os.exit() when done.
         // In Go WASM, os.exit() terminates the goroutine and go.run() resolves.
-        await go.run(result.instance);
+        // (do NOT await — we want the frame monitor below to run in parallel)
+        const enginePromise = go.run(result.instance);
+
+        // --- 12. Frame-time monitor ---
+        // Measures actual rendering rate via requestAnimationFrame.
+        // The engine drives rAF internally (glfw-js SwapBuffers → rAF).
+        // If rAF callbacks are sparse, the engine is blocking the main thread
+        // (likely GC pauses or sync I/O). Logs every 5 seconds with stats.
+        {
+          let frames = 0;
+          let lastReport = performance.now();
+          let lastFrame = performance.now();
+          let maxDelta = 0;
+          let sumDelta = 0;
+          let reportInterval: ReturnType<typeof setInterval>;
+          const tick = () => {
+            const now = performance.now();
+            const dt = now - lastFrame;
+            lastFrame = now;
+            if (dt > maxDelta) maxDelta = dt;
+            sumDelta += dt;
+            frames++;
+          };
+          const report = () => {
+            const now = performance.now();
+            const wall = (now - lastReport) / 1000;
+            const avgDelta = frames > 0 ? sumDelta / frames : 0;
+            const fps = frames > 0 ? (frames / wall).toFixed(1) : '0.0';
+            // Only log if we have frames, otherwise engine hasn't started rendering yet
+            if (frames > 0) {
+              console.log(
+                `[perf] ${fps} fps over ${wall.toFixed(1)}s | ` +
+                `avg frame ${(avgDelta).toFixed(1)}ms | ` +
+                `worst frame ${maxDelta.toFixed(0)}ms`
+              );
+            }
+            frames = 0;
+            maxDelta = 0;
+            sumDelta = 0;
+            lastReport = now;
+          };
+          reportInterval = setInterval(report, 5000);
+          const rafLoop = () => {
+            tick();
+            if (!cancelled) requestAnimationFrame(rafLoop);
+            else clearInterval(reportInterval);
+          };
+          requestAnimationFrame(rafLoop);
+
+          // Also log canvas size when it appears (the engine creates it)
+          const canvasCheck = setInterval(() => {
+            const canvas = document.querySelector('canvas');
+            if (canvas && canvas.width > 0) {
+              const rect = canvas.getBoundingClientRect();
+              console.log(
+                `[canvas] backing=${canvas.width}x${canvas.height} ` +
+                `displayed=${Math.round(rect.width)}x${Math.round(rect.height)} ` +
+                `dpr=${window.devicePixelRatio}`
+              );
+              clearInterval(canvasCheck);
+            }
+          }, 500);
+
+          // Clean up monitor when engine exits
+          enginePromise.finally(() => {
+            clearInterval(reportInterval);
+            clearInterval(canvasCheck);
+          });
+        }
+
+        await enginePromise;
 
         // Engine exited — fight is over.
         cleanup();
