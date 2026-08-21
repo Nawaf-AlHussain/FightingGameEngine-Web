@@ -44,10 +44,10 @@ Before finishing, you **must** update all three docs:
   ```
   ## F-00N | Short Title
    **Date**: YYYY-MM-DD | **Type**: Finding / Mistake / Breakthrough
-  
-  Description of what happened, why it matters, and what to do about it.
-  
-  **Lesson**: One-line takeaway for future agents.
+
+   Description of what happened, why it matters, and what to do about it.
+
+   **Lesson**: One-line takeaway for future agents.
   ```
 - Each entry gets a unique `F-00N` number (incrementing)
 
@@ -67,6 +67,8 @@ Do:
 - State what's broken or needs attention
 - Suggest the next actionable step
 
+---
+
 ## Project Overview
 
 **Goal**: Build a browser-based MUGEN fighting game platform using IKEMEN GO v2 compiled to WebAssembly, deployed on Vercel, with characters/stages served from a separate GitHub repo via jsDelivr CDN.
@@ -83,32 +85,97 @@ This is the **successor** to the older `FightingGameEngine` repo which used the 
 ```
 FightingGameEngine-Web (this repo, Vercel)    FightingGameEngine/Assets (GitHub)
   Next.js 16 App Router                         manifest.json (v2, per-file listings)
-  /play → WASM engine loader                    characters/ (85+, mostly DBZ)
-  /api/ikemen-fs/manifest → VFS manifest        stages/
-  /api/ikemen-fs/file/[path] → VFS files        Accessed via jsDelivr CDN
+  /lobby → title screen                         characters/ (85+, mostly DBZ)
+  /local → React character select                stages/
+  /play?p1=..&p2=.. → engine (fight only)       Accessed via jsDelivr CDN
+  /api/ikemen-fs/manifest → VFS manifest
+  /api/ikemen-fs/file/[path] → VFS files
   public/game/ikemen.wasm (22MB engine)
   public/game/vfs.js (800-line virtual FS)
   public/game/wasm_exec.js (Go WASM runtime)
 ```
 
-### How the Engine Loads
+### Page Flow (CRITICAL — this is the core architecture)
 
-1. User visits `/play`
-2. `src/app/play/page.tsx` dynamically loads `/game/vfs.js` then `/game/wasm_exec.js`
-3. It patches `window.fetch` so VFS requests (`./ikemen-fs/file/...`) redirect to `/api/ikemen-fs/file/...`
-4. `ikemenVfsInit()` fetches the manifest from `/api/ikemen-fs/manifest`, then lazy-loads files
-5. The WASM binary (`/game/ikemen.wasm`) is loaded via `instantiateStreaming`
-6. Go runtime starts, calls VFS to read files, renders to canvas via WebGL2
+```
+/lobby  →  PRESS START
+  ↓
+/local  →  Select mode (VS CPU / VS Player / Training)
+          Select P1 character, P2 character, stage, AI level
+          Click FIGHT
+  ↓
+/play?p1=kfm&p2=kfm&stage=stages/stage0-720.def&p2ai=5
+          → Engine boots with CLI args (-p1, -p2, -loadmotif, -stage)
+          → IKEMEN's main.f_commandLine() skips ALL menus
+          → Goes directly into the fight
+          → After fight ends (os.exit), redirects back to /local
+```
+
+**Key principle**: The engine NEVER renders menus. The website (React) handles ALL UI. The WASM engine is loaded only during fights and boots directly into combat.
+
+This matches the FightingGameEngine-Demo2 architecture pattern ("website UI + engine as renderer").
+
+### How the Engine Loads (updated)
+
+1. User clicks FIGHT on `/local` → navigates to `/play?p1=kfm&p2=kfm&stage=...`
+2. `src/app/play/page.tsx` reads URL params and builds CLI arg array
+3. Installs keyboard bridge (`window.__ikemenKeyDown` / `__ikemenKeyUp` arrays)
+4. Pins `devicePixelRatio` to 1 (glfw-js requirement)
+5. Patches `window.fetch` so VFS requests redirect to `/api/ikemen-fs/file/...`
+6. Dynamically loads `/game/vfs.js` then `/game/wasm_exec.js`
+7. Initializes VFS with manifest and preload list
+8. Creates `Go` instance with `go.argv = ['ikemen', '-p1', p1, '-p2', p2, '-loadmotif', 'data/ikemen1/system.def', '-stage', stage, '-p2.ai', aiLevel]`
+9. Loads WASM via `instantiateStreaming`, calls `go.run()`
+10. Engine's `main.lua` detects CLI args → calls `main.f_commandLine()` → skips menus → fight starts
+11. After fight, `os.exit()` is caught → redirects to `/local`
+
+### How Menu Skipping Works (F-017, BREAKTHROUGH)
+
+IKEMEN GO's `main.lua` (line 4061) has a built-in command-line quick match:
+
+```lua
+if getCommandLineValue("-p1") ~= nil
+   and getCommandLineValue("-p2") ~= nil
+   and getCommandLineValue("-loadmotif") ~= nil then
+  main.f_commandLine()  -- Skips title, char select, VS screen
+end
+```
+
+We pass these via `go.argv` in `wasm_exec.js`. **No WASM recompilation needed** — the 22MB binary already supports this.
+
+Supported flags: `-p1 <char>`, `-p2 <char>`, `-loadmotif <def>`, `-stage <def>`, `-p1.ai <1-8>`, `-p2.ai <1-8>`, `-r <rounds>`, `-time <seconds>`, `-tmode1 <mode>`, `-tmode2 <mode>`.
+
+### How Keyboard Input Works (Poll-Based Bridge)
+
+Go WASM's `syscall/js` event callback pipeline (`js.FuncOf` → `_makeFuncWrapper` → `_pendingEvent` → `_resume()`) **does not work** for keyboard events (F-011). The JS→Go callback direction is broken in WASM.
+
+**Workaround**: Poll-based bridge.
+1. JS captures `keydown`/`keyup` on `window` (capture phase)
+2. Pushes `e.code` values (e.g. `"KeyW"`, `"Digit1"`, `"ArrowUp"`) into `window.__ikemenKeyDown` / `window.__ikemenKeyUp` arrays
+3. Go's `pollEvents()` in `system_js.go` reads these arrays every frame
+4. Looks up `e.code` in `jsCodeToKey` map → gets internal Key enum → calls `OnKeyPressed()`
+
+**Key naming convention** (F-016):
+- Letters: lowercase (`w`, `a`, `s`, `d`, `u`, `i`, `o`, `j`, `k`, `l`)
+- Arrows: uppercase (`UP`, `DOWN`, `LEFT`, `RIGHT`)
+- Numpad: `KP_` prefix (`KP_1`, `KP_7`)
+- Special: `RETURN`, `ESCAPE`, `SPACE`, `1`-`9` (digits)
+
+**Config.ini maps key names to commands** (see `public/game/ikemen-fs/file/save/config.ini`):
+- P1: WASD move, UIO punches, JKL kicks, 1 = Start
+- P2: Arrow keys move, Numpad 1-6 attacks, Numpad 7 = Start
+
+**Status**: Only the `1` key (Start) has been verified working through the full path. Fight inputs (WASD, UIO, JKL) are theoretically correct but **untested in actual combat** (the engine was stuck in menus during previous testing sessions).
 
 ### Critical Performance Settings
 
-From WebMUGEN kit (measured and documented):
 ```javascript
 go.env = { GOGC: '100', GOMEMLIMIT: '800MiB' };
 ```
-- `GOGC: '100'` is Go's default. Values of 200 and 500 both cause **noticeable frame freezes**. Do not increase this.
-- `GOMEMLIMIT: '800MiB'` prevents the heap from ballooning with large character rosters.
-- WebGL2 with `failIfMajorPerformanceCaveat: true` detects software rendering (causes sub-60fps on strong hardware).
+- `GOGC: '100'` is Go's default. Values of 200 and 500 both cause **noticeable frame freezes**. Do not increase.
+- `GOMEMLIMIT: '800MiB'` prevents heap from ballooning with large character rosters.
+- WebGL2 with `failIfMajorPerformanceCaveat: true` detects software rendering.
+- `devicePixelRatio` must be pinned to 1 (glfw-js expectation).
 
 ---
 
@@ -118,55 +185,64 @@ go.env = { GOGC: '100', GOMEMLIMIT: '800MiB' };
 
 | File | Purpose |
 |------|---------|
-| `public/game/ikemen.wasm` | IKEMEN GO v2 engine compiled to WASM (22MB). **Built from source** (see Build Section). |
-| `public/game/vfs.js` | Browser filesystem shim for Go's WASM runtime (800+ lines). Replaces `syscall/fs_js.go` with HTTP-backed VFS. **From WebMUGEN kit v1.7.** |
-| `public/game/wasm_exec.js` | Go's official WASM JavaScript runtime. **From WebMUGEN kit.** |
-| `public/game/sffpal-core.js` | SFF palette processing. **From WebMUGEN kit.** |
-| `public/game/webrtc.js` | P2P netcode with rollback. **From WebMUGEN kit. Not yet integrated.** |
-| `public/game/ikemen-fs/file/` | Engine data files (Lua scripts, fonts, shaders, ZSS bytecode) from `energyjp/ikemen-go-web` repo. |
-| `public/game/ikemen-fs/manifest.json` | Generated by `scripts/generate-manifest.js`. Lists all VFS files with sizes. |
-| `src/app/play/page.tsx` | Game page — loads WASM engine with GC tuning, WebGL2 check, fetch-patched VFS. |
-| `src/app/api/ikemen-fs/manifest/route.ts` | API route serving the VFS manifest. |
-| `src/app/api/ikemen-fs/file/[...path]/route.ts` | API route serving individual VFS files (with path traversal protection). |
-| `scripts/generate-manifest.js` | Node script that walks `public/game/ikemen-fs/file/` and generates manifest.json. |
-| `vercel.json` | WASM MIME type headers + cache control. |
-| `TODO.md` | Phased task list (Phase 0-5). **This is the authoritative task list.** |
-| `PROGRESS.md` | What's done, what's next, key decisions. |
-| `FINDINGS.md` | Technical discoveries, mistakes, breakthroughs (F-001 through F-006). |
+| `src/app/lobby/page.tsx` | Title screen. "PRESS START" → navigates to `/local` |
+| `src/app/local/page.tsx` | **Character select screen** (pure React). Mode select, P1/P2 slots, AI level, stage select, FIGHT button |
+| `src/app/play/page.tsx` | **Fight page**. Reads URL params, boots WASM with CLI args, keyboard bridge, auto-redirects to `/local` after fight |
+| `public/game/ikemen.wasm` | IKEMEN GO v2 engine compiled to WASM (22MB). Built from source (see Build Section) |
+| `public/game/vfs.js` | Browser filesystem shim (800+ lines). Replaces `syscall/fs_js.go` with HTTP-backed VFS. From WebMUGEN kit v1.7 |
+| `public/game/wasm_exec.js` | Go's official WASM JavaScript runtime. From WebMUGEN kit |
+| `public/game/ikemen-fs/file/save/config.ini` | Engine config: video 1280x720, P1/P2 key bindings, audio, debug settings |
+| `public/game/ikemen-fs/file/data/select.def` | Character roster definition. Currently: `kfm` + `randomselect` |
+| `public/game/ikemen-fs/file/external/script/main.lua` | IKEMEN's main Lua script. Contains `main.f_commandLine()` menu skip path (line 4061) |
+| `public/game/ikemen-fs/file/data/ikemen1/` | Screenpack: `system.def`, `system.sff` (9.1MB sprites), `system.snd` (3.6MB sounds), fonts |
+| `public/game/ikemen-fs/file/chars/kfm/` | Kung Fu Man character (11 files: .def, .cns, .cmd, .air, .sff, .snd, etc) |
+| `public/game/ikemen-fs/file/stages/stage0-720/` | One stage (.def + .sff) |
+| `public/game/ikemen-fs/manifest.json` | VFS manifest (generated by `scripts/generate-manifest.js`) |
+| `src/app/api/ikemen-fs/manifest/route.ts` | API route serving VFS manifest |
+| `src/app/api/ikemen-fs/file/[...path]/route.ts` | API route serving VFS files (path-traversal-safe) |
+| `vercel.json` | WASM MIME type + no-cache headers |
+| `TODO.md` | Phased task list (Phase 0-5). Authoritative task list |
+| `PROGRESS.md` | What's done, current status, next steps |
+| `FINDINGS.md` | Technical discoveries F-001 through F-017 |
+
+### Go Source (NOT in repo, local only)
+
+| File | Location | Purpose |
+|------|----------|---------|
+| `system_js.go` | `/tmp/ikemen-go-web/src/` | WASM window/backend. Contains `pollEvents()` with keyboard bridge and gamepad polling |
+| `input_js.go` | `/tmp/ikemen-go-web/src/` | `jsCodeToKey` map (KeyboardEvent.code → Key enum), `KeyToStringLUT`, `StringToKeyLUT`, gamepad handling |
+| `main.go` | `/tmp/ikemen-go-web/src/` | Entry point. `processCommandLine()` parses -p1, -p2, -loadmotif, etc. into `sys.cmdFlags` |
 
 ### External Repos
 
 | Repo | Access | Purpose |
 |------|--------|---------|
-| `FightingGameEngine/Assets` | Public org repo | Character/stage library. `manifest.json` v2 with per-file listings. 85+ chars (mostly DBZ), 5+ stages. |
-| `Nawaf-AlHussain/FightingGameEngine` | Private | **Old** engine (Dolmexica Infinite). Reference for what DIDN'T work. 63+ compat patches. |
-| `Nawaf-AlHussain/FightingGameEngine-Demo` | Private | Better UI (Persona 5 design). Has reusable components: `WipeTransition.tsx`, `FightOverlays.tsx`, `MoveListPopup.tsx`, `useSoundEffects`, `game.css`. |
-| `Nawaf-AlHussain/FightingGameEngine-Demo2` | Public | UI overhaul variant. Reference only. |
-| `energyjp/ikemen-go-web` | Public | **IKEMEN GO fork with WASM support.** Source of our WASM build and engine data files. Has JS-specific files: `audio_js.go`, `render_webgl.go`, `input_js.go`, `system_js.go`, `platform_js.go`, `netplay_js.go`, `font_webgl.go`, `util_js.go`. |
-| `energyjp/webmugen-modding-kit` (zip) | Not on GitHub | Modding kit v1.7. Source of vfs.js, wasm_exec.js, sffpal-core.js, webrtc.js. Extracted at `/home/z/my-project/webmugen/`. |
-| `ikemen-engine/Ikemen-GO` | Public | **Upstream** IKEMEN GO engine. No WASM support (WASM is energyjp's fork). |
+| `FightingGameEngine/Assets` | Public org repo | Character/stage library. 85+ chars (mostly DBZ), 5+ stages |
+| `Nawaf-AlHussain/FightingGameEngine` | Private | Old engine (Dolmexica). Reference for what DIDN'T work |
+| `Nawaf-AlHussain/FightingGameEngine-Demo` | Private | Persona 5 UI components: WipeTransition, FightOverlays, MoveListPopup, useSoundEffects, game.css |
+| `Nawaf-AlHussain/FightingGameEngine-Demo2` | Public | Full reference architecture: React UI + engine only for fights. Has hooks (use-local-two-player, use-fight-state), lib (wasm-loader, wasm-asset-injector), components (CharacterSelect, StageSelect, TouchControls, GameCanvas) |
+| `energyjp/ikemen-go-web` | Public | IKEMEN GO fork with WASM support. Source of our WASM build and JS-specific Go files |
+| `ikemen-engine/Ikemen-GO` | Public | Upstream IKEMEN GO. No WASM support (that's energyjp's fork) |
 
 ---
 
 ## WASM Build Process
 
-The WASM binary was built from source because:
-1. The official IKEMEN GO releases don't include WASM builds
-2. The WebMUGEN modding kit doesn't ship the pre-compiled binary (it's a build tool)
-3. The energyjp/ikemen-go-web fork has the WASM platform code but no releases
+The WASM binary was built from source because no pre-built WASM release exists.
 
 ### Build Steps (reproducible)
 
 ```bash
-# 1. Install Go 1.21 (NOT 1.22+ — see Arena Issue below)
-# Go 1.22+ has runtime conflicts with arena on GOOS=js
-# Go 1.21 is the last version that builds cleanly with our arena stub
+# 1. Install Go 1.21 (NOT 1.22+ — see Arena Issue)
+# Go 1.23: runtime mbitmap redeclaration errors
+# Go 1.22: arena constraint issues
+# Go 1.21: ONLY version that builds cleanly
 
 # 2. Clone the WASM-enabled fork
 git clone https://github.com/energyjp/ikemen-go-web.git
 cd ikemen-go-web
 
-# 3. Create arena stub (standard library arena package is unavailable for GOOS=js)
+# 3. Create arena stub (standard library arena excludes GOOS=js)
 mkdir arena
 cat > arena/arena.go << 'EOF'
 package arena
@@ -183,175 +259,146 @@ sed -i 's|"arena"|"github.com/ikemen-engine/Ikemen-GO/arena"|' \
 
 # 5. Build
 GOOS=js GOARCH=wasm go build -o ikemen.wasm ./src/
-# Output: ~22MB WebAssembly binary
+# Output: ~22MB
 ```
 
-### Arena Issue (IMPORTANT)
+**NOTE**: The current WASM binary already includes the poll-based keyboard bridge and all necessary JS platform code. You do NOT need to rebuild unless you need to modify Go source code.
 
-The upstream IKEMEN GO recently added `import "arena"` (Go 1.20+ experimental package) for rollback netcode state cloning. This package has `//go:build` constraints that **exclude `GOOS=js`** in all Go versions. Our stub provides `New[T]()`, `MakeSlice[T]()`, `Free()`, and `NewArena()` — the four functions the engine uses.
+### Arena Issue
 
-**Impact**: Our arena stub uses regular heap allocation instead of arena allocation. This means rollback netcode may use more memory than intended. For Phase 1 (local play only), this is irrelevant. For Phase 4 (online multiplayer), this may need a proper solution.
-
-**Go version**: Must use Go 1.21. Go 1.23 causes runtime compilation errors (`mbitmap_noallocheaders.go` redeclarations) when building with `GOOS=js`. Go 1.22 also has the arena constraint issue.
+The upstream engine uses Go 1.20+ experimental `arena` package for rollback netcode. It's excluded from `GOOS=js` in all Go versions. Our stub uses regular heap allocation. Fine for local play (Phase 1-3), may need revisiting for rollback netcode (Phase 4).
 
 ---
 
-## VFS (Virtual Filesystem) — How It Works
+## VFS (Virtual Filesystem)
 
-`vfs.js` shims Go's `syscall/fs_js.go` — it provides the `globalThis.fs` API that the Go WASM runtime expects, but backed by HTTP fetches instead of a real filesystem.
+`vfs.js` shims Go's `syscall/fs_js.go` with HTTP-backed file access.
 
-### Two manifest formats supported:
-1. **Per-file**: `{ files: { "data/common1.cns": 12345, ... } }` — each file fetched lazily on first open
-2. **Packed**: `{ pack: "game.pak", files: { "data/common1.cns": [offset, length], ... } }` — single download
-
-We use **per-file** format (unpacked). The manifest is at `public/game/ikemen-fs/manifest.json`, generated by `scripts/generate-manifest.js`.
-
-### File fetch URL pattern:
-Original vfs.js fetches: `./ikemen-fs/file/<vpath>` (relative URL)
-Our `/play` page patches `window.fetch` to redirect these to `/api/ikemen-fs/file/<vpath>`
+- **Format**: Per-file manifest (`{ files: { "path": size, ... } }`)
+- **Original URL pattern**: `./ikemen-fs/file/<vpath>` (relative)
+- **Patched pattern**: `/api/ikemen-fs/file/<vpath>` (via `window.fetch` patch in play page)
+- **Manifest served at**: `/api/ikemen-fs/manifest`
 
 ### For Phase 2 (CDN assets):
-Character/stage files need to be fetched from jsDelivr CDN:
-`https://cdn.jsdelivr.net/gh/FightingGameEngine/Assets@main/<path>`
-
-The file API route (`src/app/api/ikemen-fs/file/[...path]/route.ts`) will need to:
-- Check if file exists locally (engine data) → serve from disk
-- Otherwise proxy to jsDelivr CDN (character/stage data)
-- Cache CDN responses
+The file API route will need to check locally first, then proxy to jsDelivr CDN for character/stage files not in the VFS.
 
 ---
 
-## Current State (Phase 0 Complete, Phase 1 In Progress)
+## Current State
 
 ### What works:
-- [x] Next.js project scaffolded with App Router
-- [x] WASM binary built and committed (22MB)
-- [x] Engine JS glue files (vfs.js, wasm_exec.js, sffpal-core.js, webrtc.js)
-- [x] Engine data files (Lua scripts, fonts, shaders, ZSS bytecode)
-- [x] VFS manifest generated (60 files, 2.3 MB engine data)
-- [x] API routes for manifest and file serving
-- [x] `/play` page with WASM loader (GC tuning, WebGL2 check, fetch patching)
-- [x] `vercel.json` with WASM MIME type
-- [x] Project documentation (README, TODO, PROGRESS, FINDINGS)
+- [x] Engine boots and renders (title screen, menus, fights all render)
+- [x] Auto-fight (attract mode) runs at smooth 60 FPS
+- [x] Menu skip via CLI args (`-p1`, `-p2`, `-loadmotif`) — goes directly to fight
+- [x] React character select screen (mode, P1/P2, stage, AI level)
+- [x] Full page flow: /lobby → /local → /play → fight → back to /local
+- [x] Poll-based keyboard bridge (JS→Go direction works)
+- [x] `1` key (Start) verified working through full input path
+- [x] VFS serves all engine data files correctly
+- [x] Deployed on Vercel
 
-### What's NOT working yet:
-- [ ] Engine hasn't been tested end-to-end (needs Vercel deployment to test)
-- [ ] No characters or stages loaded yet (only bare engine data)
-- [ ] No save/config.ini generated (engine may fail without it)
-- [ ] VFS fetch patching is untested in production
-- [ ] The `external/mods/.keep` directory exists but isn't in the manifest
-
-### Known issues to investigate:
-1. **Missing save/config.ini**: The engine expects a config file. The VFS creates virtual `save/` dirs but we may need to generate a default `config.ini`. Check `src/resources/defaultConfig.ini` in the energyjp repo.
-2. **Missing system.sff and system.snd**: The engine needs `data/system.sff` (system sprites) and `data/system.snd` (system sounds). These are NOT in the energyjp source — they come from the IKEMEN GO Screenpack. We need to get them from `ikemen-engine/Ikemen-GO-Screenpack` repo.
-3. **ZSS files vs CNS files**: The engine data has `.zss` files (precompiled Lua bytecode) but the engine may expect `.cns` files. The `common1.cns.zss` suggests the ZSS is a compiled form of common1.cns.
+### What's NOT working / untested:
+- [ ] **Fight input (WASD, UIO, JKL) untested in actual combat** — only Start key verified
+- [ ] Engine canvas may not fill viewport properly
+- [ ] Escape key opens native IKEMEN pause menu during fight
+- [ ] Only 1 character (KFM) and 1 stage available
+- [ ] No sound effects or music in the web UI
+- [ ] No touch controls for mobile
 
 ---
 
-## Research Findings Summary
+## Key Findings Summary (from FINDINGS.md)
 
-### Why IKEMEN GO over Dolmexica Infinite (F-004)
-Dolmexica Infinite has fundamental MUGEN compatibility limits that 63+ patches couldn't fix:
-- `localcoord` crashes on most characters
-- Missing triggers and state controllers
-- SFF v2 palette issues
-- Font crashes, broken audio in WASM
-- IKEMEN GO handles all of these natively
-
-### Why NOT the community WASM forks (F-002)
-- `tursom/Ikemen-wasm`: Abandoned July 2022, 1 commit
-- `yasyzb/Ikemen-wasm`: Fork of tursom's, zero additional code
-- Upstream IKEMEN GO + energyjp's fork is the correct path
-
-### Browser 60 FPS IS achievable (F-001)
-WebMUGEN kit proves it through: GC tuning (GOGC=100), custom VFS (HTTP lazy-loading), WebGL2 hardware acceleration, streaming WASM compile.
-
-### WebMUGEN is IKEMEN GO, not a new engine (F-003)
-The kit IS IKEMEN GO v2 compiled to WASM. It uses Go's official `wasm_exec.js` and a custom `vfs.js` that shims the filesystem.
-
-### Demo repo has the UI we want (F-005)
-FightingGameEngine-Demo (private) has Persona 5-inspired components: WipeTransition, FightOverlays, MoveListPopup, useSoundEffects, game.css (black/red/white/cyan, Oswald font, angular clip-paths).
-
-### Assets repo case-sensitivity (F-006)
-Some characters have filename case mismatches in the manifest (e.g. `basics.st` vs `Basics.st`). Causes 404s from jsDelivr (case-sensitive). Affected: BroliT, THE NIGHTMARE.
+| ID | Type | Summary |
+|----|------|---------|
+| F-001 | Finding | Go WASM 60 FPS IS achievable (WebMUGEN proves it) |
+| F-002 | Finding | Community WASM forks (tursom, yasyzb) are dead |
+| F-003 | Finding | WebMUGEN IS IKEMEN GO v2, not a new engine |
+| F-004 | Finding | Dolmexica has fundamental MUGEN compat limits (63+ patches couldn't fix) |
+| F-005 | Finding | Demo repo has Persona 5 UI components to reuse |
+| F-006 | Finding | Assets repo has case-sensitivity issues (causes 404s on jsDelivr) |
+| F-007 | Finding | Go `arena` package unavailable for GOOS=js (created stub) |
+| F-008 | Finding | Go 1.22+ breaks WASM builds (must use 1.21) |
+| F-009 | Mistake | Assumed WebMUGEN kit shipped the WASM binary (it doesn't) |
+| F-010 | Finding | vfs.js relative URLs break from Next.js routes (fixed with fetch patching) |
+| F-011 | Finding | Go WASM syscall/js event callbacks broken for keyboard (JS→Go fails) |
+| F-012 | Finding | Poll bridge only "1" key works — other keys untested in fight context |
+| F-013 | Breakthrough | Demo2 architecture (React UI + engine only for fights) is the target pattern |
+| F-014 | Finding | IKEMEN menus lag in WASM but fights are 60fps (bypass menus entirely) |
+| F-015 | Mistake | uint8_t overflow in Dolmexica caused 3 wasted fix attempts (lesson for data path verification) |
+| F-016 | Finding | Key naming: lowercase letters, uppercase arrows, KP_ prefix for numpad |
+| **F-017** | **Breakthrough** | **IKEMEN GO has built-in CLI quick match — no WASM changes needed to skip menus** |
 
 ---
 
 ## Next Steps (from TODO.md)
 
-### Immediate (Phase 0 remaining):
-1. **Get default config.ini** — from `ikemen-engine/Ikemen-GO-Screenpack` or generate from `src/resources/defaultConfig.ini`
-2. **Get system.sff and system.snd** — from the Screenpack repo
-3. **Test engine boot on Vercel** — deploy and check `/play` actually starts
-4. **Verify 60 FPS with Kung Fu Man** — needs at least one character
+### Immediate:
+1. **Test fight with CLI args on Vercel** — verify engine boots directly into KFM vs KFM fight
+2. **Test fight input** — verify WASD, UIO, JKL work during actual gameplay
+3. **Disable native pause menu** — set `EscOpensMenu=0` in config.ini or intercept Escape
+4. **Add Escape to quit fight** — navigate back to /local
 
-### Phase 1 (Core Playable):
-1. Build character select screen fetching from Assets manifest
-2. Implement game modes (Local 2P, VS AI, Training, AI vs AI)
-3. Input system (keyboard mapping, optional gamepad)
+### Phase 1 remaining:
+1. AI vs AI (watch mode)
+2. Persona 5 UI polish (WipeTransition, FightOverlays, game.css from Demo repo)
+3. Touch controls for mobile
+4. Character portraits on select screen
 
 ### Phase 2 (Asset Pipeline):
 1. Point VFS file route to jsDelivr CDN for character/stage files
-2. Character download & caching (IndexedDB or in-memory)
-3. Fix case-sensitivity issues in Assets manifest
+2. Character download & caching system
+3. Fix case-sensitivity in Assets manifest
 
 ---
 
-## Assets Repo Structure
+## Design Direction
 
-The `FightingGameEngine/Assets` repo (GitHub org account, public):
-- `manifest.json` v2 — per-file listings for all characters and stages
-- `characters/` — 85+ character folders (mostly Dragon Ball Z)
-- `stages/` — 5+ stage folders
-- CDN base: `https://cdn.jsdelivr.net/gh/FightingGameEngine/Assets@main/`
-- There's also `update-manifest.py` for auto-generating the manifest
-
-Each character folder contains: `.def` (definition), `.cns`/`.zss` (states), `.air` (animations), `.sff` (sprites), `.snd` (sounds), `.cmd` (command inputs), `.act` (palette files).
-
----
-
-## Design Direction (from FightingGameEngine-Demo)
-
-When building the UI in Phase 1/3, follow this design system:
+When building UI, follow the FightingGameEngine-Demo design system:
 - **Palette**: Black (#0a0a0a), Red (#e53e3e), White (#ffffff), Cyan (#06b6d4)
 - **Typography**: Oswald for headings, clean sans-serif for body
 - **Shapes**: Angular clip-paths (diagonal cuts, not rounded corners)
-- **Transitions**: 3-pane diagonal color wipe (720ms, from WipeTransition.tsx)
-- **Sound**: UI click/navigation sound effects
+- **Transitions**: 3-pane diagonal color wipe (720ms)
 - **Style reference**: Persona 5 UI aesthetic
+
+Current UI (lobby, local) uses a simpler dark theme with red accents. Upgrade to P5 style in Phase 3.
 
 ---
 
 ## Tools & Dependencies
 
 - **Runtime**: Node.js v24, npm
-- **Framework**: Next.js 16, React 19, TypeScript 5
+- **Framework**: Next.js 16, React 19, TypeScript 7
 - **Styling**: Tailwind CSS 4
 - **Engine**: IKEMEN GO v2 (WASM), built with Go 1.21
-- **Hosting**: Vercel (free tier)
-- **CDN**: jsDelivr (free, GitHub-integrated)
-- **Go SDK location**: `~/go-sdk/` (Go 1.21.13, user-installed)
-- **WebMUGEN kit extract**: `/home/z/my-project/webmugen/` (local only, not in repo)
-- **energyjp source clone**: `/tmp/ikemen-go-web/` (local only, not in repo)
-
----
-
-## GitHub Access
-
-- **PAT**: Stored securely by the user. Request it when needed.
-- **User**: `Nawaf-AlHussain`
-- **Primary repo**: `Nawaf-AlHussain/FightingGameEngine-Web`
-- **Assets org**: `FightingGameEngine`
+- **Hosting**: Vercel
+- **CDN**: jsDelivr (for Phase 2 assets)
+- **Go SDK**: `~/go-sdk/` (Go 1.21.13, user-installed)
+- **WebMUGEN kit**: `/home/z/my-project/webmugen/` (local only, not in repo)
+- **energyjp source**: `/tmp/ikemen-go-web/` (local only, not in repo)
 
 ---
 
 ## Common Pitfalls
 
 1. **Don't use Go 1.22+ for WASM builds** — runtime conflicts with arena on GOOS=js
-2. **Don't change GOGC from 100** — measured to cause frame freezes at higher values
-3. **Don't serve .wasm without `application/wasm` MIME type** — browser won't streaming-compile it
+2. **Don't change GOGC from 100** — causes frame freezes at higher values
+3. **Don't serve .wasm without `application/wasm` MIME type** — browser won't streaming-compile
 4. **Don't forget the fetch patch** — vfs.js uses relative `./ikemen-fs/` URLs that won't resolve from `/play`
-5. **Don't put character/stage data in this repo** — assets come from the CDN
-6. **Don't use `tursom/Ikemen-wasm` or `yasyzb/Ikemen-wasm`** — both are abandoned
-7. **Do validate case-sensitivity** of Assets manifest filenames before CDN integration
-8. **Do check FINDINGS.md before making architectural decisions** — mistakes are documented there
+5. **Don't put character/stage data in this repo** — assets come from CDN (Phase 2)
+6. **Don't try to use the engine's native menus** — they lag and input is broken. Use React UI + CLI args instead
+7. **Don't use `syscall/js` event callbacks for input** — JS→Go direction is broken (F-011). Use the poll bridge
+8. **Don't use SDL-style key names in config.ini** — WASM backend uses lowercase letters (`w` not `W`), uppercase arrows (`UP` not `Up`), `KP_` prefix (`KP_1` not `Num1`)
+9. **Don't rebuild the WASM unless you must** — the current binary already supports CLI quick match, poll bridge, and all needed features
+10. **Do check FINDINGS.md before making decisions** — 17 findings documented
+11. **Do validate case-sensitivity** of Assets manifest filenames before CDN integration
+12. **Do test on actual Vercel deployment** — some issues only appear in production
+
+---
+
+## GitHub Access
+
+- **User**: `Nawaf-AlHussain`
+- **Primary repo**: `Nawaf-AlHussain/FightingGameEngine-Web`
+- **Assets org**: `FightingGameEngine`
+- **PAT**: Stored securely by the user. Request it when needed.
