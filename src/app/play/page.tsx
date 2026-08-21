@@ -28,6 +28,16 @@ export default function PlayPage() {
       };
 
       try {
+        // --- 0. Debug: permanently log all addEventListener calls on document ---
+        const _origDocAEL = document.addEventListener.bind(document);
+        const _aelLog: string[] = [];
+        document.addEventListener = ((orig: typeof document.addEventListener) =>
+          function (this: Document, type: string, listener: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions) {
+            _aelLog.push(type);
+            console.log('[debug-ael] document.addEventListener("' + type + '")');
+            return orig.call(this, type, listener, options);
+          })(_origDocAEL) as typeof document.addEventListener;
+
         // --- 1. Pin devicePixelRatio to 1 (glfw-js expects this) ---
         Object.defineProperty(window, 'devicePixelRatio', {
           value: 1, writable: false, configurable: true,
