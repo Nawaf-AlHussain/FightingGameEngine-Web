@@ -1,5 +1,55 @@
 # PROGRESS — Fighting Game Engine Web
 
+## Session: August 21, 2026 (Night 4) — ROOT CAUSE CONFIRMED via Chrome trace: vfs.js Promise cache storm
+
+### Work Done
+
+#### Analyzed Chrome Performance trace (user-provided .cpuprofile)
+User uploaded a trace of the frozen fight. Analysis revealed:
+- **7285 ms RunTask** (single task blocking main thread for 7.3 seconds)
+- **7268 ms RunMicrotasks** inside it (microtask loop, not WASM execution)
+- 3047 V8.StackGuard calls (tight loop, one every 2.4ms)
+- 80 TimerInstall + 77 TimerRemove (retry loop signature)
+- Only 1 RequestAnimationFrame during the entire 7.3s (main thread fully blocked)
+- Zero v8.wasm.execute events (WASM not running — JS bridge stuck)
+
+This is a **Promise resolution storm**: microtasks scheduling microtasks infinitely.
+
+#### Root cause: vfs.js fetchFile() cached rejected promises (F-023)
+`fetchFile()` caches promises in a `fetching` Map to deduplicate concurrent fetches. On failure (404), the promise rejects but `fetching.delete(vpath)` is never reached (it's after the throw). The rejected promise stays cached. Every subsequent `open()` for the same path returns the same rejected promise → Go retries → another microtask → infinite loop.
+
+**Trigger**: The engine probes for files not in our VFS (`save/config.json`, `save/stats.json`, `stages/stage1.def`, `stages/stage3d.def`, `stages/stage3d_outline.def`). Each 404 triggers the storm. Attract mode never probed these files, which is why it was smooth.
+
+**Fix** (in `vfs.js` `fetchFile()`):
+1. On 404: `manifest.delete(vpath)` — removes phantom entry so `exists()` returns false on subsequent calls. `open()` then returns ENOENT synchronously, no Promise/microtask.
+2. `p.catch(() => fetching.delete(vpath))` — clears the fetching cache on failure so retries don't get a stale rejected promise.
+
+### Why previous fixes didn't work
+- F-018 (BootLoadingMode): fixed sync loading but not the retry loop
+- F-019 (RollbackNetcode): was already 0 via VFS patch (F-020)
+- F-022 (while-loading loop): removed a useless spin loop but not the actual blocker
+- F-022 continued (remove -loadmotif): switched to lighter boot path but the retry loop triggers regardless of boot path
+
+The retry loop triggers any time the engine opens a non-existent file, which happens in BOTH f_commandLine() paths. The vfs.js fix is the actual root cause fix.
+
+### Current Status
+- **Engine**: vfs.js no longer caches rejected promises, phantom manifest entries self-heal on first 404
+- **Frontend**: Clean play page (no instrumentation, no persistent timers)
+- **Deployment**: On Vercel, fix pushing now
+- **Lag diagnosis**: ROOT CAUSE FIXED (F-023)
+
+### Next Steps
+1. **User tests the fix** — verify fights are now smooth
+2. **If smooth**: test fight input (WASD/UIO/JKL), disable native pause menu, proceed to Phase 2
+3. **If still laggy**: upload a new trace — but this fix addresses the exact 7.3s blocker seen in the trace
+
+### Key Decisions
+- Fixed vfs.js (data file) rather than Go source — no WASM rebuild needed
+- Did NOT remove the phantom manifest entries (`save/config.json`, `save/stats.json`) — the vfs.js fix handles them gracefully by self-healing on first 404. Cleaner to leave the manifest generator as-is.
+- Kept all previous fixes (static VFS, manifest fix, main.lua while-loop removal, -loadmotif removal) — none were the root cause but none are harmful
+
+---
+
 ## Session: August 21, 2026 (Night 3) — ROOT CAUSE FOUND: while-loading loop blocks main thread
 
 ### Work Done

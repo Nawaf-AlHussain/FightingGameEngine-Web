@@ -153,13 +153,23 @@
       // Relative URL so the game works from any subfolder on a static host.
       const res = await fetch('./ikemen-fs/file/' + encodeURIComponent(vpath).replace(/%2F/gi, '/')
         + (globalThis.ikemenAssetStamp ? '?v=' + encodeURIComponent(globalThis.ikemenAssetStamp) : ''), { cache: 'no-cache' });
-      if (!res.ok) throw enoent(vpath);
+      if (!res.ok) {
+        // CRITICAL: on 404, remove from manifest so exists() returns false on
+        // subsequent calls. Otherwise Go retries open() forever in a tight
+        // microtask loop (each rejected Promise schedules another microtask),
+        // blocking the main thread for seconds ("broken record" freeze).
+        manifest.delete(vpath);
+        throw enoent(vpath);
+      }
       const buf = new Uint8Array(await res.arrayBuffer());
       contents.set(vpath, buf);
-      fetching.delete(vpath);
       return buf;
     })();
     fetching.set(vpath, p);
+    // CRITICAL: clear the fetching entry even on failure. Without this, the
+    // rejected promise stays cached, and every retry returns the same rejected
+    // promise, creating an infinite microtask storm.
+    p.catch(() => fetching.delete(vpath));
     return p;
   }
 

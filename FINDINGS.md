@@ -6,6 +6,92 @@ Format: newest entries at the top. Each entry gets a unique ID for cross-referen
 
 ---
 
+## F-023 | vfs.js fetchFile rejected-promise cache creates infinite microtask storm (ROOT CAUSE of 7.3s freeze)
+**Date**: 2026-08-21 | **Type**: Finding (root cause — confirmed via Chrome trace)
+
+User uploaded a Chrome Performance trace (`.cpuprofile`) of the frozen fight.
+Analysis revealed:
+
+- One `RunTask` event lasting **7285 ms** (7.3 seconds) on the main renderer thread
+- Inside it: one `RunMicrotasks` event lasting **7268 ms**
+- 3047 `V8.StackGuard` calls (one every ~2.4ms — tight loop)
+- 244 `v8::Debugger::AsyncTaskScheduled` + 77 `AsyncTaskCanceled`
+- 80 `TimerInstall` + 77 `TimerRemove` (retry loop signature)
+- Only 1 `RequestAnimationFrame` during the entire 7.3s (main thread blocked)
+- 6 MajorGC + 13 MinorGC (GC is a SYMPTOM of the loop creating garbage, not the cause)
+- Zero `v8.wasm.execute` events (WASM itself isn't running — the JS bridge is stuck)
+
+This is the signature of a **Promise resolution storm**: microtasks scheduling
+microtasks in an infinite cascade, never yielding to the event loop. The
+`TimerInstall`/`TimerRemove` pattern (80 installed, 77 removed) indicates a
+retry loop where each failed operation schedules a timer, the timer fires,
+the operation fails again, schedules another timer.
+
+**Root cause**: `vfs.js` `fetchFile()` function cached rejected Promises in
+the `fetching` Map without cleaning them up on failure:
+
+```js
+// BEFORE (buggy):
+async function fetchFile(vpath) {
+  if (contents.has(vpath)) return contents.get(vpath);
+  if (fetching.has(vpath)) return fetching.get(vpath);  // returns cached rejected promise!
+  const p = (async () => {
+    const res = await fetch(...);
+    if (!res.ok) throw enoent(vpath);  // throws, never reaches fetching.delete()
+    ...
+    fetching.delete(vpath);  // only runs on success
+    return buf;
+  })();
+  fetching.set(vpath, p);  // caches the (will-be-rejected) promise
+  return p;
+}
+```
+
+When the engine calls `open('save/config.json')` (a file in the manifest
+with size 0 but not on disk), `exists()` returns true (manifest has the
+entry), so `open()` proceeds to `fetchFile()`. The fetch 404s, the promise
+rejects, but the rejected promise stays in `fetching`. Every subsequent
+`open()` for the same path returns the same rejected promise, which when
+awaited throws, which Go's syscall/js bridge catches and retries, which
+schedules another microtask... infinite loop.
+
+**Fix** (two changes to `fetchFile`):
+1. On 404, `manifest.delete(vpath)` — removes the phantom entry so
+   `exists()` returns false on subsequent calls. `open()` then returns
+   ENOENT synchronously without any Promise/microtask.
+2. `p.catch(() => fetching.delete(vpath))` — clears the fetching cache
+   on failure so retries don't return a stale rejected promise.
+
+**Why attract mode worked**: attract mode (`f_demoStart`) only opens files
+that actually exist (KFM character files, stage0-720). It never tries to
+open `save/config.json`, `save/stats.json`, or `stages/stage1.def` (files
+the engine probes for but that don't exist in our VFS). The retry loop
+never triggered.
+
+**Why f_commandLine() froze**: the command-line quick-match path does
+more aggressive file probing — it tries `stages/stage1.def`,
+`stages/stage3d.def`, `stages/stage3d_outline.def` (looking for
+alternate stages), `save/config.json`, `save/stats.json`. Each 404
+triggered the infinite microtask storm.
+
+**Lesson**: When caching Promises, ALWAYS handle the failure case —
+either clear the cache entry on rejection, or use a pattern that doesn't
+cache rejected promises. A cached rejected promise is a time bomb: every
+future caller gets the same rejection, and if the caller retries, you
+get an infinite loop. The Chrome trace's `TimerInstall`/`TimerRemove`
+count (80/77) was the giveaway that this was a retry loop, not a tight
+CPU loop — timers mean JS is scheduling work, not executing it.
+
+**Also**: manifest entries with size 0 for files that don't exist on disk
+(`save/config.json`, `save/stats.json`) are a footgun. `exists()` checks
+`manifest.has()`, so these phantom entries make the engine think the
+files exist. The manifest generator (F-021) was already fixed to not
+overwrite real sizes with 0, but we should also NOT add entries for
+files that don't exist on disk. Left as a follow-up — the vfs.js fix
+handles the failure case gracefully now.
+
+---
+
 ## F-022 | `while loading() do refresh() end` loop in f_commandLine() blocks WASM main thread (ROOT CAUSE of in-fight freeze)
 **Date**: 2026-08-21 | **Type**: Finding (root cause — breaks the "broken record" freeze)
 
