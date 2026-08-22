@@ -146,6 +146,7 @@ export default function LocalPlayPage() {
             onCharChange={setP1Char}
             characters={allChars}
             ready={p1Ready}
+            onToggleReady={handleP1Confirm}
             accentColor="text-blue-400"
             borderColor={p1Ready ? 'border-blue-500' : 'border-white/10'}
             bgGlow={p1Ready ? 'rgba(59,130,246,0.1)' : 'transparent'}
@@ -163,6 +164,7 @@ export default function LocalPlayPage() {
             onCharChange={setP2Char}
             characters={allChars}
             ready={isP2Ai || p2Ready}
+            onToggleReady={handleP2Confirm}
             accentColor={isP2Ai ? 'text-yellow-400' : 'text-green-400'}
             borderColor={isP2Ai ? 'border-yellow-500/30' : p2Ready ? 'border-green-500' : 'border-white/10'}
             bgGlow={isP2Ai ? 'rgba(234,179,8,0.05)' : p2Ready ? 'rgba(34,197,94,0.1)' : 'transparent'}

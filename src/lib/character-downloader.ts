@@ -51,8 +51,9 @@ export async function fetchAssetsManifest(): Promise<AssetsManifest> {
   if (!res.ok) {
     throw new Error(`Failed to fetch Assets manifest: ${res.status}`);
   }
-  cachedManifest = await res.json();
-  return cachedManifest;
+  const manifest: AssetsManifest = await res.json();
+  cachedManifest = manifest;
+  return manifest;
 }
 
 /**
