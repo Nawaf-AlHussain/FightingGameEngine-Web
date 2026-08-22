@@ -1,16 +1,17 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
+import { getCharacters, getStages, type CharacterInfo, type StageInfo } from '@/lib/character-downloader';
 
-// Available characters from the VFS
-const CHARACTERS = [
-  { id: 'kfm', name: 'KUNG FU MAN', shortName: 'KFM' },
+// Bundled character (always available, no download needed)
+const BUNDLED_CHARS = [
+  { id: 'kfm', displayName: 'Kung Fu Man', shortName: 'KFM', sizeMB: 0, bundled: true },
 ] as const;
 
-// Available stages from the VFS
-const STAGES = [
-  { id: 'stages/stage0-720.def', name: 'STAGE 0' },
+// Bundled stage (always available)
+const BUNDLED_STAGES = [
+  { id: 'stages/stage0-720.def', displayName: 'Training Stage', bundled: true },
 ] as const;
 
 type GameMode = 'vs-ai' | 'vs-player' | 'training';
@@ -18,10 +19,39 @@ type GameMode = 'vs-ai' | 'vs-player' | 'training';
 export default function LocalPlayPage() {
   const router = useRouter();
 
+  // Character/stage roster (fetched from Assets CDN)
+  const [cdnChars, setCdnChars] = useState<CharacterInfo[]>([]);
+  const [cdnStages, setCdnStages] = useState<StageInfo[]>([]);
+  const [rosterLoading, setRosterLoading] = useState(true);
+  const [rosterError, setRosterError] = useState<string | null>(null);
+
+  // Combine bundled + CDN characters
+  const allChars = [
+    ...BUNDLED_CHARS.map(c => ({ id: c.id, displayName: c.displayName, shortName: c.shortName, sizeMB: c.sizeMB, bundled: true })),
+    ...cdnChars.map(c => ({ id: c.id, displayName: c.displayName, shortName: c.displayName.slice(0, 12), sizeMB: c.sizeMB, bundled: false })),
+  ];
+  const allStages = [
+    ...BUNDLED_STAGES.map(s => ({ id: s.id, displayName: s.displayName, bundled: true })),
+    ...cdnStages.map(s => ({ id: s.id, displayName: s.displayName, bundled: false })),
+  ];
+
+  useEffect(() => {
+    getCharacters().then(chars => {
+      setCdnChars(chars);
+      return getStages();
+    }).then(stages => {
+      setCdnStages(stages);
+      setRosterLoading(false);
+    }).catch(e => {
+      setRosterError(e.message);
+      setRosterLoading(false);
+    });
+  }, []);
+
   const [mode, setMode] = useState<GameMode>('vs-ai');
-  const [p1Char, setP1Char] = useState<string>(CHARACTERS[0].id);
-  const [p2Char, setP2Char] = useState<string>(CHARACTERS[0].id);
-  const [stage, setStage] = useState(STAGES[0].id);
+  const [p1Char, setP1Char] = useState<string>('kfm');
+  const [p2Char, setP2Char] = useState<string>('kfm');
+  const [stage, setStage] = useState('stages/stage0-720.def');
   const [p1Ready, setP1Ready] = useState(false);
   const [p2Ready, setP2Ready] = useState(false);
   const [aiLevel, setAiLevel] = useState(5);
@@ -75,6 +105,15 @@ export default function LocalPlayPage() {
         <div className="text-center mb-8">
           <h1 className="text-3xl md:text-4xl font-black text-white tracking-tight">SELECT YOUR FIGHTERS</h1>
           <div className="h-0.5 w-32 bg-red-500 mx-auto mt-3" />
+          {rosterLoading && (
+            <p className="text-gray-500 text-xs mt-3 font-mono animate-pulse">Loading roster from CDN...</p>
+          )}
+          {rosterError && (
+            <p className="text-red-500/60 text-xs mt-3 font-mono">CDN error: {rosterError}</p>
+          )}
+          {!rosterLoading && !rosterError && (
+            <p className="text-gray-600 text-xs mt-3 font-mono">{allChars.length} characters · {allStages.length} stages</p>
+          )}
         </div>
 
         {/* Mode Selection */}
@@ -105,9 +144,8 @@ export default function LocalPlayPage() {
             label="P1"
             charId={p1Char}
             onCharChange={setP1Char}
-            characters={CHARACTERS}
+            characters={allChars}
             ready={p1Ready}
-            onToggleReady={handleP1Confirm}
             accentColor="text-blue-400"
             borderColor={p1Ready ? 'border-blue-500' : 'border-white/10'}
             bgGlow={p1Ready ? 'rgba(59,130,246,0.1)' : 'transparent'}
@@ -123,9 +161,8 @@ export default function LocalPlayPage() {
             label="P2"
             charId={p2Char}
             onCharChange={setP2Char}
-            characters={CHARACTERS}
+            characters={allChars}
             ready={isP2Ai || p2Ready}
-            onToggleReady={handleP2Confirm}
             accentColor={isP2Ai ? 'text-yellow-400' : 'text-green-400'}
             borderColor={isP2Ai ? 'border-yellow-500/30' : p2Ready ? 'border-green-500' : 'border-white/10'}
             bgGlow={isP2Ai ? 'rgba(234,179,8,0.05)' : p2Ready ? 'rgba(34,197,94,0.1)' : 'transparent'}
@@ -156,20 +193,20 @@ export default function LocalPlayPage() {
         )}
 
         {/* Stage Selection */}
-        <div className="flex justify-center items-center gap-4 mb-8">
+        <div className="flex justify-center items-center gap-4 mb-8 flex-wrap">
           <span className="text-gray-400 text-sm tracking-wider font-bold">STAGE</span>
-          <div className="flex gap-2">
-            {STAGES.map(s => (
+          <div className="flex gap-2 flex-wrap justify-center max-w-2xl">
+            {allStages.map(s => (
               <button
                 key={s.id}
                 onClick={() => setStage(s.id)}
-                className={`px-4 py-2 text-sm font-bold border transition-all duration-200 cursor-pointer ${
+                className={`px-3 py-2 text-xs font-bold border transition-all duration-200 cursor-pointer ${
                   stage === s.id
                     ? 'border-white/40 bg-white/10 text-white'
                     : 'border-white/10 text-gray-500 hover:border-white/20 hover:text-gray-300'
                 }`}
               >
-                {s.name}
+                {s.displayName}
               </button>
             ))}
           </div>
@@ -265,7 +302,7 @@ function PlayerSlot({
   label: string;
   charId: string;
   onCharChange: (id: string) => void;
-  characters: readonly { id: string; name: string; shortName: string }[];
+  characters: { id: string; displayName: string; shortName: string; sizeMB?: number; bundled?: boolean }[];
   ready: boolean;
   onToggleReady: () => void;
   accentColor: string;
@@ -287,8 +324,14 @@ function PlayerSlot({
           {char.shortName}
         </div>
         <div className={`text-xs tracking-wider ${ready ? 'text-gray-300' : 'text-gray-700'} font-mono`}>
-          {char.name}
+          {char.displayName}
         </div>
+        {char.sizeMB && char.sizeMB > 0 && !char.bundled && (
+          <div className="text-xs text-cyan-500/40 font-mono">{char.sizeMB} MB</div>
+        )}
+        {char.bundled && (
+          <div className="text-xs text-green-500/40 font-mono">bundled</div>
+        )}
         {subtitle && (
           <div className="text-xs text-yellow-500/60 font-bold tracking-wider mt-1">{subtitle}</div>
         )}

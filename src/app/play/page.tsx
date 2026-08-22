@@ -1,16 +1,17 @@
 'use client';
 import { useSearchParams } from 'next/navigation';
 import { useEffect, useRef, Suspense } from 'react';
+import { fetchAssetsManifest, downloadCharacter, downloadStage, getCharacterDefPath, getStageDefPath } from '@/lib/character-downloader';
 
 // This page loads the IKEMEN GO WASM engine and starts a fight directly,
 // bypassing the laggy menu (F-026) using the smooth game() path.
 //
 // How it works:
 // 1. React reads match params from URL (?p1=kfm&p2=kfm&stage=...&p2ai=5)
-// 2. Sets globalThis.ikemenQuickMatch = {p1, p2, stage, p2ai}
-// 3. Boots the engine normally (go.argv = ['ikemen'])
-// 4. main.lua checks for ikemenQuickMatch global and calls main.f_quickMatch()
-// 5. f_quickMatch() uses the same game() path as attract mode (smooth 60fps)
+// 2. Loads vfs.js, downloads any non-bundled characters from CDN
+// 3. Injects them into the VFS
+// 4. Boots the engine with -qp1/-qp2/-qstage CLI flags
+// 5. main.lua calls main.f_quickMatch() which uses the smooth game() path
 //
 // This avoids both:
 // - The laggy menu (GC pressure from unoptimized menu rendering — F-026)
@@ -181,14 +182,8 @@ function PlayPageInner() {
         };
 
         // Start WASM fetch immediately (don't await yet — runs in background)
+        // go.argv is set later (after CDN downloads) with resolved character paths
         const go = new (g.Go as any)();
-        go.argv = [
-          'ikemen',
-          '-qp1', p1,
-          '-qp2', p2,
-          '-qstage', stage,
-          '-qp2ai', String(p2ai),
-        ];
         go.env = { GOGC: '100', GOMEMLIMIT: '800MiB' };
 
         const wasmUrl = '/game/ikemen.wasm';
@@ -219,7 +214,80 @@ function PlayPageInner() {
 
         if (cancelled) return;
 
+        // --- 8. Download non-bundled characters/stages from CDN ---
+        // KFM and stage0-720 are bundled in game.pak — skip download.
+        // Other characters are fetched from jsDelivr CDN and injected into VFS.
+        let p1Path = p1; // default: assume p1 is a VFS path (e.g. 'kfm')
+        let p2Path = p2;
+        let stagePath = stage;
+
+        // Check if p1/p2 are character IDs from the Assets manifest
+        // (vs bundled characters like 'kfm')
+        const isBundledChar = (id: string) => id === 'kfm';
+        const isBundledStage = (s: string) => s === 'stages/stage0-720.def';
+
+        if (!isBundledChar(p1) || !isBundledChar(p2) || !isBundledStage(stage)) {
+          log('Fetching character roster from CDN...');
+          const manifest = await fetchAssetsManifest();
+
+          // Download P1 if not bundled
+          if (!isBundledChar(p1)) {
+            const char = manifest.characters.find(c => c.id === p1);
+            if (char) {
+              log(`Downloading P1: ${char.displayName} (~${char.sizeMB} MB)...`);
+              await downloadCharacter(char, (pct, msg) => {
+                setBootLine('[P1] ', `${msg} (${pct}%)`);
+              });
+              p1Path = getCharacterDefPath(char);
+              log(`P1 ready: ${p1Path}`);
+            } else {
+              log(`ERROR: Character "${p1}" not found in manifest`);
+            }
+          }
+
+          // Download P2 if not bundled
+          if (!isBundledChar(p2)) {
+            const char = manifest.characters.find(c => c.id === p2);
+            if (char) {
+              log(`Downloading P2: ${char.displayName} (~${char.sizeMB} MB)...`);
+              await downloadCharacter(char, (pct, msg) => {
+                setBootLine('[P2] ', `${msg} (${pct}%)`);
+              });
+              p2Path = getCharacterDefPath(char);
+              log(`P2 ready: ${p2Path}`);
+            } else {
+              log(`ERROR: Character "${p2}" not found in manifest`);
+            }
+          }
+
+          // Download stage if not bundled
+          if (!isBundledStage(stage)) {
+            const stg = manifest.stages.find(s => s.id === stage);
+            if (stg) {
+              log(`Downloading stage: ${stg.displayName} (~${stg.sizeMB} MB)...`);
+              await downloadStage(stg, (pct, msg) => {
+                setBootLine('[STAGE] ', `${msg} (${pct}%)`);
+              });
+              stagePath = getStageDefPath(stg);
+              log(`Stage ready: ${stagePath}`);
+            } else {
+              log(`ERROR: Stage "${stage}" not found in manifest, using default`);
+              stagePath = 'stages/stage0-720.def';
+            }
+          }
+        }
+
+        if (cancelled) return;
+
+        // --- 9. Build go.argv with the resolved character/stage paths ---
         log('Engine starting... (quick match, bypassing menu)');
+        go.argv = [
+          'ikemen',
+          '-qp1', p1Path,
+          '-qp2', p2Path,
+          '-qstage', stagePath,
+          '-qp2ai', String(p2ai),
+        ];
 
         // Hide the boot log once the engine starts
         if (boot) {
