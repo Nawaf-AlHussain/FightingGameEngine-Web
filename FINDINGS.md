@@ -6,6 +6,65 @@ Format: newest entries at the top. Each entry gets a unique ID for cross-referen
 
 ---
 
+## F-028 | f_quickMatch breakthrough — fights now work smoothly
+**Date**: 2026-08-22 | **Type**: Breakthrough (working fights!)
+
+After Claude's review (F-027) identified two critical bugs:
+1. `ikemenQuickMatch` JS global was never accessible from Lua
+2. `time.Sleep(0)` was a no-op (F-027)
+
+...and I fixed the `clearSelected()` ordering bug, **fights now work**.
+
+**What works**:
+- React character select → FIGHT → engine boots via `f_quickMatch()`
+- Fights run at smooth 60fps using the optimized `game()` path
+- No menu freeze (menu is never rendered)
+- Player input works (WASD/UIO/JKL for P1, arrows/numpad for P2)
+- AI opponent works (configurable level 1-8)
+- After fight ends, auto-redirects back to character select
+
+**The three fixes that made it work** (all needed):
+1. CLI args: `go.argv = ['ikemen', '-qp1', 'kfm', '-qp2', 'kfm', ...]` — Lua reads via `getCommandLineValue("-qp1")`
+2. `time.Sleep(1 * time.Millisecond)` in frame-skip default case (was `Sleep(0)` = no-op)
+3. `clearSelected()` BEFORE `selectChar()` (was after, wiping the selection)
+
+**Lesson**: When a system has multiple bugs, fixing them one at a time can mask progress. The f_quickMatch approach was correct from the start (F-026), but three independent bugs prevented it from working. Each bug had to be fixed before the system could function. Claude's external review caught two of the three that I had missed.
+
+---
+
+## F-029 | .pak bundling — 1 HTTP request instead of 48
+**Date**: 2026-08-22 | **Type**: Breakthrough (load time optimization)
+
+Bundled essential VFS files into a single `game.pak` file (10.7 MB), loaded in one HTTP request with streaming progress. Previously: 48 individual HTTP requests.
+
+**Comparison with Dolmexica** (the old engine that loaded fast):
+| | Dolmexica | IKEMEN before | IKEMEN after |
+|---|---|---|---|
+| Engine binary | 4.6 MB | 23.1 MB | 23.1 MB (cached) |
+| Data loading | 1 file (14.4 MB) | 48 files (10 MB) | 1 file (10.7 MB) |
+| HTTP requests | 2 | 49 | 2 |
+| Caching | Permanent | no-cache | immutable |
+
+**vfs.js already had .pak support** — the `ikemenVfsInit` function checks for `data.pack` in the manifest and loads the pack file if present. I just had to:
+1. Write `scripts/generate-pak.js` to bundle files
+2. Generate the packed manifest format: `{pack: 'game.pak', stamp, files: {vpath: [offset, length]}}`
+3. Add immutable cache headers (`max-age=31536000`) for .pak and .wasm
+
+**Remaining load time**: WASM (23 MB) + .pak (10.7 MB) = ~34 MB on first load. On repeat visits, both are cached — near-instant. The `stamp` query param busts cache on rebuild.
+
+---
+
+## F-030 | Lazy file registration caused in-game lag (mistake)
+**Date**: 2026-08-22 | **Type**: Mistake
+
+When implementing .pak bundling (F-029), I registered 77 non-essential files (system.sff, system.snd, icons, fonts) as "lazy" entries in the VFS manifest. This made `exists('data/ikemen1/system.sff')` return `true`, so the engine tried to fetch the 9.2 MB system.sff **synchronously during gameplay** — causing massive freezes.
+
+**Fix**: Removed lazy file registration entirely. Now `exists()` returns `false` for menu-only assets, and the engine skips them (correct — we don't use menus). The `lazy` field stays in the manifest for documentation but is intentionally not processed.
+
+**Lesson**: Registering a file in the VFS manifest is not free — it tells the engine "this file exists, fetch it if you need it." If the engine decides it needs it mid-fight, you get a synchronous 9 MB HTTP fetch = freeze. Only register files you actually want the engine to access.
+
+---
+
 ## F-027 | time.Sleep(0) is a no-op in Go — F-025's frame-skip yield was dead code
 **Date**: 2026-08-22 | **Type**: Mistake (identified by Claude's review)
 

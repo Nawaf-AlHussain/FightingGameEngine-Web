@@ -4,12 +4,16 @@
 
 **Replace the Dolmexica Infinite WASM engine with IKEMEN GO v2 WASM, keeping the best UI from FightingGameEngine-Demo and the 85+ character roster from FightingGameEngine/Assets.**
 
-## CURRENT STATE (August 22, 2026)
+## CURRENT STATE (August 22, 2026) — ✅ FIGHTS WORKING
 
-- ✅ Engine boots normally, attract mode runs at smooth 60fps
-- ❌ Engine menus freeze after a few seconds (GC pressure — F-026)
-- ❌ Cannot start fights through the engine's own menu (too laggy)
-- 🔄 Need a way to start fights that bypasses the menu but uses the smooth game() path
+- ✅ Engine boots via f_quickMatch (smooth game() path, no menu freeze)
+- ✅ Fights run at 60fps
+- ✅ React character select (mode, characters, stage, AI level, resolution)
+- ✅ Player input works (keyboard)
+- ✅ AI opponent works (level 1-8)
+- ✅ .pak bundling (1 HTTP request, 10.7 MB)
+- ✅ Immutable caching (repeat visits near-instant)
+- ✅ Resolution toggle (480p / 4:3 / 16:9)
 
 ---
 
@@ -19,39 +23,31 @@
 - [x] Extract engine JS files from WebMUGEN modding kit v1.7
 - [x] Copy engine data files from energyjp source
 - [x] Set up Next.js 16 project with App Router + TypeScript + Tailwind CSS 4
-- [x] Create VFS manifest generator
-- [x] Create API routes for VFS manifest and file serving
+- [x] Create VFS manifest generator + .pak bundler
 - [x] Build `/play` page with WASM loader
-- [x] Configure `vercel.json` with WASM MIME type + cache headers
+- [x] Configure `vercel.json` with WASM MIME type + immutable cache headers
 - [x] Get screenpack files (system.sff, system.snd, motif)
 - [x] Generate default `save/config.ini`
-- [x] Deploy to Vercel and test engine boot
-- [x] Verify 60 FPS in attract mode
+- [x] Deploy to Vercel
 
 ---
 
-## Phase 1 — Core Playable (IN PROGRESS)
+## Phase 1 — Core Playable (MOSTLY COMPLETE)
 
-### Architecture
-- [x] Engine boots normally (title screen → attract mode → menus → fight)
-- [x] Attract mode runs smoothly (60fps)
-- [ ] **Menu bypass: start fights without using the engine's laggy menu**
-  - [ ] Modify main.lua attract mode to detect keypress and start a fight directly
-  - [ ] Use `main.f_demoStart()` pattern (which uses smooth `game()` path)
-  - [ ] Allow character/stage selection via React UI, pass to engine via global variables
+### ✅ Done
+- [x] Engine boots via f_quickMatch (bypasses laggy menu)
+- [x] Fights run at smooth 60fps using optimized game() path
+- [x] React character select (mode, P1/P2, stage, AI level, resolution)
+- [x] Player input (WASD/UIO/JKL for P1, arrows/numpad for P2)
+- [x] AI opponent (level 1-8)
+- [x] Resolution toggle (480p / 4:3 / 16:9)
+- [x] .pak bundling (1 HTTP request instead of 48)
+- [x] Immutable caching
+- [x] Auto-redirect after fight
 
-### Performance fixes applied
-- [x] vfs.js Promise cache fix (F-023) — prevents microtask storms on missing files
-- [x] Static VFS file serving — faster boot, no serverless cold starts
-- [x] Manifest generator fix (F-021) — correct file sizes
-- [x] WASM rebuilt with frame-skip yield (F-025) — time.Sleep(0) in await() default case
-- [x] WASM rebuilt with loader Gosched (F-025) — runtime.Gosched() after character loads
-- [x] config.ini: RollbackNetcode=0, VSync=0, TickInterpolation=0
-
-### Remaining Phase 1
-- [ ] **Menu bypass implementation** (BLOCKING — can't start fights without this)
-- [ ] Test fight input (WASD/UIO/JKL) — blocked until fights can be started
-- [ ] Disable native pause menu (EscOpensMenu=0)
+### 🔲 Remaining
+- [ ] Disable native pause menu (EscOpensMenu=0 in config.ini)
+- [ ] Add Escape key to quit fight (navigate back to /local)
 - [ ] Clone the Persona 5 UI from FightingGameEngine-Demo
 - [ ] Touch controls for mobile
 
@@ -60,7 +56,7 @@
 ## Phase 2 — Asset Pipeline (NOT STARTED)
 
 - [ ] Point VFS file route to jsDelivr CDN for character/stage files
-- [ ] Character download & caching system
+- [ ] Character download & caching system (IndexedDB)
 - [ ] Stage download & caching
 - [ ] Music download & caching
 - [ ] Handle large characters (50MB+) gracefully
@@ -86,7 +82,6 @@
 - [ ] Room/lobby system
 - [ ] Build ID verification
 - [ ] Desync detection and reporting
-- [ ] Online identity
 
 ---
 
@@ -100,20 +95,33 @@
 
 ---
 
+## Potential Future Optimizations (NOT YET DONE)
+
+- [ ] **Parallel loading**: Fetch WASM and .pak simultaneously (currently sequential)
+- [ ] **WASM compression**: Brotli/gzip on the 23 MB WASM (Vercel may already do this)
+- [ ] **Service Worker**: Offline support + background cache warming
+- [ ] **WASM in Web Worker**: Prevent any main-thread blocking (major architectural change)
+
+---
+
 ## Key Findings Summary
 
 | ID | Status | Summary |
 |----|--------|---------|
-| F-007 | ✅ Corrected | Arena stub was NOT needed — energyjp fork uses GOEXPERIMENT=arenas |
-| F-018 | ✅ Fixed | BootLoadingMode=0 freeze — fixed with BootLoadingMode=1 |
-| F-019 | ❌ Wrong | RollbackNetcode was already 0 via VFS patch (F-020) |
-| F-020 | ✅ Documented | VFS patches RollbackNetcode at boot, config.ini value is ignored |
-| F-021 | ✅ Fixed | Manifest generator was overwriting real file sizes with 0 |
-| F-022 | ❌ Not root cause | while-loading loop removed but freeze persisted |
-| F-023 | ✅ Fixed | vfs.js Promise cache storm — fixed with catch handler + manifest delete |
-| F-024 | ✅ Fixed | Frame-skip tight loop — fixed with time.Sleep(0) in WASM (F-025) |
-| F-025 | ✅ Applied | WASM rebuilt with frame-skip yield + loader Gosched |
-| **F-026** | **🔄 Current** | **Menu freezes after a few seconds — GC pressure from unoptimized menu rendering** |
+| F-007 | ✅ Corrected | Arena stub was NOT needed — GOEXPERIMENT=arenas |
+| F-018 | ✅ Fixed | BootLoadingMode=0 freeze |
+| F-019 | ❌ Wrong | RollbackNetcode was already 0 via VFS patch |
+| F-020 | ✅ Documented | VFS patches RollbackNetcode at boot |
+| F-021 | ✅ Fixed | Manifest generator overwrote file sizes with 0 |
+| F-022 | ❌ Not root cause | while-loading loop removed, freeze persisted |
+| F-023 | ✅ Fixed | vfs.js Promise cache storm |
+| F-024 | ✅ Fixed | Frame-skip tight loop |
+| F-025 | ✅ Applied | WASM rebuilt with yield fixes |
+| F-026 | ✅ Understood | Menu freezes due to GC pressure |
+| F-027 | ✅ Fixed | time.Sleep(0) was no-op (Claude caught it) |
+| **F-028** | **✅ Breakthrough** | **f_quickMatch works — fights playable!** |
+| **F-029** | **✅ Breakthrough** | **.pak bundling — 1 HTTP request instead of 48** |
+| F-030 | ✅ Fixed | Lazy file registration caused in-game lag |
 
 ---
 
