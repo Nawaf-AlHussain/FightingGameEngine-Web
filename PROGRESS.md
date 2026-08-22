@@ -1,5 +1,38 @@
 # PROGRESS — Fighting Game Engine Web
 
+## Session: August 22, 2026 (Final) — Phase 2 complete, 85 characters working
+
+### Work Done
+
+#### CDN character pipeline working (F-029, F-031, F-032)
+- Characters download from GitHub raw via /api/cdn/ proxy (jsDelivr 403s on some files)
+- Files injected into VFS via new ikemenInjectFile() API
+- addChar() expects character ID, not full path (fixed c048ceb)
+- Lenient state controller parsing — empty [State] blocks skipped instead of crashing (F-032)
+- All 85 characters from Assets repo now accessible
+
+#### What works
+- ✅ KFM (bundled) — instant load
+- ✅ CDN characters (Bardock, Nightwing, etc.) — download from CDN, inject into VFS
+- ✅ CDN stages (DU_Campus, UIU_Fountain, etc.)
+- ✅ Character select shows full 85-character roster from Assets manifest
+- ✅ Progress display during CDN download
+- ✅ Browser caching of CDN files (force-cache)
+
+### Current Status — FULLY WORKING
+- ✅ Fights work smoothly (60fps via f_quickMatch + game() path)
+- ✅ 85 characters + 5 stages available from CDN
+- ✅ React character select with mode/character/stage/AI/resolution selection
+- ✅ .pak bundling + parallel WASM/pak loading
+- ✅ Immutable caching
+- ✅ Resolution toggle (480p / 4:3 / 16:9)
+
+### Known Issues
+- Some characters/stages may feel laggy (larger sprites = more GPU work)
+- Some characters may have visual glitches (IKEMEN compatibility edge cases)
+
+---
+
 ## Session: August 22, 2026 (Late) — FIGHTS WORKING + .pak optimization (F-028 through F-030)
 
 ### Work Done
