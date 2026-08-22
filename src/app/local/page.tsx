@@ -25,7 +25,7 @@ export default function LocalPlayPage() {
   const [p1Ready, setP1Ready] = useState(false);
   const [p2Ready, setP2Ready] = useState(false);
   const [aiLevel, setAiLevel] = useState(5);
-  const [aspect, setAspect] = useState<'16:9' | '4:3'>('16:9');
+  const [aspect, setAspect] = useState<'16:9' | '4:3' | 'low'>('4:3');
 
   const isP2Ai = mode === 'vs-ai' || mode === 'training';
 
@@ -175,26 +175,30 @@ export default function LocalPlayPage() {
           </div>
         </div>
 
-        {/* Aspect Ratio Toggle */}
+        {/* Resolution Toggle */}
         <div className="flex justify-center items-center gap-4 mb-12">
-          <span className="text-gray-400 text-sm tracking-wider font-bold">ASPECT</span>
+          <span className="text-gray-400 text-sm tracking-wider font-bold">RES</span>
           <div className="flex gap-2">
-            {(['16:9', '4:3'] as const).map(a => (
+            {([
+              { id: 'low' as const, label: '480p', hint: 'fastest' },
+              { id: '4:3' as const, label: '4:3', hint: '640×480' },
+              { id: '16:9' as const, label: '16:9', hint: '1280×720' },
+            ]).map(r => (
               <button
-                key={a}
-                onClick={() => setAspect(a)}
+                key={r.id}
+                onClick={() => setAspect(r.id)}
                 className={`px-4 py-2 text-sm font-bold border transition-all duration-200 cursor-pointer ${
-                  aspect === a
+                  aspect === r.id
                     ? 'border-cyan-500 bg-cyan-500/10 text-cyan-400'
                     : 'border-white/10 text-gray-500 hover:border-white/20 hover:text-gray-300'
                 }`}
               >
-                {a}
+                {r.label}
               </button>
             ))}
           </div>
           <span className="text-gray-700 text-xs font-mono ml-2">
-            {aspect === '4:3' ? '(faster)' : '(higher res)'}
+            {aspect === 'low' ? '(320×240, fastest)' : aspect === '4:3' ? '(640×480, balanced)' : '(1280×720, highest)'}
           </span>
         </div>
 
