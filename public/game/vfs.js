@@ -525,14 +525,12 @@
         packedIndex.set(vpath, length);
         registerDirsFor(vpath);
       }
-      // Register lazy files (menu assets not in .pak) so exists() returns true
-      // and fetchFile() can load them on demand.
-      if (data.lazy) {
-        for (const [vpath, size] of Object.entries(data.lazy)) {
-          manifest.set(vpath, size);
-          registerDirsFor(vpath);
-        }
-      }
+      // NOTE: Do NOT register lazy files (data.lazy) in the manifest.
+      // If we did, exists() would return true for system.sff (9.2 MB),
+      // system.snd (3.7 MB), etc., and the engine would try to fetch them
+      // synchronously during gameplay, causing massive freezes.
+      // By leaving them unregistered, exists() returns false, and the
+      // engine skips them (which is correct — we don't use menus).
     } else {
       for (const [vpath, size] of Object.entries(data.files)) {
         manifest.set(vpath, size);
