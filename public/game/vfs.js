@@ -399,6 +399,23 @@
     },
   };
 
+  // --- CDN asset injection (Phase 2) ---------------------------------
+  // Injects files downloaded from jsDelivr CDN directly into the in-memory
+  // VFS before the engine boots. Used for characters/stages that aren't
+  // bundled in game.pak. Must be called AFTER ikemenVfsInit completes.
+  globalThis.ikemenInjectFile = function (vpath, u8) {
+    const buf = u8 instanceof Uint8Array ? u8 : new Uint8Array(u8);
+    contents.set(vpath, buf);
+    manifest.set(vpath, buf.length);
+    packedIndex.set(vpath, buf.length);
+    registerDirsFor(vpath);
+  };
+
+  // Check if a file is already in the VFS (from .pak or injected)
+  globalThis.ikemenHasFile = function (vpath) {
+    return contents.has(vpath) || manifest.has(vpath) || packedIndex.has(vpath);
+  };
+
   // --- Mods overlay (in-browser modding) ------------------------------
   // User-added files live in IndexedDB and are layered ON TOP of game.pak at
   // load, so a browser-only build (e.g. on itch.io, no server) can gain
