@@ -3563,7 +3563,7 @@ function main.f_quickMatch(params)
 	setCredits(-1)
 	modifyGameOption('Config.BootLoadingMode', 1)
 	loadFightScreen()
-	-- Add and select P1 (human)
+	-- Add characters (must be done before clearSelected/selectChar)
 	local p1char = params.p1 or 'kfm'
 	local p1ref = main.t_charDef[p1char:lower()]
 	if p1ref == nil then
@@ -3571,10 +3571,6 @@ function main.f_quickMatch(params)
 		p1ref = #main.t_selChars
 		main.t_charDef[p1char:lower()] = p1ref
 	end
-	selectChar(1, p1ref, 1)
-	setCom(1, 0) -- P1 is human
-	remapInput(1, 1)
-	-- Add and select P2 (AI or human)
 	local p2char = params.p2 or 'kfm'
 	local p2ref = main.t_charDef[p2char:lower()]
 	if p2ref == nil then
@@ -3582,15 +3578,7 @@ function main.f_quickMatch(params)
 		p2ref = #main.t_selChars
 		main.t_charDef[p2char:lower()] = p2ref
 	end
-	selectChar(2, p2ref, 1)
-	local p2ai = tonumber(params.p2ai or '5')
-	if p2ai and p2ai > 0 then
-		setCom(2, p2ai) -- P2 is AI
-	else
-		setCom(2, 0) -- P2 is human
-	end
-	remapInput(2, 2)
-	-- Add and select stage
+	-- Add stage
 	local stage = params.stage or 'stages/stage0-720.def'
 	local stageRef = main.t_stageDef[stage:lower()]
 	if stageRef == nil then
@@ -3602,12 +3590,25 @@ function main.f_quickMatch(params)
 			main.t_stageDef[stage:lower()] = stageRef
 		end
 	end
-	selectStage(stageRef)
-	-- Set team modes (single vs single)
-	setTeamMode(1, 0, 1)
-	setTeamMode(2, 0, 1)
+	-- Clear selection, then select stage and characters (order matters!)
 	clearSelected()
 	setMatchNo(1)
+	selectStage(stageRef)
+	setTeamMode(1, 0, 1)
+	setTeamMode(2, 0, 1)
+	-- Select P1 (human)
+	selectChar(1, p1ref, 1)
+	setCom(1, 0)
+	remapInput(1, 1)
+	-- Select P2 (AI or human)
+	selectChar(2, p2ref, 1)
+	local p2ai = tonumber(params.p2ai or '5')
+	if p2ai and p2ai > 0 then
+		setCom(2, p2ai)
+	else
+		setCom(2, 0)
+	end
+	remapInput(2, 2)
 	-- Set round time (default 99)
 	local frames = fightScreenVar("time.framespercount")
 	setRoundTime(math.max(-1, (params.time or 99) * frames))
