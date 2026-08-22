@@ -590,8 +590,12 @@
     // from its own backing store, which the engine sizes from these, so the
     // letterboxing follows without a second setting to keep in step.
     try {
-      const wide = globalThis.ikemenAspect === '16:9';
-      const w = wide ? 1280 : 640, h = wide ? 720 : 480;
+      // Support either a preset ('16:9'/'4:3') or explicit {w,h} from JS.
+      // Custom resolutions let users balance quality vs performance.
+      let w = 1280, h = 720; // default 16:9
+      const a = globalThis.ikemenAspect;
+      if (a === '4:3') { w = 640; h = 480; }
+      else if (a && typeof a === 'object') { w = a.w | 0; h = a.h | 0; }
       const cfg = contents.get('save/config.ini');
       if (cfg) {
         const text = new TextDecoder().decode(cfg);
