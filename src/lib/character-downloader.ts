@@ -1,14 +1,19 @@
-// Character/stage downloader — fetches files from jsDelivr CDN (FightingGameEngine/Assets repo)
-// and injects them into the IKEMEN VFS before the engine boots.
+// Character/stage downloader — fetches files from our CDN proxy (which
+// fetches from GitHub raw) and injects them into the IKEMEN VFS.
+//
+// We use a Vercel serverless proxy (/api/cdn/) instead of jsDelivr directly
+// because jsDelivr returns 403 for some files (especially with '!' in names),
+// and raw.githubusercontent.com doesn't set CORS headers for browser fetch.
 //
 // Flow:
 // 1. User selects character on /local page
-// 2. React fetches the Assets manifest from GitHub raw
-// 3. When user clicks FIGHT, we download all character files from CDN
+// 2. React fetches the Assets manifest from jsDelivr CDN (small JSON, works)
+// 3. When user clicks FIGHT, we download all character files via /api/cdn/
 // 4. Inject each file into the VFS via globalThis.ikemenInjectFile()
 // 5. Engine boots and reads the character from VFS as if it were local
 
 const ASSETS_MANIFEST_URL = 'https://cdn.jsdelivr.net/gh/FightingGameEngine/Assets@main/manifest.json';
+const CDN_PROXY_BASE = '/api/cdn/';
 
 export interface CharacterInfo {
   id: string;
@@ -96,9 +101,8 @@ export async function downloadCharacter(
     const batch = files.slice(i, i + BATCH_SIZE);
 
     await Promise.all(batch.map(async (filename) => {
-      const url = char.cdnBase + filename;
+      const url = CDN_PROXY_BASE + 'chars/' + char.id + '/' + filename;
       // Character files go into chars/<id>/ in the VFS
-      // The engine expects: chars/<charname>/<filename>
       const vpath = `chars/${char.id}/${filename}`;
 
       // Skip if already in VFS (e.g., from a previous download)
@@ -150,7 +154,7 @@ export async function downloadStage(
   onProgress?.(0, `Downloading ${stage.displayName}...`);
 
   await Promise.all(files.map(async (filename) => {
-    const url = stage.cdnBase + filename;
+    const url = CDN_PROXY_BASE + 'stages/' + filename;
     // Stage files go into stages/ in the VFS
     const vpath = `stages/${filename}`;
 
