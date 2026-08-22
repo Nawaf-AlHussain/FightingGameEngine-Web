@@ -112,7 +112,10 @@ export default function LocalPlayPage() {
             <p className="text-red-500/60 text-xs mt-3 font-mono">CDN error: {rosterError}</p>
           )}
           {!rosterLoading && !rosterError && (
-            <p className="text-gray-600 text-xs mt-3 font-mono">{allChars.length} characters · {allStages.length} stages</p>
+            <p className="text-gray-600 text-xs mt-3 font-mono">
+              {allChars.length} characters · {allStages.length} stages
+              <span className="text-gray-700 ml-2">(some chars may have compatibility issues — try KFM or Bardock if others fail)</span>
+            </p>
           )}
         </div>
 
