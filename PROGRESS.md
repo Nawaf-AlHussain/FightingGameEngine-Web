@@ -1,5 +1,45 @@
 # PROGRESS — Fighting Game Engine Web
 
+## Session: August 22, 2026 (Late) — FIGHTS WORKING + .pak optimization (F-028 through F-030)
+
+### Work Done
+
+#### FIGHTS NOW WORK (F-028) — the breakthrough
+After Claude's review identified two bugs I missed, and I fixed a third, fights finally work:
+1. **CLI args fix**: `ikemenQuickMatch` JS global was never accessible from Lua. Fixed by using `-qp1`/`-qp2`/`-qstage`/`-qp2ai` CLI flags via `go.argv`
+2. **Sleep(0) fix**: `time.Sleep(0)` is a no-op in Go (returns immediately for d≤0). Changed to `time.Sleep(1 * time.Millisecond)` — required WASM rebuild
+3. **clearSelected() order**: Was called AFTER selectChar(), wiping the selection. Moved before.
+
+Result: React char select → FIGHT → engine boots via f_quickMatch → smooth 60fps fight → auto-redirect back to char select. **Fully playable.**
+
+#### .pak bundling (F-029) — 1 HTTP request instead of 48
+Bundled 57 essential files into `game.pak` (10.7 MB), loaded in one streaming HTTP request. Previously: 48 individual requests. vfs.js already had .pak support built in — just needed the generator script and manifest format.
+
+Added immutable cache headers (`max-age=31536000`) for .pak and .wasm. The `stamp` query param busts cache on rebuild. On repeat visits, near-instant load (cached).
+
+#### Lazy file registration mistake (F-030)
+Initial .pak implementation registered 77 non-essential files as "lazy" in the manifest. This made `exists('system.sff')` return true → engine tried to fetch 9.2 MB mid-fight → massive lag. Fixed by removing lazy registration entirely.
+
+#### Resolution toggle
+Added 480p (320×240) / 4:3 (640×480) / 16:9 (1280×720) options in character select. Updated vfs.js to support arbitrary `{w, h}` resolutions. Default is 4:3 (balanced).
+
+### Current Status — WORKING
+- ✅ Fights work smoothly (60fps via f_quickMatch + game() path)
+- ✅ React character select with mode/character/stage/AI/resolution selection
+- ✅ .pak bundling (1 HTTP request, 10.7 MB)
+- ✅ Immutable caching (repeat visits near-instant)
+- ✅ Resolution toggle (480p / 4:3 / 16:9)
+- ✅ Player input works (keyboard)
+- ✅ AI opponent works (level 1-8)
+- ✅ Auto-redirect after fight
+
+### Load Time
+- First load: ~34 MB (23 MB WASM + 10.7 MB .pak), 2 HTTP requests
+- Repeat load: near-instant (WASM + .pak cached, only 5 KB manifest revalidated)
+- Still slower than Dolmexica's first load (~19 MB) due to Go WASM being 5x larger than C++/Emscripten
+
+---
+
 ## Session: August 22, 2026 — Reverted to normal boot, identified menu GC freeze (F-026)
 
 ### Work Done
