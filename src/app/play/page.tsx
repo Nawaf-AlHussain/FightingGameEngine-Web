@@ -163,13 +163,12 @@ function PlayPageInner() {
         // 'low' (320×240) is 16x fewer pixels than 16:9 (1280×720).
         (g as any).ikemenAspect = ikemenAspect;
 
-        // --- 7. LOAD VFS (single .pak file, one HTTP request) ---
-        // All essential files are bundled into game.pak (9.9 MB) and loaded
-        // in a single HTTP request with streaming progress. This is much
-        // faster than 48 individual requests.
-        // Menu-only assets (19 MB) are registered as lazy and fetched on
-        // demand by vfs.js's background prefetch.
-        log('Loading game.pak (~10 MB, single request)...');
+        // --- 7. PARALLEL LOAD: VFS (.pak) + WASM simultaneously ---
+        // Both downloads start at the same time instead of sequentially.
+        // On a typical connection this saves ~40% of total load time:
+        //   Sequential: .pak (3s) + WASM (5s) = 8s
+        //   Parallel:   max(.pak, WASM)      = 5s
+        log('Loading game.pak + ikemen.wasm in parallel...');
 
         const setBootLine = (prefix: string, text: string) => {
           if (cancelled) return;
@@ -181,25 +180,7 @@ function PlayPageInner() {
           boot.scrollTop = boot.scrollHeight;
         };
 
-        const nFiles = await (g.ikemenVfsInit as any)(
-          '/game/ikemen-fs/manifest.json',
-          [],  // no preload list — .pak is loaded by ikemenVfsInit
-          (got: number, total: number) => {
-            if (cancelled) return;
-            const pct = total > 0 ? Math.round((got / total) * 100) : 0;
-            setBootLine('[LOAD] ', (got / 1e6).toFixed(1) + ' / ' + (total / 1e6).toFixed(1) + ' MB (' + pct + '%)');
-          }
-        );
-        log('VFS ready: ' + nFiles + ' files loaded from .pak.');
-
-        if (cancelled) return;
-
-        // --- 8. Build go.argv with custom CLI flags for f_quickMatch ---
-        // main.lua checks for -qp1 and -qp2 via getCommandLineValue() and
-        // calls main.f_quickMatch() which uses the smooth game() path.
-        // Custom flags work because Go's processCommandLine() parses any
-        // -flag value pair into sys.cmdFlags (no whitelist).
-        log('Loading and running WASM...');
+        // Start WASM fetch immediately (don't await yet — runs in background)
         const go = new (g.Go as any)();
         go.argv = [
           'ikemen',
@@ -211,17 +192,32 @@ function PlayPageInner() {
         go.env = { GOGC: '100', GOMEMLIMIT: '800MiB' };
 
         const wasmUrl = '/game/ikemen.wasm';
-        let result: WebAssembly.WebAssemblyInstantiatedSource;
-        try {
-          result = await WebAssembly.instantiateStreaming(
-            originalFetch(wasmUrl, { cache: 'no-cache' }),
-            go.importObject
-          );
-        } catch (e) {
+        const wasmPromise = WebAssembly.instantiateStreaming(
+          originalFetch(wasmUrl, { cache: 'no-cache' }),
+          go.importObject
+        ).catch(async () => {
+          // Fallback: buffered compile if streaming fails
           log('Streaming compile failed, buffering...');
           const bytes = await (await originalFetch(wasmUrl, { cache: 'no-cache' })).arrayBuffer();
-          result = await WebAssembly.instantiate(bytes, go.importObject);
-        }
+          return WebAssembly.instantiate(bytes, go.importObject);
+        });
+
+        // Start VFS (.pak) load — updates progress as it streams
+        const vfsPromise = (g.ikemenVfsInit as any)(
+          '/game/ikemen-fs/manifest.json',
+          [],
+          (got: number, total: number) => {
+            if (cancelled) return;
+            const pct = total > 0 ? Math.round((got / total) * 100) : 0;
+            setBootLine('[PAK] ', (got / 1e6).toFixed(1) + ' / ' + (total / 1e6).toFixed(1) + ' MB (' + pct + '%)');
+          }
+        );
+
+        // Await both in parallel
+        const [result, nFiles] = await Promise.all([wasmPromise, vfsPromise]);
+        log('VFS ready: ' + nFiles + ' files from .pak | WASM compiled.');
+
+        if (cancelled) return;
 
         log('Engine starting... (quick match, bypassing menu)');
 
