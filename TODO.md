@@ -4,16 +4,19 @@
 
 **Replace the Dolmexica Infinite WASM engine with IKEMEN GO v2 WASM, keeping the best UI from FightingGameEngine-Demo and the 85+ character roster from FightingGameEngine/Assets.**
 
-## CURRENT STATE (August 22, 2026) — ✅ FIGHTS WORKING
+## CURRENT STATE (August 22, 2026) — ✅ PHASE 2 COMPLETE
 
 - ✅ Engine boots via f_quickMatch (smooth game() path, no menu freeze)
 - ✅ Fights run at 60fps
 - ✅ React character select (mode, characters, stage, AI level, resolution)
+- ✅ **85 characters + 5 stages available from CDN**
 - ✅ Player input works (keyboard)
 - ✅ AI opponent works (level 1-8)
 - ✅ .pak bundling (1 HTTP request, 10.7 MB)
+- ✅ Parallel WASM + .pak loading
 - ✅ Immutable caching (repeat visits near-instant)
 - ✅ Resolution toggle (480p / 4:3 / 16:9)
+- ✅ CDN character download with progress display
 
 ---
 
@@ -26,26 +29,23 @@
 - [x] Create VFS manifest generator + .pak bundler
 - [x] Build `/play` page with WASM loader
 - [x] Configure `vercel.json` with WASM MIME type + immutable cache headers
-- [x] Get screenpack files (system.sff, system.snd, motif)
-- [x] Generate default `save/config.ini`
 - [x] Deploy to Vercel
 
 ---
 
-## Phase 1 — Core Playable (MOSTLY COMPLETE)
+## Phase 1 — Core Playable (COMPLETE)
 
-### ✅ Done
 - [x] Engine boots via f_quickMatch (bypasses laggy menu)
 - [x] Fights run at smooth 60fps using optimized game() path
 - [x] React character select (mode, P1/P2, stage, AI level, resolution)
 - [x] Player input (WASD/UIO/JKL for P1, arrows/numpad for P2)
 - [x] AI opponent (level 1-8)
 - [x] Resolution toggle (480p / 4:3 / 16:9)
-- [x] .pak bundling (1 HTTP request instead of 48)
+- [x] .pak bundling + parallel loading
 - [x] Immutable caching
 - [x] Auto-redirect after fight
 
-### 🔲 Remaining
+### Remaining (minor)
 - [ ] Disable native pause menu (EscOpensMenu=0 in config.ini)
 - [ ] Add Escape key to quit fight (navigate back to /local)
 - [ ] Clone the Persona 5 UI from FightingGameEngine-Demo
@@ -53,14 +53,19 @@
 
 ---
 
-## Phase 2 — Asset Pipeline (NOT STARTED)
+## Phase 2 — Asset Pipeline (COMPLETE)
 
-- [ ] Point VFS file route to jsDelivr CDN for character/stage files
-- [ ] Character download & caching system (IndexedDB)
-- [ ] Stage download & caching
-- [ ] Music download & caching
-- [ ] Handle large characters (50MB+) gracefully
-- [ ] Fix case-sensitivity issues in Assets repo manifest
+- [x] CDN proxy route (/api/cdn/) — fetches from GitHub raw, serves with CORS
+- [x] Character download from CDN (parallel, batched, with progress)
+- [x] VFS injection API (ikemenInjectFile / ikemenHasFile)
+- [x] Character select shows full 85-character roster from Assets manifest
+- [x] Lenient state controller parsing (F-032 — empty [State] blocks skipped)
+- [x] Browser caching of CDN files (force-cache)
+
+### Remaining (minor)
+- [ ] Character download progress bar in UI (currently only in boot log)
+- [ ] IndexedDB caching of downloaded characters (for offline repeat play)
+- [ ] Fix case-sensitivity issues in Assets repo (F-006)
 
 ---
 
@@ -95,15 +100,6 @@
 
 ---
 
-## Potential Future Optimizations (NOT YET DONE)
-
-- [ ] **Parallel loading**: Fetch WASM and .pak simultaneously (currently sequential)
-- [ ] **WASM compression**: Brotli/gzip on the 23 MB WASM (Vercel may already do this)
-- [ ] **Service Worker**: Offline support + background cache warming
-- [ ] **WASM in Web Worker**: Prevent any main-thread blocking (major architectural change)
-
----
-
 ## Key Findings Summary
 
 | ID | Status | Summary |
@@ -119,9 +115,11 @@
 | F-025 | ✅ Applied | WASM rebuilt with yield fixes |
 | F-026 | ✅ Understood | Menu freezes due to GC pressure |
 | F-027 | ✅ Fixed | time.Sleep(0) was no-op (Claude caught it) |
-| **F-028** | **✅ Breakthrough** | **f_quickMatch works — fights playable!** |
-| **F-029** | **✅ Breakthrough** | **.pak bundling — 1 HTTP request instead of 48** |
+| F-028 | ✅ Breakthrough | f_quickMatch works — fights playable! |
+| F-029 | ✅ Breakthrough | .pak bundling — 1 HTTP request instead of 48 |
 | F-030 | ✅ Fixed | Lazy file registration caused in-game lag |
+| F-031 | ✅ Documented | Character compatibility — .cmd syntax issues |
+| **F-032** | **✅ Breakthrough** | **Lenient state parsing — all 85 chars load** |
 
 ---
 

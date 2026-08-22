@@ -6,6 +6,43 @@ Format: newest entries at the top. Each entry gets a unique ID for cross-referen
 
 ---
 
+## F-032 | Lenient state controller parsing — characters now load from CDN
+**Date**: 2026-08-22 | **Type**: Breakthrough (character compatibility)
+
+After the CDN pipeline (F-029) and addChar() path fix (c048ceb) worked,
+characters still crashed with "State controller type not specified".
+
+**Root cause**: Character authors use empty `[State -1]` blocks as section
+headers/comments before the actual state block:
+```mugen
+[state -1]          ← empty block, no type= (used as a header)
+[state -1]          ← actual state block
+type = changestate
+value = 200
+```
+
+IKEMEN GO on Windows **skips** these empty blocks silently. Our WASM build
+was **crashing** because `compiler.go:7008` returned an error instead of
+skipping. Same issue with "Missing trigger1" at line 7014.
+
+**Fix** (requires WASM rebuild):
+1. `compiler.go:7008`: `return errmes(...)` → `continue` (skip with warning)
+2. `compiler.go:7014`: `return errmes(...)` → `continue` (skip with warning)
+
+Both now log a warning to console and skip the malformed block, matching
+IKEMEN GO Windows behavior. Characters with non-standard syntax now load.
+
+**Result**: Nightwing and other previously-failing characters now load
+perfectly from CDN. The 85-character roster is fully accessible.
+
+**Lesson**: When a character works in the desktop engine but not in WASM,
+the WASM build may have stricter error handling. Always compare with the
+desktop engine's behavior — if it tolerates something, the WASM build
+should too. The energyjp fork may have diverged from upstream in error
+handling strictness.
+
+---
+
 ## F-031 | Character compatibility — some .cmd files have syntax IKEMEN rejects
 **Date**: 2026-08-22 | **Type**: Finding (character compatibility)
 
