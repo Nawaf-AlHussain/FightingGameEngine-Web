@@ -4133,10 +4133,17 @@ end
 
 main.f_loadingRefresh()
 
--- Check for quick match params from JS (globalThis.ikemenQuickMatch)
+-- Check for quick match params via CLI args (-qp1, -qp2, etc.)
+-- JS passes these via go.argv. Custom flags work because Go's
+-- processCommandLine() parses any -flag value pair into sys.cmdFlags.
 -- This bypasses the laggy menu (F-026) and uses the smooth game() path.
-if ikemenQuickMatch ~= nil then
-	main.f_quickMatch(ikemenQuickMatch)
+if getCommandLineValue("-qp1") ~= nil and getCommandLineValue("-qp2") ~= nil then
+	main.f_quickMatch({
+		p1 = getCommandLineValue("-qp1"),
+		p2 = getCommandLineValue("-qp2"),
+		stage = getCommandLineValue("-qstage"),
+		p2ai = getCommandLineValue("-qp2ai"),
+	})
 elseif motif.attract_mode.enabled then
 	main.f_attractMode()
 else

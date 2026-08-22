@@ -183,16 +183,20 @@ function PlayPageInner() {
 
         if (cancelled) return;
 
-        // --- 8. Set quick match params for main.lua ---
-        // main.lua checks for this global and calls main.f_quickMatch()
-        // which uses the smooth game() path (like attract mode).
-        g.ikemenQuickMatch = { p1, p2, stage, p2ai };
-        log('Quick match params set.');
-
-        // --- 9. Load and run WASM ---
-        log('Fetching IKEMEN GO WASM (~23 MB)...');
+        // --- 8. Build go.argv with custom CLI flags for f_quickMatch ---
+        // main.lua checks for -qp1 and -qp2 via getCommandLineValue() and
+        // calls main.f_quickMatch() which uses the smooth game() path.
+        // Custom flags work because Go's processCommandLine() parses any
+        // -flag value pair into sys.cmdFlags (no whitelist).
+        log('Loading and running WASM...');
         const go = new (g.Go as any)();
-        go.argv = ['ikemen'];
+        go.argv = [
+          'ikemen',
+          '-qp1', p1,
+          '-qp2', p2,
+          '-qstage', stage,
+          '-qp2ai', String(p2ai),
+        ];
         go.env = { GOGC: '100', GOMEMLIMIT: '800MiB' };
 
         const wasmUrl = '/game/ikemen.wasm';
