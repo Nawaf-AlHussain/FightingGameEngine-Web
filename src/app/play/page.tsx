@@ -1,7 +1,7 @@
 'use client';
 import { useSearchParams } from 'next/navigation';
 import { useEffect, useRef, Suspense } from 'react';
-import { fetchAssetsManifest, downloadCharacter, downloadStage, getCharacterDefPath, getStageDefPath } from '@/lib/character-downloader';
+import { fetchAssetsManifest, downloadCharacter, downloadStage, getStageDefPath } from '@/lib/character-downloader';
 
 // This page loads the IKEMEN GO WASM engine and starts a fight directly,
 // bypassing the laggy menu (F-026) using the smooth game() path.
@@ -217,12 +217,16 @@ function PlayPageInner() {
         // --- 8. Download non-bundled characters/stages from CDN ---
         // KFM and stage0-720 are bundled in game.pak — skip download.
         // Other characters are fetched from jsDelivr CDN and injected into VFS.
-        let p1Path = p1; // default: assume p1 is a VFS path (e.g. 'kfm')
+        //
+        // IMPORTANT: addChar() expects just the character ID (e.g. 'kfm' or
+        // '!Nightwing-o'), NOT the full path. It internally looks for
+        // chars/<id>/<id>.def. Passing a full path breaks relative path
+        // resolution in the .def file (sprite = X.sff can't be found).
+        // addStage() expects the full path (e.g. 'stages/DU_Campus.def').
+        let p1Path = p1; // character ID (e.g. 'kfm' or '!Nightwing-o')
         let p2Path = p2;
-        let stagePath = stage;
+        let stagePath = stage; // full path (e.g. 'stages/stage0-720.def')
 
-        // Check if p1/p2 are character IDs from the Assets manifest
-        // (vs bundled characters like 'kfm')
         const isBundledChar = (id: string) => id === 'kfm';
         const isBundledStage = (s: string) => s === 'stages/stage0-720.def';
 
@@ -238,8 +242,8 @@ function PlayPageInner() {
               await downloadCharacter(char, (pct, msg) => {
                 setBootLine('[P1] ', `${msg} (${pct}%)`);
               });
-              p1Path = getCharacterDefPath(char);
-              log(`P1 ready: ${p1Path}`);
+              p1Path = char.id; // just the ID, not the full path
+              log(`P1 ready: ${char.id}`);
             } else {
               log(`ERROR: Character "${p1}" not found in manifest`);
             }
@@ -253,8 +257,8 @@ function PlayPageInner() {
               await downloadCharacter(char, (pct, msg) => {
                 setBootLine('[P2] ', `${msg} (${pct}%)`);
               });
-              p2Path = getCharacterDefPath(char);
-              log(`P2 ready: ${p2Path}`);
+              p2Path = char.id; // just the ID
+              log(`P2 ready: ${char.id}`);
             } else {
               log(`ERROR: Character "${p2}" not found in manifest`);
             }
@@ -268,7 +272,7 @@ function PlayPageInner() {
               await downloadStage(stg, (pct, msg) => {
                 setBootLine('[STAGE] ', `${msg} (${pct}%)`);
               });
-              stagePath = getStageDefPath(stg);
+              stagePath = getStageDefPath(stg); // full path for stages
               log(`Stage ready: ${stagePath}`);
             } else {
               log(`ERROR: Stage "${stage}" not found in manifest, using default`);
