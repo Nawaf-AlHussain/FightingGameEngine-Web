@@ -1,5 +1,44 @@
 # PROGRESS — Fighting Game Engine Web
 
+## Session: August 22, 2026 — Reverted to normal boot, identified menu GC freeze (F-026)
+
+### Work Done
+
+#### Reverted menu-skip architecture (commit 75893ad)
+After the `f_commandLine()` quick-match path proved unfixable (F-022 through F-025), reverted to the normal engine boot path. The play page now boots the engine with `go.argv = ['ikemen']` — no CLI args, no menu skip. The engine goes through its natural flow: title screen → attract mode → menus → fight.
+
+#### User tested and reported (F-026)
+- **Attract mode: perfectly smooth** — 60fps, no issues
+- **Menu: works for first few seconds, then becomes unresponsive**
+- Pressing Enter to skip attract mode → menu accepts input briefly → freezes
+
+This confirms F-014 (menus lag in WASM) and identifies the root cause: **GC pressure building up over time**. The menu rendering path allocates objects every frame (text images, animation states, draw queues) that aren't optimized like the fight path. As the heap grows, GC pauses lengthen until the menu freezes.
+
+The fight rendering path was optimized by energyjp (allocation-free hot paths, GL command buffer). The menu path was NOT given the same optimizations.
+
+#### Updated documentation
+- F-026 added to FINDINGS.md with full root cause analysis
+- PROGRESS.md updated (this entry)
+- TODO.md updated to reflect current state and new approach
+
+### Current Status
+- **Engine**: Boots normally, attract mode smooth, menu freezes after a few seconds
+- **Architecture**: Normal boot path (no menu skip)
+- **Deployment**: On Vercel
+- **Root cause of menu freeze**: GC pressure from unoptimized menu rendering (F-026)
+
+### Next Steps
+1. **Modify main.lua attract mode** to detect keypress and start a fight directly, bypassing the menu entirely. This uses the smooth `game()` path (like attract mode) instead of the laggy menu path.
+2. **If that works**: Build a minimal React overlay for character/stage selection that passes parameters to the engine via a modified attract-mode entry point.
+3. **If menu bypass doesn't work**: Consider the Web Worker migration (Option C from earlier discussion) — run the engine in a Worker so GC pauses don't block the main thread.
+
+### Key Decisions
+- Reverted to normal boot because the menu-skip path (f_commandLine) had unfixable loading/compilation freezes
+- The normal boot path works for attract mode but not menus — need to bypass menus
+- The React UI approach was correct in principle, but the implementation (f_commandLine) was wrong. The new approach will use the attract-mode path (which works) as the entry point for fights.
+
+---
+
 ## Session: August 21, 2026 (Night 6) — WASM rebuilt with frame-skip yield fix (F-025)
 
 ### Work Done

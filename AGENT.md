@@ -284,27 +284,40 @@ The file API route will need to check locally first, then proxy to jsDelivr CDN 
 
 ---
 
-## Current State
+## Current State (August 22, 2026)
 
 ### What works:
-- [x] Engine boots and renders (title screen, menus, fights all render)
+- [x] Engine boots normally (title screen → attract mode → menus → fight)
 - [x] Auto-fight (attract mode) runs at smooth 60 FPS
-- [x] Menu skip via CLI args (`-p1`, `-p2`, `-loadmotif`) — goes directly to fight
-- [x] React character select screen (mode, P1/P2, stage, AI level)
-- [x] Full page flow: /lobby → /local → /play → fight → back to /local
+- [x] VFS serves all engine data files correctly (with static file serving + Promise cache fix)
+- [x] Deployed on Vercel
+- [x] WASM rebuilt with frame-skip yield + loader Gosched fixes (F-025)
 - [x] Poll-based keyboard bridge (JS→Go direction works)
 - [x] `1` key (Start) verified working through full input path
-- [x] VFS serves all engine data files correctly
-- [x] Deployed on Vercel
 
-### What's NOT working / untested:
-- [ ] **Fight input (WASD, UIO, JKL) untested in actual combat** — only Start key verified (now unblocked by F-019 fix, needs user testing)
-- [ ] Engine canvas may not fill viewport properly
+### What's NOT working:
+- [ ] **Engine menus freeze after a few seconds** (F-026 — GC pressure from unoptimized menu rendering)
+- [ ] **Cannot start fights through engine menu** (too laggy)
+- [ ] Fight input (WASD, UIO, JKL) untested — blocked until fights can be started
 - [ ] Escape key opens native IKEMEN pause menu during fight
 - [ ] Only 1 character (KFM) and 1 stage available
 - [ ] No sound effects or music in the web UI
 - [ ] No touch controls for mobile
-- [ ] **Rollback netcode disabled** (F-019) — Phase 4 online play will need a real arena implementation for GOOS=js, or per-match rollback enablement when a peer is connected
+
+### Architecture (current):
+- `/lobby` → React title screen → PRESS START → `/play`
+- `/play` → boots engine normally (`go.argv = ['ikemen']`, no CLI args)
+- Engine renders its own title screen, attract mode, menus, fights
+- `/local` → React character select (exists but unlinked — engine handles char select)
+
+### Architecture (planned):
+- `/lobby` → React title screen → PRESS START → `/local`
+- `/local` → React character select → FIGHT → `/play`
+- `/play` → boots engine with modified attract-mode entry that starts fight directly
+- Engine only runs `game()` (smooth path), never renders menus
+
+### Key insight (F-026):
+The engine's fight rendering path is optimized (allocation-free, GL command buffer) but the menu rendering path is NOT. Menus allocate heavily every frame → GC pressure builds → menu freezes after a few seconds. The solution is to bypass menus entirely and use the smooth `game()` path for all fights.
 
 ---
 
@@ -330,23 +343,28 @@ The file API route will need to check locally first, then proxy to jsDelivr CDN 
 | F-016 | Finding | Key naming: lowercase letters, uppercase arrows, KP_ prefix for numpad |
 | **F-017** | **Breakthrough** | **IKEMEN GO has built-in CLI quick match — no WASM changes needed to skip menus** |
 | F-018 | Finding | BootLoadingMode=0 freezes WASM main thread (sync asset loading) — fixed with BootLoadingMode=1 |
-| **F-019** | **Finding** | **RollbackNetcode=1 causes severe in-fight GC stutter with arena stub — disabled for local play** |
+| F-019 | ❌ Wrong | RollbackNetcode was already 0 via VFS patch (F-020) |
+| F-020 | Finding | VFS patches RollbackNetcode at boot — config.ini value is ignored |
+| F-021 | Finding | Manifest generator overwrote real file sizes with 0 — fixed |
+| F-022 | ❌ Not root cause | while-loading loop removed but freeze persisted |
+| F-023 | Finding | vfs.js Promise cache storm — fixed with catch handler + manifest delete |
+| F-024 | Finding | Frame-skip tight loop blocks browser — fixed with time.Sleep(0) in WASM |
+| F-025 | Breakthrough | WASM rebuilt with GOEXPERIMENT=arenas + frame-skip yield + loader Gosched |
+| **F-026** | **Finding** | **Menu freezes after a few seconds — GC pressure from unoptimized menu rendering** |
 
 ---
 
 ## Next Steps (from TODO.md)
 
-### Immediate:
-1. **Test fight with CLI args on Vercel** — verify engine boots directly into KFM vs KFM fight
-2. **Test fight input** — verify WASD, UIO, JKL work during actual gameplay
-3. **Disable native pause menu** — set `EscOpensMenu=0` in config.ini or intercept Escape
-4. **Add Escape to quit fight** — navigate back to /local
+### Immediate (BLOCKING):
+1. **Menu bypass implementation** — modify main.lua attract mode to detect keypress and start a fight directly via `main.f_demoStart()` pattern, bypassing the laggy menu entirely. This uses the smooth `game()` path.
+2. **Test fight input** — once fights can be started, verify WASD, UIO, JKL work during gameplay
+3. **Disable native pause menu** — set `EscOpensMenu=0` in config.ini
 
 ### Phase 1 remaining:
-1. AI vs AI (watch mode)
+1. React character select that passes parameters to the engine
 2. Persona 5 UI polish (WipeTransition, FightOverlays, game.css from Demo repo)
 3. Touch controls for mobile
-4. Character portraits on select screen
 
 ### Phase 2 (Asset Pipeline):
 1. Point VFS file route to jsDelivr CDN for character/stage files
