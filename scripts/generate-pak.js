@@ -58,6 +58,8 @@ function isEssential(f) {
   if (f === 'data/system.zss') return true;
   if (f === 'font/debug.def') return true;
   if (f === 'external/mods/.keep') return true;
+  // Icons — engine panics without them (WindowIcon in config.ini)
+  if (f.startsWith('external/icons/')) return true;
   return false;
 }
 
