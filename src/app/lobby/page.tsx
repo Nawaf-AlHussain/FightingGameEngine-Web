@@ -13,7 +13,7 @@ export default function LobbyPage() {
   }, []);
 
   const handleStart = () => {
-    router.push('/play');
+    router.push('/local');
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
