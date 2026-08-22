@@ -6,6 +6,74 @@ Format: newest entries at the top. Each entry gets a unique ID for cross-referen
 
 ---
 
+## F-026 | Menu freezes after a few seconds due to GC pressure (menus not optimized like fights)
+**Date**: 2026-08-22 | **Type**: Finding (confirms F-014, adds root cause)
+
+After reverting to the normal boot path (commit 75893ad), user tested and
+reported:
+- **Attract mode (demo mode): perfectly smooth** — 60fps, no issues
+- **Menu: works for first few seconds, then becomes unresponsive**
+- Pressing Enter to skip attract mode → menu accepts input briefly → freezes
+
+This is the signature of **GC pressure building up over time**:
+
+The fight rendering path was heavily optimized by energyjp (F-003):
+- Allocation-free hot paths (sprite/text draw paths reuse buffers)
+- GL command buffer (one JS crossing per frame instead of hundreds)
+- Deduplicated uniform writes
+
+The **menu rendering path was NOT given the same optimizations**. Every
+menu frame allocates:
+- Text image objects (textImgDraw for menu items, cursor, info text)
+- Animation state objects (main.f_animPosDraw for menu transitions)
+- Draw queue entries (luaDrawPreOps, luaDrawLayerOps)
+- Temporary strings and tables (menu item generation, status checks)
+
+With `GOGC=100`, the GC runs frequently. As the heap grows (menu keeps
+allocating without freeing as fast), each GC scan takes longer. After
+a few seconds, GC pauses exceed 100ms, the menu becomes unresponsive,
+and the browser eventually kills the tab.
+
+**Why attract mode doesn't have this problem**: attract mode calls
+`main.f_demoStart()` → `game()`. The `game()` function uses the optimized
+fight rendering path (even for AI vs AI demo fights). No menu rendering
+= no excessive allocation = no GC pressure.
+
+**Why the menu works briefly**: At startup, the heap is small. The first
+few seconds of menu rendering allocate modestly, GC pauses are short.
+As the heap grows (menu keeps allocating, GC can't keep up), pauses
+lengthen until the menu freezes.
+
+**Confirmed**: This is NOT a frame-skip issue (F-024/F-025). The menu
+loop calls `refresh()` which calls `SwapBuffers()` → rAF → yields to
+browser. The freeze is caused by GC pauses WITHIN the rAF callback,
+not by a tight loop that doesn't yield.
+
+**Implication**: We cannot use the engine's native menus. The menu
+rendering path is fundamentally too allocation-heavy for single-threaded
+WASM. The React UI approach (website handles menus, engine only fights)
+was the right architecture — but the `f_commandLine()` quick-match path
+has its own issues (F-022, F-023, F-024).
+
+**Path forward**: Need a way to start a fight that:
+1. Uses the normal boot path (which yields properly via rAF)
+2. Skips the menu (which freezes due to GC pressure)
+3. Doesn't use `f_commandLine()` (which has the loading/compilation freeze)
+
+The most promising approach: modify `main.lua`'s attract mode loop to
+detect a keypress and immediately start a fight (via `main.f_demoStart()`
+pattern) instead of entering the menu. This uses the smooth `game()`
+path without going through the laggy menu.
+
+**Lesson**: When a system works in one mode but not another, and the
+difference is allocation pattern (not control flow), the issue is GC.
+Profile with `GODEBUG=gctrace=1` to confirm — if GC frequency increases
+over time and pause durations grow, it's GC pressure. The fix is either
+reducing allocations (hard, requires engine modifications) or avoiding
+the allocation-heavy code path entirely (the approach we'll take).
+
+---
+
 ## F-025 | WASM rebuilt with frame-skip yield fix (F-024 properly fixed)
 **Date**: 2026-08-21 | **Type**: Breakthrough (proper fix for F-024)
 

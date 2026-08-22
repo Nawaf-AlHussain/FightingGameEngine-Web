@@ -4,71 +4,116 @@
 
 **Replace the Dolmexica Infinite WASM engine with IKEMEN GO v2 WASM, keeping the best UI from FightingGameEngine-Demo and the 85+ character roster from FightingGameEngine/Assets.**
 
+## CURRENT STATE (August 22, 2026)
+
+- ✅ Engine boots normally, attract mode runs at smooth 60fps
+- ❌ Engine menus freeze after a few seconds (GC pressure — F-026)
+- ❌ Cannot start fights through the engine's own menu (too laggy)
+- 🔄 Need a way to start fights that bypasses the menu but uses the smooth game() path
+
 ---
 
-## Phase 0 — Foundation
+## Phase 0 — Foundation (COMPLETE)
 
-- [x] Build IKEMEN GO v2 WASM from source (energyjp/ikemen-go-web, Go 1.21 + arena stub)
+- [x] Build IKEMEN GO v2 WASM from source (energyjp/ikemen-go-web, Go 1.21 + GOEXPERIMENT=arenas)
 - [x] Extract engine JS files from WebMUGEN modding kit v1.7
-  - [x] `vfs.js` → `public/game/vfs.js`
-  - [x] `wasm_exec.js` → `public/game/wasm_exec.js`
-  - [x] `webrtc.js` → `public/game/webrtc.js`
-  - [x] `sffpal-core.js` → `public/game/sffpal-core.js`
-- [x] Copy engine data files from energyjp source (Lua scripts, fonts, shaders, ZSS bytecode)
+- [x] Copy engine data files from energyjp source
 - [x] Set up Next.js 16 project with App Router + TypeScript + Tailwind CSS 4
-- [x] Create VFS manifest generator (`scripts/generate-manifest.js`) — 60 files, 2.3 MB
+- [x] Create VFS manifest generator
 - [x] Create API routes for VFS manifest and file serving
-- [x] Build `/play` page with WASM loader (GC tuning, WebGL2 check, fetch patching)
+- [x] Build `/play` page with WASM loader
 - [x] Configure `vercel.json` with WASM MIME type + cache headers
-- [ ] **Get screenpack files (BLOCKING)**
-  - `data/system.sff` (system sprites — lifebars, fonts, effects)
-  - `data/system.snd` (system sounds)
-  - Default motif/screenpack `.def` file
-  - Source: `ikemen-engine/Ikemen-GO-Screenpack` repo
-- [ ] **Generate default `save/config.ini` (BLOCKING)**
-  - Engine won't boot without it
-  - Source: `src/resources/defaultConfig.ini` in energyjp repo, or generate from screenpack
-- [ ] Verify `.zss` vs `.cns` file expectations (engine may not recognize `.zss` extension)
-- [ ] Deploy to Vercel and test engine boot at `/play`
-- [ ] Verify 60 FPS with default Kung Fu Man on a mid-range machine
+- [x] Get screenpack files (system.sff, system.snd, motif)
+- [x] Generate default `save/config.ini`
+- [x] Deploy to Vercel and test engine boot
+- [x] Verify 60 FPS in attract mode
 
 ---
 
-## Phase 1 — Core Playable
+## Phase 1 — Core Playable (IN PROGRESS)
 
-- [x] Next.js project setup with App Router
-- [x] Character select screen (basic)
-  - [x] P1/P2 character selection with confirm/lock-in
-  - [x] Game mode selection (VS CPU / VS Player / Training)
-  - [x] CPU difficulty slider (1-8)
-  - [x] Stage selection
-  - [ ] Fetch roster from `FightingGameEngine/Assets/manifest.json`
-  - [ ] Show download progress for on-demand characters
-  - [ ] Palette selection (if applicable)
-- [x] Game modes (basic framework)
-  - [x] Local 2P (two players, one keyboard)
-  - [x] VS AI (with difficulty 1-8)
-  - [x] Training mode (passes -tmode1 flag)
-  - [ ] AI vs AI (watch mode)
-- [x] **Engine boots directly into fight (no menus)**
-  - [x] Discovered IKEMEN GO's built-in CLI quick match (-p1, -p2, -loadmotif)
-  - [x] Play page reads URL params and passes via go.argv
-  - [x] Fight end auto-redirects to character select
-- [x] **Fix in-fight lag** (F-019)
-  - [x] Disable `RollbackNetcode` for local play (arena stub makes per-frame state cloning too expensive)
-  - [x] Disable `VSync` (redundant in WASM, browser rAF handles display sync)
-  - [x] Disable `TickInterpolation` (reduces per-frame GPU work)
-  - [ ] **User verifies fights are now smooth on Vercel** ← pending test
-  - [ ] If still laggy: profile with Chrome DevTools, check for software WebGL2, try `-nosound`
+### Architecture
+- [x] Engine boots normally (title screen → attract mode → menus → fight)
+- [x] Attract mode runs smoothly (60fps)
+- [ ] **Menu bypass: start fights without using the engine's laggy menu**
+  - [ ] Modify main.lua attract mode to detect keypress and start a fight directly
+  - [ ] Use `main.f_demoStart()` pattern (which uses smooth `game()` path)
+  - [ ] Allow character/stage selection via React UI, pass to engine via global variables
+
+### Performance fixes applied
+- [x] vfs.js Promise cache fix (F-023) — prevents microtask storms on missing files
+- [x] Static VFS file serving — faster boot, no serverless cold starts
+- [x] Manifest generator fix (F-021) — correct file sizes
+- [x] WASM rebuilt with frame-skip yield (F-025) — time.Sleep(0) in await() default case
+- [x] WASM rebuilt with loader Gosched (F-025) — runtime.Gosched() after character loads
+- [x] config.ini: RollbackNetcode=0, VSync=0, TickInterpolation=0
+
+### Remaining Phase 1
+- [ ] **Menu bypass implementation** (BLOCKING — can't start fights without this)
+- [ ] Test fight input (WASD/UIO/JKL) — blocked until fights can be started
+- [ ] Disable native pause menu (EscOpensMenu=0)
 - [ ] Clone the Persona 5 UI from FightingGameEngine-Demo
-  - [ ] `WipeTransition` component
-  - [ ] `FightOverlays` component
-  - [ ] `MoveListPopup` component
-  - [ ] `useSoundEffects` hook
-  - [ ] `game.css` (full P5-style design system)
 - [ ] Touch controls for mobile
-  - [ ] Virtual D-pad + action buttons
-  - [ ] Multi-touch support
+
+---
+
+## Phase 2 — Asset Pipeline (NOT STARTED)
+
+- [ ] Point VFS file route to jsDelivr CDN for character/stage files
+- [ ] Character download & caching system
+- [ ] Stage download & caching
+- [ ] Music download & caching
+- [ ] Handle large characters (50MB+) gracefully
+- [ ] Fix case-sensitivity issues in Assets repo manifest
+
+---
+
+## Phase 3 — UI Polish (NOT STARTED)
+
+- [ ] Title/lobby screen (from Demo repo design)
+- [ ] Wipe transition between screens
+- [ ] Fight HUD (lifebars, timer, round indicator)
+- [ ] Character portraits on select screen
+- [ ] Move list display
+- [ ] Sound effects for UI
+- [ ] Settings/options screen
+
+---
+
+## Phase 4 — Online Multiplayer (NOT STARTED)
+
+- [ ] WebRTC netplay (using WebMUGEN's `webrtc.js`)
+- [ ] Room/lobby system
+- [ ] Build ID verification
+- [ ] Desync detection and reporting
+- [ ] Online identity
+
+---
+
+## Phase 5 — Compatibility & Testing (NOT STARTED)
+
+- [ ] Test all 85 characters from Assets repo
+- [ ] Test all 5 stages
+- [ ] Test across browsers (Chrome, Firefox, Safari, Edge)
+- [ ] Test on mobile
+- [ ] Performance profiling
+
+---
+
+## Key Findings Summary
+
+| ID | Status | Summary |
+|----|--------|---------|
+| F-007 | ✅ Corrected | Arena stub was NOT needed — energyjp fork uses GOEXPERIMENT=arenas |
+| F-018 | ✅ Fixed | BootLoadingMode=0 freeze — fixed with BootLoadingMode=1 |
+| F-019 | ❌ Wrong | RollbackNetcode was already 0 via VFS patch (F-020) |
+| F-020 | ✅ Documented | VFS patches RollbackNetcode at boot, config.ini value is ignored |
+| F-021 | ✅ Fixed | Manifest generator was overwriting real file sizes with 0 |
+| F-022 | ❌ Not root cause | while-loading loop removed but freeze persisted |
+| F-023 | ✅ Fixed | vfs.js Promise cache storm — fixed with catch handler + manifest delete |
+| F-024 | ✅ Fixed | Frame-skip tight loop — fixed with time.Sleep(0) in WASM (F-025) |
+| F-025 | ✅ Applied | WASM rebuilt with frame-skip yield + loader Gosched |
+| **F-026** | **🔄 Current** | **Menu freezes after a few seconds — GC pressure from unoptimized menu rendering** |
 
 ---
 
