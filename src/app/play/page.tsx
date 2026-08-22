@@ -1,18 +1,16 @@
 'use client';
-import { useSearchParams } from 'next/navigation';
-import { useEffect, useRef, Suspense } from 'react';
+import { useEffect, useRef } from 'react';
 
-// This page loads the IKEMEN GO WASM engine DIRECTLY into a fight.
-// Menu/UI is handled by the website (/local page). The engine only runs combat.
+// This page loads the IKEMEN GO WASM engine with its NATURAL boot flow.
+// The engine renders its own title screen, menus, character select, and
+// fights. The React UI is just a host page — the engine handles everything.
 //
-// How it skips menus: IKEMEN GO's main.lua checks for -p1, -p2, -loadmotif
-// command-line args. When all three are present, it calls main.f_commandLine()
-// which bypasses the title screen, character select, and VS screen entirely.
-// We pass these via go.argv (Go WASM's equivalent of os.Args).
+// This matches the architecture that had smooth attract mode (before the
+// menu-skip experiment). The engine's normal boot path yields to the
+// browser event loop properly via requestAnimationFrame.
 
-function PlayPageInner() {
+export default function PlayPage() {
   const bootRef = useRef<HTMLPreElement>(null);
-  const searchParams = useSearchParams();
 
   useEffect(() => {
     let cancelled = false;
@@ -21,7 +19,6 @@ function PlayPageInner() {
       const boot = bootRef.current;
       if (!boot) return;
 
-      // Hoist cleanup references so catch block can access them
       let onKeyDown: ((e: KeyboardEvent) => void) | null = null;
       let onKeyUp: ((e: KeyboardEvent) => void) | null = null;
       let clickHandler: (() => void) | null = null;
@@ -40,16 +37,6 @@ function PlayPageInner() {
       };
 
       try {
-        // --- Read match parameters from URL ---
-        const p1 = searchParams.get('p1') || 'kfm';
-        const p2 = searchParams.get('p2') || 'kfm';
-        const stage = searchParams.get('stage') || 'stages/stage0-720.def';
-        const p2ai = searchParams.get('p2ai') || '5';
-        const isTraining = searchParams.get('training') === '1';
-
-        log(`Match: P1=${p1} vs P2=${p2}${p2ai ? ` (CPU lv${p2ai})` : ''}`);
-        log(`Stage: ${stage}`);
-
         // --- 0. Install keyboard bridge BEFORE anything else ---
         const g = globalThis as any;
         g.__ikemenKeyDown = [];
@@ -96,11 +83,7 @@ function PlayPageInner() {
         });
 
         // --- 2. Patch VFS fetch base URL ---
-        // VFS files live in public/game/ikemen-fs/file/ — serve them as STATIC
-        // assets from /game/ikemen-fs/file/ (Vercel edge CDN, HTTP/2, cached)
-        // instead of through the /api/ikemen-fs/file serverless route (cold
-        // starts, no cache, per-request disk read). This eliminates serverless
-        // latency from both boot preload AND any mid-fight lazy fetches.
+        // VFS files served as static assets from /game/ikemen-fs/file/
         const originalFetch = window.fetch;
         const VFS_FILE_PREFIX = './ikemen-fs/file/';
         const VFS_MANIFEST_URL = './ikemen-fs/manifest.json';
@@ -112,7 +95,6 @@ function PlayPageInner() {
 
           if (url.startsWith(VFS_FILE_PREFIX)) {
             const vpath = url.slice(VFS_FILE_PREFIX.length);
-            // Don't double-encode — static file paths should match disk paths exactly
             const rewritten = STATIC_FILE_BASE + vpath;
             return originalFetch(rewritten, init);
           }
@@ -185,37 +167,12 @@ function PlayPageInner() {
 
         if (cancelled) return;
 
-        // --- 8. Build command-line args to SKIP ALL MENUS ---
-        // main.lua has TWO quick-match triggers:
-        //   Line 1176: -p1 && -p2 && NO -loadmotif → f_commandLine() EARLY (lightweight)
-        //   Line 4063: -p1 && -p2 && -loadmotif    → f_commandLine() LATE (heavy)
-        //
-        // The LATE path (with -loadmotif) calls start.f_selectReset(true) which
-        // loads the full motif (9.1 MB system.sff, 3.6 MB system.snd, select.def
-        // roster init) synchronously — this blocks the WASM main thread and
-        // causes the "broken record" freeze.
-        //
-        // The EARLY path (without -loadmotif) skips f_selectReset, calls
-        // loadFightScreen() instead (lightweight), and uses addChar()/addStage()
-        // directly. This matches the attract mode pattern (f_demoStart) which
-        // also never calls f_selectReset and runs smoothly.
-        const argv = ['ikemen'];
-        argv.push('-p1', p1);
-        argv.push('-p2', p2);
-        argv.push('-s', stage);
-        if (p2ai) {
-          argv.push('-p2.ai', p2ai);
-        }
-        if (isTraining) {
-          argv.push('-tmode1', '2'); // training mode
-        }
-
-        log(`Starting engine with args: ${argv.slice(1).join(' ')}`);
-
-        // --- 9. Load and run WASM ---
-        log('Fetching IKEMEN GO WASM (~22 MB)...');
+        // --- 8. Load and run WASM ---
+        // No CLI args — the engine boots normally through its title screen,
+        // attract mode, and menus. This is the path that runs smoothly.
+        log('Fetching IKEMEN GO WASM (~23 MB)...');
         const go = new (g.Go as any)();
-        go.argv = argv;
+        go.argv = ['ikemen'];
         go.env = { GOGC: '100', GOMEMLIMIT: '800MiB' };
 
         const wasmUrl = '/game/ikemen.wasm';
@@ -231,7 +188,7 @@ function PlayPageInner() {
           result = await WebAssembly.instantiate(bytes, go.importObject);
         }
 
-        log('Engine starting... (menus skipped, going straight to fight)');
+        log('Engine starting... (normal boot, engine handles all menus)');
 
         // Hide the boot log once the engine starts
         if (boot) {
@@ -240,9 +197,7 @@ function PlayPageInner() {
           setTimeout(() => { if (boot) boot.style.display = 'none'; }, 1000);
         }
 
-        // --- 10. Auto-focus the engine canvas once created ---
-        // Single delayed attempt — no MutationObserver or setInterval.
-        // Those ran forever during the fight and interfered with the main thread.
+        // --- 9. Auto-focus the engine canvas once created ---
         const focusCanvas = () => {
           const canvas = document.querySelector('canvas');
           if (canvas && canvas.width > 0) {
@@ -252,28 +207,21 @@ function PlayPageInner() {
           }
           return false;
         };
-        // Try once after 1s (engine creates canvas during boot)
         setTimeout(() => focusCanvas(), 1000);
-        // Also focus on click (user interaction)
         clickHandler = () => focusCanvas();
         document.addEventListener('click', clickHandler);
 
-        // --- 11. Run the engine ---
-        // main.f_commandLine() will run the fight and call os.exit() when done.
-        // In Go WASM, os.exit() terminates the goroutine and go.run() resolves.
+        // --- 10. Run the engine ---
         await go.run(result.instance);
 
-        // Engine exited — fight is over.
+        // Engine exited normally.
         cleanup();
-        log('Fight complete. Returning to select...');
-        window.location.href = '/local';
+        log('Engine exited.');
 
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        // Go WASM calls os.Exit() by throwing. Detect it and navigate back.
         if (msg.includes('Go program has already exited') || msg.includes('unreachable')) {
           cleanup();
-          window.location.href = '/local';
           return;
         }
         log('BOOT ERROR: ' + msg);
@@ -286,11 +234,10 @@ function PlayPageInner() {
     return () => {
       cancelled = true;
     };
-  }, [searchParams]);
+  }, []);
 
   return (
     <div className="min-h-screen bg-black flex flex-col items-center justify-center">
-      {/* Boot log (fades out once fight starts) */}
       <pre
         ref={bootRef}
         id="boot"
@@ -300,18 +247,6 @@ function PlayPageInner() {
       {/* The engine creates its own canvas element */}
       <div id="game-container" />
     </div>
-  );
-}
-
-export default function PlayPage() {
-  return (
-    <Suspense fallback={
-      <div className="min-h-screen bg-black flex items-center justify-center">
-        <span className="text-gray-500 font-mono text-sm">Loading...</span>
-      </div>
-    }>
-      <PlayPageInner />
-    </Suspense>
   );
 }
 
