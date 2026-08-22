@@ -1,16 +1,24 @@
 'use client';
-import { useEffect, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { useEffect, useRef, Suspense } from 'react';
 
-// This page loads the IKEMEN GO WASM engine with its NATURAL boot flow.
-// The engine renders its own title screen, menus, character select, and
-// fights. The React UI is just a host page — the engine handles everything.
+// This page loads the IKEMEN GO WASM engine and starts a fight directly,
+// bypassing the laggy menu (F-026) using the smooth game() path.
 //
-// This matches the architecture that had smooth attract mode (before the
-// menu-skip experiment). The engine's normal boot path yields to the
-// browser event loop properly via requestAnimationFrame.
+// How it works:
+// 1. React reads match params from URL (?p1=kfm&p2=kfm&stage=...&p2ai=5)
+// 2. Sets globalThis.ikemenQuickMatch = {p1, p2, stage, p2ai}
+// 3. Boots the engine normally (go.argv = ['ikemen'])
+// 4. main.lua checks for ikemenQuickMatch global and calls main.f_quickMatch()
+// 5. f_quickMatch() uses the same game() path as attract mode (smooth 60fps)
+//
+// This avoids both:
+// - The laggy menu (GC pressure from unoptimized menu rendering — F-026)
+// - The f_commandLine loading/compilation freeze (F-022 through F-025)
 
-export default function PlayPage() {
+function PlayPageInner() {
   const bootRef = useRef<HTMLPreElement>(null);
+  const searchParams = useSearchParams();
 
   useEffect(() => {
     let cancelled = false;
@@ -37,6 +45,15 @@ export default function PlayPage() {
       };
 
       try {
+        // --- Read match parameters from URL ---
+        const p1 = searchParams.get('p1') || 'kfm';
+        const p2 = searchParams.get('p2') || 'kfm';
+        const stage = searchParams.get('stage') || 'stages/stage0-720.def';
+        const p2ai = searchParams.get('p2ai') || '5';
+
+        log(`Match: P1=${p1} vs P2=${p2}${p2ai ? ` (CPU lv${p2ai})` : ''}`);
+        log(`Stage: ${stage}`);
+
         // --- 0. Install keyboard bridge BEFORE anything else ---
         const g = globalThis as any;
         g.__ikemenKeyDown = [];
@@ -83,7 +100,6 @@ export default function PlayPage() {
         });
 
         // --- 2. Patch VFS fetch base URL ---
-        // VFS files served as static assets from /game/ikemen-fs/file/
         const originalFetch = window.fetch;
         const VFS_FILE_PREFIX = './ikemen-fs/file/';
         const VFS_MANIFEST_URL = './ikemen-fs/manifest.json';
@@ -167,9 +183,13 @@ export default function PlayPage() {
 
         if (cancelled) return;
 
-        // --- 8. Load and run WASM ---
-        // No CLI args — the engine boots normally through its title screen,
-        // attract mode, and menus. This is the path that runs smoothly.
+        // --- 8. Set quick match params for main.lua ---
+        // main.lua checks for this global and calls main.f_quickMatch()
+        // which uses the smooth game() path (like attract mode).
+        g.ikemenQuickMatch = { p1, p2, stage, p2ai };
+        log('Quick match params set.');
+
+        // --- 9. Load and run WASM ---
         log('Fetching IKEMEN GO WASM (~23 MB)...');
         const go = new (g.Go as any)();
         go.argv = ['ikemen'];
@@ -188,7 +208,7 @@ export default function PlayPage() {
           result = await WebAssembly.instantiate(bytes, go.importObject);
         }
 
-        log('Engine starting... (normal boot, engine handles all menus)');
+        log('Engine starting... (quick match, bypassing menu)');
 
         // Hide the boot log once the engine starts
         if (boot) {
@@ -197,7 +217,7 @@ export default function PlayPage() {
           setTimeout(() => { if (boot) boot.style.display = 'none'; }, 1000);
         }
 
-        // --- 9. Auto-focus the engine canvas once created ---
+        // --- 10. Auto-focus the engine canvas once created ---
         const focusCanvas = () => {
           const canvas = document.querySelector('canvas');
           if (canvas && canvas.width > 0) {
@@ -211,17 +231,19 @@ export default function PlayPage() {
         clickHandler = () => focusCanvas();
         document.addEventListener('click', clickHandler);
 
-        // --- 10. Run the engine ---
+        // --- 11. Run the engine ---
         await go.run(result.instance);
 
-        // Engine exited normally.
+        // Engine exited — fight is over.
         cleanup();
-        log('Engine exited.');
+        log('Fight complete. Returning to select...');
+        window.location.href = '/local';
 
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         if (msg.includes('Go program has already exited') || msg.includes('unreachable')) {
           cleanup();
+          window.location.href = '/local';
           return;
         }
         log('BOOT ERROR: ' + msg);
@@ -234,7 +256,7 @@ export default function PlayPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [searchParams]);
 
   return (
     <div className="min-h-screen bg-black flex flex-col items-center justify-center">
@@ -247,6 +269,18 @@ export default function PlayPage() {
       {/* The engine creates its own canvas element */}
       <div id="game-container" />
     </div>
+  );
+}
+
+export default function PlayPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-black flex items-center justify-center">
+        <span className="text-gray-500 font-mono text-sm">Loading...</span>
+      </div>
+    }>
+      <PlayPageInner />
+    </Suspense>
   );
 }
 
