@@ -6,6 +6,31 @@ Format: newest entries at the top. Each entry gets a unique ID for cross-referen
 
 ---
 
+## F-031 | Character compatibility — some .cmd files have syntax IKEMEN rejects
+**Date**: 2026-08-22 | **Type**: Finding (character compatibility)
+
+After fixing the CDN pipeline (F-029) and the addChar() path issue (c048ceb),
+CDN characters now download and inject correctly. But some characters crash
+with "State controller type not specified" errors during .cmd parsing.
+
+**Example**: Nightwing's `!Nightwing.cmd` line 552:
+```
+command = D,D, x+y
+```
+The spaces after commas cause IKEMEN's parser to fail. This is MUGEN syntax
+that some characters use but IKEMEN doesn't fully accept.
+
+**This is NOT our pipeline issue** — the files download correctly, inject
+into the VFS correctly, and the engine reads them. The error is in the
+character's own syntax, not our code.
+
+**Known working**: KFM (bundled), Bardock (clean syntax).
+**Known failing**: Nightwing (cmd syntax issues).
+
+**Workaround**: Added note to character select suggesting KFM or Bardock.
+
+---
+
 ## F-028 | f_quickMatch breakthrough — fights now work smoothly
 **Date**: 2026-08-22 | **Type**: Breakthrough (working fights!)
 
