@@ -50,9 +50,11 @@ function PlayPageInner() {
         const p2 = searchParams.get('p2') || 'kfm';
         const stage = searchParams.get('stage') || 'stages/stage0-720.def';
         const p2ai = searchParams.get('p2ai') || '5';
+        const aspect = searchParams.get('aspect') === '4:3' ? '4:3' : '16:9';
 
         log(`Match: P1=${p1} vs P2=${p2}${p2ai ? ` (CPU lv${p2ai})` : ''}`);
         log(`Stage: ${stage}`);
+        log(`Aspect: ${aspect}`);
 
         // --- 0. Install keyboard bridge BEFORE anything else ---
         const g = globalThis as any;
@@ -150,7 +152,9 @@ function PlayPageInner() {
         }
 
         // --- 6. Set aspect ratio for VFS config patching ---
-        (g as any).ikemenAspect = '16:9';
+        // 4:3 (640x480) is 3x fewer pixels than 16:9 (1280x720), reducing
+        // per-frame GPU work. Useful on slower machines or high-refresh displays.
+        (g as any).ikemenAspect = aspect;
 
         // --- 7. PRELOAD ALL VFS FILES ---
         log('Fetching file manifest...');

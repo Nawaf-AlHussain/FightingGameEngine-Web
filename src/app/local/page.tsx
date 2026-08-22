@@ -25,6 +25,7 @@ export default function LocalPlayPage() {
   const [p1Ready, setP1Ready] = useState(false);
   const [p2Ready, setP2Ready] = useState(false);
   const [aiLevel, setAiLevel] = useState(5);
+  const [aspect, setAspect] = useState<'16:9' | '4:3'>('16:9');
 
   const isP2Ai = mode === 'vs-ai' || mode === 'training';
 
@@ -42,6 +43,7 @@ export default function LocalPlayPage() {
     params.set('p1', p1Char);
     params.set('p2', p2Char);
     params.set('stage', stage);
+    params.set('aspect', aspect);
     if (isP2Ai) {
       params.set('p2ai', String(aiLevel));
     }
@@ -154,7 +156,7 @@ export default function LocalPlayPage() {
         )}
 
         {/* Stage Selection */}
-        <div className="flex justify-center items-center gap-4 mb-12">
+        <div className="flex justify-center items-center gap-4 mb-8">
           <span className="text-gray-400 text-sm tracking-wider font-bold">STAGE</span>
           <div className="flex gap-2">
             {STAGES.map(s => (
@@ -171,6 +173,29 @@ export default function LocalPlayPage() {
               </button>
             ))}
           </div>
+        </div>
+
+        {/* Aspect Ratio Toggle */}
+        <div className="flex justify-center items-center gap-4 mb-12">
+          <span className="text-gray-400 text-sm tracking-wider font-bold">ASPECT</span>
+          <div className="flex gap-2">
+            {(['16:9', '4:3'] as const).map(a => (
+              <button
+                key={a}
+                onClick={() => setAspect(a)}
+                className={`px-4 py-2 text-sm font-bold border transition-all duration-200 cursor-pointer ${
+                  aspect === a
+                    ? 'border-cyan-500 bg-cyan-500/10 text-cyan-400'
+                    : 'border-white/10 text-gray-500 hover:border-white/20 hover:text-gray-300'
+                }`}
+              >
+                {a}
+              </button>
+            ))}
+          </div>
+          <span className="text-gray-700 text-xs font-mono ml-2">
+            {aspect === '4:3' ? '(faster)' : '(higher res)'}
+          </span>
         </div>
 
         {/* FIGHT Button */}
