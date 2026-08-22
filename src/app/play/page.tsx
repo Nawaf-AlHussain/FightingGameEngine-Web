@@ -163,63 +163,13 @@ function PlayPageInner() {
         // 'low' (320×240) is 16x fewer pixels than 16:9 (1280×720).
         (g as any).ikemenAspect = ikemenAspect;
 
-        // --- 7. PRELOAD ONLY ESSENTIAL FILES ---
-        // Don't preload all 127 files (29 MB) — only the ones needed to start
-        // a fight. vfs.js's background prefetch will warm the rest in the
-        // background while the player fights.
-        //
-        // Essential files for a fight:
-        // - save/config.ini (engine config)
-        // - data/ikemen1/system.def (motif definition — needed by loadFightScreen)
-        // - data/fight.def + fight.sff + fight.snd (fight screen)
-        // - data/common.* (common states, constants, etc.)
-        // - data/*.zss (compiled bytecode — needed by engine)
-        // - chars/kfm/* (the character)
-        // - stages/stage0-720.* (the stage)
-        // - external/script/*.lua (engine scripts)
-        // - font/debug.def (debug font)
-        //
-        // SKIP (loaded lazily by vfs.js background prefetch):
-        // - data/ikemen1/system.sff (9.2 MB! — only needed for menus, not fights)
-        // - data/ikemen1/system.snd (3.7 MB — only needed for menus)
-        // - data/system.snd (3.7 MB — duplicate of ikemen1/system.snd)
-        // - external/icons/* (796 KB — .ico files, useless in browser)
-        // - font/Open_Sans/* (1 MB — only needed for menus)
-        // - data/ikemen1/fonts/* (only needed for menus)
-        log('Fetching file manifest...');
-        const manifestResp = await originalFetch(STATIC_MANIFEST);
-        const manifest = await manifestResp.json();
-        const allFiles = Object.keys(manifest.files);
-
-        // Filter to essential files only
-        const isEssential = (f: string) => {
-          // Always include
-          if (f === 'save/config.ini') return true;
-          if (f.startsWith('external/script/')) return true;
-          if (f.startsWith('chars/kfm/')) return true;
-          if (f.startsWith('stages/')) return true;
-          // Fight screen + common data
-          if (f.startsWith('data/fight')) return true;
-          if (f.startsWith('data/common')) return true;
-          if (f.startsWith('data/fightfx')) return true;
-          if (f.startsWith('data/gofx/')) return true;
-          if (f.startsWith('data/glyphs')) return true;
-          if (f.endsWith('.zss')) return true;
-          if (f === 'data/ikemen1/system.def') return true;
-          if (f === 'data/ikemen1/fight.def') return true;
-          if (f === 'data/select.def') return true;
-          if (f === 'data/system.zss') return true;
-          // Debug font (small, engine expects it)
-          if (f === 'font/debug.def') return true;
-          // .keep file (tiny, prevents 404)
-          if (f === 'external/mods/.keep') return true;
-          return false;
-        };
-
-        const essentialFiles = allFiles.filter(isEssential);
-        const essentialBytes = essentialFiles.reduce((sum: number, f: string) => sum + (manifest.files[f] || 0), 0);
-        const skippedBytes = Object.values(manifest.files).reduce((a: number, b: any) => a + (b as number), 0) - essentialBytes;
-        log(`Preloading ${essentialFiles.length} essential files (${(essentialBytes / 1e6).toFixed(1)} MB) — skipping ${(skippedBytes / 1e6).toFixed(1)} MB of menu assets`);
+        // --- 7. LOAD VFS (single .pak file, one HTTP request) ---
+        // All essential files are bundled into game.pak (9.9 MB) and loaded
+        // in a single HTTP request with streaming progress. This is much
+        // faster than 48 individual requests.
+        // Menu-only assets (19 MB) are registered as lazy and fetched on
+        // demand by vfs.js's background prefetch.
+        log('Loading game.pak (~10 MB, single request)...');
 
         const setBootLine = (prefix: string, text: string) => {
           if (cancelled) return;
@@ -233,14 +183,14 @@ function PlayPageInner() {
 
         const nFiles = await (g.ikemenVfsInit as any)(
           '/game/ikemen-fs/manifest.json',
-          essentialFiles,
+          [],  // no preload list — .pak is loaded by ikemenVfsInit
           (got: number, total: number) => {
             if (cancelled) return;
             const pct = total > 0 ? Math.round((got / total) * 100) : 0;
             setBootLine('[LOAD] ', (got / 1e6).toFixed(1) + ' / ' + (total / 1e6).toFixed(1) + ' MB (' + pct + '%)');
           }
         );
-        log('VFS ready: ' + nFiles + ' files preloaded. (Background prefetching ' + (allFiles.length - essentialFiles.length) + ' more)');
+        log('VFS ready: ' + nFiles + ' files loaded from .pak.');
 
         if (cancelled) return;
 

@@ -519,9 +519,19 @@
       const pak = new Uint8Array(received);
       { let o = 0; for (const c of chunks) { pak.set(c, o); o += c.length; } }
       for (const [vpath, [offset, length]] of Object.entries(data.files)) {
-        contents.set(vpath, pak.subarray(offset, offset + length));
+        if (length > 0) {
+          contents.set(vpath, pak.subarray(offset, offset + length));
+        }
         packedIndex.set(vpath, length);
         registerDirsFor(vpath);
+      }
+      // Register lazy files (menu assets not in .pak) so exists() returns true
+      // and fetchFile() can load them on demand.
+      if (data.lazy) {
+        for (const [vpath, size] of Object.entries(data.lazy)) {
+          manifest.set(vpath, size);
+          registerDirsFor(vpath);
+        }
       }
     } else {
       for (const [vpath, size] of Object.entries(data.files)) {
