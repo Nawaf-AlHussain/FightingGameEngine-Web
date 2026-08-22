@@ -6,6 +6,47 @@ Format: newest entries at the top. Each entry gets a unique ID for cross-referen
 
 ---
 
+## F-027 | time.Sleep(0) is a no-op in Go — F-025's frame-skip yield was dead code
+**Date**: 2026-08-22 | **Type**: Mistake (identified by Claude's review)
+
+F-025 added `time.Sleep(0)` in the `await()` frame-skip default case to
+yield to the browser. The comment said "schedules a 0ms setTimeout which
+yields one event loop cycle to the browser." **This was completely wrong.**
+
+Go's `time.Sleep(d)` for `d <= 0` returns **immediately without parking
+the goroutine** — on ALL platforms including `GOOS=js`. No `setTimeout`
+is scheduled. The Go runtime checks `d <= 0` and returns early.
+
+This means F-025's frame-skip yield was **dead code** — it never actually
+yielded to the browser. The tight frame-skip loop still blocked the main
+thread, exactly as if the fix wasn't there.
+
+**Fix**: Changed `time.Sleep(0)` to `time.Sleep(1 * time.Millisecond)`.
+The positive duration triggers `wasm_exec.js`'s `scheduleTimeoutEvent`
+→ real `setTimeout(callback, 1)` → actual yield to the browser event loop.
+
+**How this went undetected**: I verified the source had the patch, rebuilt
+the WASM, confirmed the binary size changed, deployed, and tested. All
+correct except the fundamental assumption that `time.Sleep(0)` yields.
+I never tested whether the yield actually happened — I assumed the Go
+runtime behavior matched my mental model.
+
+**Lesson**: When adding a yield/sleep mechanism, ALWAYS verify it actually
+yields. For Go WASM, this means:
+- `time.Sleep(0)` → no-op (returns immediately)
+- `time.Sleep(1 * time.Millisecond)` → real yield via setTimeout
+- `runtime.Gosched()` → yields to Go scheduler (may not yield to browser)
+- Channel receive (`<-ch`) → yields if channel is empty
+- `SwapBuffers()` → yields via requestAnimationFrame (best for frame pacing)
+
+**Also identified by Claude**: The `ikemenQuickMatch` JS global was never
+accessible from Lua (Lua can't access JS globals). f_quickMatch never
+actually ran — all tests of "Attempt 4" silently fell through to attract
+mode. Fixed by using CLI args (`-qp1`, `-qp2`, etc.) via `go.argv` and
+reading them with `getCommandLineValue()` in Lua.
+
+---
+
 ## F-026 | Menu freezes after a few seconds due to GC pressure (menus not optimized like fights)
 **Date**: 2026-08-22 | **Type**: Finding (confirms F-014, adds root cause)
 
