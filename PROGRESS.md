@@ -1,41 +1,31 @@
 # PROGRESS — Fighting Game Engine Web
 
-## Session: August 23, 2026 — Aspect ratio investigation + resolution (F-034)
+## Session: August 23, 2026 — Aspect ratio investigation, rollback to a2ee988 (F-034)
 
 ### Work Done
 
-#### Aspect ratio investigation
-Extensive investigation into 4:3 rendering. User wanted true 4:3 fight camera
-(showing more stage vertically, like IKEMEN Windows) without stage edges.
+#### Aspect ratio investigation (F-034)
+Investigated true 4:3 fight camera. Added Go source debug logging confirming
+the engine was correct (canvas=640x480, gameW=320, gameH=240, aspectGame=1.333).
+The "black bars" in true 4:3 mode were the stage's own background, not
+letterboxing — stage0-720 (16:9) doesn't have enough art for 4:3 camera.
 
-Tested 3 FightAspect settings:
-1. -1,-1 (Stage) → 16:9 fight camera, letterboxed black bars
-2. 4,3 (Custom) → 4:3 fight camera, showed stage edges (background areas)
-3. 0,0 (Default) → 4:3 fight camera, showed stage background (looked like black bars)
+#### Mistake: Lost Go patches during WASM rebuild (again, same as F-027)
+Rebuilt WASM from fresh clone without re-applying patches. Game felt laggy.
+Re-applied all 3 patches and rebuilt, but user still felt lag (possibly from
+the FightAspect/CSS changes compounding).
 
-Added Go source debug logging to `GetScaledViewportSize()` confirming:
-- Canvas: 640×480 (4:3) ✅
-- Fight camera: 320×240 (4:3) ✅
-- aspectGame == aspectWindow (1.333 == 1.333) → no engine letterboxing ✅
+#### Rollback
+Rolled back all code to commit a2ee988 (last known-good state). This restores:
+- Working 3-option resolution toggle (480p / 4:3 / 16:9, all letterboxed)
+- Simple CSS (no object-fit interference)
+- WASM with all 3 Go patches
+- GOGC=off
 
-Root cause: The "black bars" in true 4:3 mode were the **stage's own background**,
-not letterboxing. Stage0-720 (localcoord=1280,720 = 16:9) doesn't have enough
-art to cover a 4:3 camera viewport vertically.
-
-#### Resolution
-Reverted to FightAspect=-1,-1 (Stage aspect) for 4:3 modes. This gives clean
-letterboxed 16:9 fight camera in 4:3 canvas. No stage edges visible. User
-confirmed this is the preferred behavior.
-
-3 resolution options:
-1. 480p — 320×240, 16:9 fight camera (letterboxed, fastest)
-2. 4:3  — 640×480, 16:9 fight camera (letterboxed, balanced)
-3. 16:9 — 1280×720, 16:9 fight camera (highest quality)
-
-### Current Status — FULLY WORKING
-- ✅ Smooth 60fps gameplay (GOGC=off)
+### Current Status — ROLLED BACK TO a2ee988
+- ✅ Smooth 60fps gameplay (GOGC=off + all Go patches)
 - ✅ 85 characters + 5 stages from CDN
-- ✅ 3 resolution options (letterboxed 4:3 + 16:9)
+- ✅ 3 resolution options (480p / 4:3 / 16:9, letterboxed)
 - ✅ Fast load (.pak + parallel + caching)
 
 ---

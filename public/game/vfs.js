@@ -609,32 +609,23 @@
       }
     } catch (e) { /* leave config as restored */ }
 
-    // Apply the boot-page picture choice.
-    // For 4:3 modes, use FightAspect=-1,-1 (Stage aspect) which makes the
-    // engine use the stage's localcoord (1280×720 = 16:9) as the fight camera.
-    // This gives a 16:9 fight view in a 4:3 canvas — letterboxed with black
-    // bars on top/bottom. No stage edges visible.
-    //
-    // For 16:9, use FightAspect=0,0 (Default) which uses the canvas ratio.
+    // Apply the boot-page picture choice the same way. 720p is THREE TIMES the
+    // pixels of 4:3 (921k vs 307k) and on this single-threaded build every one
+    // of them comes out of the same budget as the game itself. The canvas takes its aspect
+    // from its own backing store, which the engine sizes from these, so the
+    // letterboxing follows without a second setting to keep in step.
     try {
-      let w = 1280, h = 720;
-      let faW = 0, faH = 0; // Default: use canvas ratio (16:9)
+      // Support either a preset ('16:9'/'4:3') or explicit {w,h} from JS.
+      // Custom resolutions let users balance quality vs performance.
+      let w = 1280, h = 720; // default 16:9
       const a = globalThis.ikemenAspect;
-      if (a === '16:9') {
-        w = 1280; h = 720; faW = 0; faH = 0;
-      } else if (a && typeof a === 'object') {
-        w = a.w | 0; h = a.h | 0;
-        // Use stage aspect (-1,-1) for 4:3 modes — gives 16:9 fight camera
-        // (letterboxed, no stage edges)
-        faW = -1; faH = -1;
-      }
+      if (a === '4:3') { w = 640; h = 480; }
+      else if (a && typeof a === 'object') { w = a.w | 0; h = a.h | 0; }
       const cfg = contents.get('save/config.ini');
       if (cfg) {
         const text = new TextDecoder().decode(cfg);
         let patched = text.replace(/^(\s*GameWidth\s*=\s*)[0-9]+/mi, '$1' + w);
         patched = patched.replace(/^(\s*GameHeight\s*=\s*)[0-9]+/mi, '$1' + h);
-        patched = patched.replace(/^(\s*FightAspectWidth\s*=\s*)-?[0-9]+/mi, '$1' + faW);
-        patched = patched.replace(/^(\s*FightAspectHeight\s*=\s*)-?[0-9]+/mi, '$1' + faH);
         if (patched !== text) contents.set('save/config.ini', new TextEncoder().encode(patched));
       }
     } catch (e) { /* leave the shipped size */ }
