@@ -185,15 +185,12 @@ function PlayPageInner() {
         // go.argv is set later (after CDN downloads) with resolved character paths
         const go = new (g.Go as any)();
         // GC settings:
-        // - GOGC=50: More frequent, shorter GC pauses (better for smoothness
-        //   than fewer/longer pauses). Claude's analysis: with frame-skip yield
-        //   now working (F-027), the engine can recover between pauses.
-        //   energyjp tested 200/500 (worse) but never tested LOWER than 100.
-        // - GODEBUG=gctrace=1: Prints GC events to console for diagnosis.
-        //   Each line shows: gc N @time X%: mark+term ms, heap MB→MB→MB
-        //   Zero overhead beyond console output, can be removed later.
+        // - GOGC=100: Reverted from 50. Data showed GC pause duration is
+        //   proportional to live heap size (51MB), not GC frequency. Lower
+        //   GOGC just makes pauses more frequent without reducing duration.
+        // - GODEBUG=gctrace=1: Keep for now — useful for future diagnosis.
         go.env = {
-          GOGC: '50',
+          GOGC: '100',
           GOMEMLIMIT: '800MiB',
           GODEBUG: 'gctrace=1',
         };
