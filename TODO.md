@@ -4,19 +4,14 @@
 
 **Replace the Dolmexica Infinite WASM engine with IKEMEN GO v2 WASM, keeping the best UI from FightingGameEngine-Demo and the 85+ character roster from FightingGameEngine/Assets.**
 
-## CURRENT STATE (August 22, 2026) — ✅ PHASE 2 COMPLETE
+## CURRENT STATE (August 22, 2026) — ✅ FULLY OPTIMIZED
 
-- ✅ Engine boots via f_quickMatch (smooth game() path, no menu freeze)
-- ✅ Fights run at 60fps
-- ✅ React character select (mode, characters, stage, AI level, resolution)
-- ✅ **85 characters + 5 stages available from CDN**
-- ✅ Player input works (keyboard)
-- ✅ AI opponent works (level 1-8)
-- ✅ .pak bundling (1 HTTP request, 10.7 MB)
-- ✅ Parallel WASM + .pak loading
-- ✅ Immutable caching (repeat visits near-instant)
+- ✅ Smooth 60fps gameplay for ALL characters (GOGC=off — F-033)
+- ✅ No mid-round GC pauses
+- ✅ 85 characters + 5 stages available from CDN
+- ✅ Fast load (.pak bundling + parallel loading + immutable caching)
 - ✅ Resolution toggle (480p / 4:3 / 16:9)
-- ✅ CDN character download with progress display
+- ✅ React character select with mode/character/stage/AI/resolution
 
 ---
 

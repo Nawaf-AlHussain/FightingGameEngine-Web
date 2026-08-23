@@ -6,6 +6,49 @@ Format: newest entries at the top. Each entry gets a unique ID for cross-referen
 
 ---
 
+## F-033 | GOGC=off eliminates mid-round GC pauses — smooth gameplay achieved
+**Date**: 2026-08-22 | **Type**: Breakthrough (final performance fix)
+
+After collecting GC trace data (GODEBUG=gctrace=1) and Claude's analysis,
+discovered the key insight: **GC pause duration is proportional to live
+heap size, not GC frequency**.
+
+Data showed:
+- KFM vs KFM: 200ms pause every ~8s, live heap 51MB
+- Nightwing vs KFM: 200ms pause every ~7s, live heap 63MB
+- Character doesn't affect GC behavior — both have same ~200ms pauses
+
+This meant:
+- GOGC=100: 200ms pause every ~8s (automatic, during gameplay)
+- GOGC=50: 200ms pause every ~4s (worse — more frequent, same duration)
+- **GOGC=off: 0 automatic pauses** — GC only runs at forced call sites
+
+**Fix**: Set `GOGC=off` in go.env. GC now only runs at:
+- Round transitions (platformIdleGC in system.go:4107)
+- Pauses (platformIdleGC in input.go:146)
+- Match load (platformLoadGC in system.go:1014)
+
+**Safety**: GOMEMLIMIT=800MiB remains as backstop. A 60s round generates
+~200MB garbage — well under 800MB. Between rounds, forced GC collects
+before garbage accumulates.
+
+**Result**: User reports "gameplay is very smooth now. For long sessions
+and heavy characters as well." This is the final performance fix.
+
+**Lesson**: When a GC pause is proportional to live heap size (not garbage
+volume), tuning GOGC is the wrong lever — it only changes frequency, not
+duration. The correct approach is to disable automatic GC entirely
+(GOGC=off) and force collections only at invisible moments (round
+transitions, pauses). This is Go's documented pattern for latency-sensitive
+applications.
+
+**Journey**: F-025 (time.Sleep(0) was no-op) → F-027 (Claude caught it) →
+F-028 (f_quickMatch works) → F-029 (.pak bundling) → F-032 (lenient
+parsing) → F-033 (GOGC=off). Each fix was necessary; none was sufficient
+alone.
+
+---
+
 ## F-032 | Lenient state controller parsing — characters now load from CDN
 **Date**: 2026-08-22 | **Type**: Breakthrough (character compatibility)
 

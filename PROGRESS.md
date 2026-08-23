@@ -1,5 +1,44 @@
 # PROGRESS — Fighting Game Engine Web
 
+## Session: August 22, 2026 (Final) — GOGC=off, smooth gameplay achieved
+
+### Work Done
+
+#### GOGC=off — the final performance fix (F-033)
+After collecting GC trace data and Claude's analysis, discovered that GC
+pause duration (~200ms) is proportional to live heap size (51MB), not GC
+frequency. This meant tuning GOGC was the wrong lever — it only changes
+frequency, not duration.
+
+Solution: `GOGC=off` — disables automatic GC entirely. GC only runs at
+forced call sites (round transitions, pauses, match load). This eliminates
+all mid-round GC pauses.
+
+Safety: GOMEMLIMIT=800MiB remains as backstop. Between rounds, platformIdleGC()
+collects garbage before it accumulates.
+
+Removed GODEBUG=gctrace=1 (was diagnostic, no longer needed).
+
+### Current Status — FULLY OPTIMIZED
+- ✅ Smooth 60fps gameplay for ALL characters (light and heavy)
+- ✅ No mid-round GC pauses (GOGC=off)
+- ✅ 85 characters + 5 stages from CDN
+- ✅ Fast load (.pak bundling + parallel loading + caching)
+- ✅ Resolution toggle (480p / 4:3 / 16:9)
+
+### Performance Journey (complete)
+1. F-018: BootLoadingMode=0 freeze → fixed
+2. F-023: vfs.js Promise cache storm → fixed
+3. F-024/F-025: Frame-skip tight loop → fixed (time.Sleep(1ms))
+4. F-026: Menu GC pressure → bypassed (f_quickMatch)
+5. F-027: time.Sleep(0) was no-op → fixed (Claude caught it)
+6. F-028: f_quickMatch works → fights playable
+7. F-029: .pak bundling → fast load
+8. F-032: Lenient state parsing → all characters load
+9. **F-033: GOGC=off → smooth gameplay achieved**
+
+---
+
 ## Session: August 22, 2026 (Final) — Phase 2 complete, 85 characters working
 
 ### Work Done
