@@ -199,13 +199,9 @@ function PlayPageInner() {
         //   Safety: GOMEMLIMIT=800MiB remains as backstop. A 60s round
         //   generates ~200MB garbage — well under 800MB. platformIdleGC()
         //   runs between rounds to collect before garbage accumulates.
-        //
-        // - GODEBUG=gctrace=1: Keep for diagnosis — verify automatic GC
-        //   lines disappear and only (forced) ones remain.
         go.env = {
           GOGC: 'off',
           GOMEMLIMIT: '800MiB',
-          GODEBUG: 'gctrace=1',
         };
 
         const wasmUrl = '/game/ikemen.wasm';
