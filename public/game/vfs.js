@@ -615,10 +615,9 @@
     //
     // globalThis.ikemenAspect can be:
     // - String '16:9' → 1280×720 canvas, 16:9 camera
-    // - Object {w, h} → custom canvas, NATIVE camera (FightAspect=-1,-1)
-    //   The engine uses its native 4:3 camera at 320×240 base resolution.
-    //   Stages are authored for this — no stage edges visible.
-    //   This matches how Dolmexica/MUGEN render at 320×240 or 640×480.
+    // - Object {w, h} → custom canvas, 4:3 camera (FightAspect=4,3)
+    //   Forces 4:3 fight camera. Stages with overdrawhigh/low=0 won't
+    //   show stage edges. Matches Dolmexica's 4:3 rendering.
     try {
       let w = 1280, h = 720; // default 16:9
       let faW = 16, faH = 9; // fight aspect (camera viewport)
@@ -627,17 +626,15 @@
         w = 1280; h = 720; faW = 16; faH = 9;
       } else if (a && typeof a === 'object') {
         w = a.w | 0; h = a.h | 0;
-        // Use native camera — engine uses stage localcoord or motif aspect.
-        // For 320×240/640×480 (4:3), this gives the classic MUGEN 4:3 view
-        // that stages are designed for. No stage edges visible.
-        faW = -1; faH = -1;
+        // Force 4:3 fight camera — shows classic MUGEN 4:3 view
+        // Stage overdrawhigh/low set to 0 to prevent stage edges
+        faW = 4; faH = 3;
       }
       const cfg = contents.get('save/config.ini');
       if (cfg) {
         const text = new TextDecoder().decode(cfg);
         let patched = text.replace(/^(\s*GameWidth\s*=\s*)[0-9]+/mi, '$1' + w);
         patched = patched.replace(/^(\s*GameHeight\s*=\s*)[0-9]+/mi, '$1' + h);
-        // Set fight aspect ratio — -1,-1 means use native (stage localcoord)
         patched = patched.replace(/^(\s*FightAspectWidth\s*=\s*)-?[0-9]+/mi, '$1' + faW);
         patched = patched.replace(/^(\s*FightAspectHeight\s*=\s*)-?[0-9]+/mi, '$1' + faH);
         if (patched !== text) contents.set('save/config.ini', new TextEncoder().encode(patched));
