@@ -609,23 +609,34 @@
       }
     } catch (e) { /* leave config as restored */ }
 
-    // Apply the boot-page picture choice the same way. 720p is THREE TIMES the
-    // pixels of 4:3 (921k vs 307k) and on this single-threaded build every one
-    // of them comes out of the same budget as the game itself. The canvas takes its aspect
-    // from its own backing store, which the engine sizes from these, so the
-    // letterboxing follows without a second setting to keep in step.
+    // Apply the boot-page picture choice. This controls TWO things:
+    // 1. GameWidth/GameHeight: the canvas resolution (rendering pixels)
+    // 2. FightAspectWidth/FightAspectHeight: the fight CAMERA aspect ratio
+    //    (what part of the stage is visible). Without this, the engine uses
+    //    the stage's localcoord (often 16:9), so 4:3 mode would just show
+    //    16:9 content with black bars instead of showing more of the stage.
     try {
       // Support either a preset ('16:9'/'4:3') or explicit {w,h} from JS.
-      // Custom resolutions let users balance quality vs performance.
       let w = 1280, h = 720; // default 16:9
+      let faW = 16, faH = 9; // fight aspect (camera viewport)
       const a = globalThis.ikemenAspect;
-      if (a === '4:3') { w = 640; h = 480; }
-      else if (a && typeof a === 'object') { w = a.w | 0; h = a.h | 0; }
+      if (a === '4:3') { w = 640; h = 480; faW = 4; faH = 3; }
+      else if (a === '16:9') { w = 1280; h = 720; faW = 16; faH = 9; }
+      else if (a && typeof a === 'object') {
+        w = a.w | 0; h = a.h | 0;
+        // Calculate fight aspect from the resolution
+        const gcd = (x, y) => y === 0 ? x : gcd(y, x % y);
+        const g = gcd(w, h);
+        faW = w / g; faH = h / g;
+      }
       const cfg = contents.get('save/config.ini');
       if (cfg) {
         const text = new TextDecoder().decode(cfg);
         let patched = text.replace(/^(\s*GameWidth\s*=\s*)[0-9]+/mi, '$1' + w);
         patched = patched.replace(/^(\s*GameHeight\s*=\s*)[0-9]+/mi, '$1' + h);
+        // Set fight aspect ratio — overrides stage localcoord
+        patched = patched.replace(/^(\s*FightAspectWidth\s*=\s*)-?[0-9]+/mi, '$1' + faW);
+        patched = patched.replace(/^(\s*FightAspectHeight\s*=\s*)-?[0-9]+/mi, '$1' + faH);
         if (patched !== text) contents.set('save/config.ini', new TextEncoder().encode(patched));
       }
     } catch (e) { /* leave the shipped size */ }
