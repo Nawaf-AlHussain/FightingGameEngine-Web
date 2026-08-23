@@ -609,11 +609,9 @@
       }
     } catch (e) { /* leave config as restored */ }
 
-    // Apply the boot-page picture choice. This controls TWO things:
-    // 1. GameWidth/GameHeight: the canvas resolution (rendering pixels)
-    // 2. FightAspectWidth/FightAspectHeight: the fight CAMERA aspect ratio
+    // Apply the boot-page picture choice.
     try {
-      let w = 1280, h = 720; // default 16:9
+      let w = 1280, h = 720;
       const a = globalThis.ikemenAspect;
       if (a === '16:9') {
         w = 1280; h = 720;
@@ -628,23 +626,8 @@
         patched = patched.replace(/^(\s*FightAspectWidth\s*=\s*)-?[0-9]+/mi, '$1' + 0);
         patched = patched.replace(/^(\s*FightAspectHeight\s*=\s*)-?[0-9]+/mi, '$1' + 0);
         if (patched !== text) contents.set('save/config.ini', new TextEncoder().encode(patched));
-        // DEBUG: log what we patched
-        console.log('[vfs] ikemenAspect=' + JSON.stringify(a) + ' → GameWidth=' + w + ' GameHeight=' + h + ' FightAspect=0,0');
-        console.log('[vfs] config GameWidth line:', patched.match(/^(\s*GameWidth\s*=\s*.+)$/mi)?.[1]);
-        console.log('[vfs] config FightAspectWidth line:', patched.match(/^(\s*FightAspectWidth\s*=\s*.+)$/mi)?.[1]);
       }
     } catch (e) { /* leave the shipped size */ }
-
-    // DEBUG: log canvas dimensions when engine creates it
-    const canvasObserver = new MutationObserver(() => {
-      const canvas = document.querySelector('canvas');
-      if (canvas && canvas.width > 0) {
-        console.log('[vfs] Canvas created! backing:', canvas.width, 'x', canvas.height,
-                    'display:', Math.round(canvas.getBoundingClientRect().width), 'x', Math.round(canvas.getBoundingClientRect().height));
-        canvasObserver.disconnect();
-      }
-    });
-    canvasObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['width', 'height'] });
 
     // Apply the boot-page netcode choice by patching RollbackNetcode in
     // config.ini in place, AFTER restorePersisted so it beats any persisted
