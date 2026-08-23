@@ -614,29 +614,34 @@
     // 2. FightAspectWidth/FightAspectHeight: the fight CAMERA aspect ratio
     //
     // globalThis.ikemenAspect can be:
-    // - String '16:9' → 1280×720 canvas, 16:9 camera
-    // - Object {w, h} → custom canvas, 4:3 camera (FightAspect=4,3)
-    //   Forces 4:3 fight camera. Stages with overdrawhigh/low=0 won't
-    //   show stage edges. Matches Dolmexica's 4:3 rendering.
+    // - String '16:9' → 1280×720 canvas, FightAspect=0,0 (use canvas ratio = 16:9)
+    // - Object {w, h} → custom canvas, FightAspect=0,0 (use canvas ratio)
+    //
+    // FightAspectWidth=0, FightAspectHeight=0 means "Default" in IKEMEN's
+    // options — the engine uses GameWidth/GameHeight as the fight camera
+    // aspect ratio. This is how IKEMEN Windows works:
+    // - 320×240 canvas → 4:3 fight camera (shows more stage vertically)
+    // - 640×480 canvas → 4:3 fight camera
+    // - 1280×720 canvas → 16:9 fight camera
+    //
+    // This matches the IKEMEN Windows resolution options exactly.
     try {
       let w = 1280, h = 720; // default 16:9
-      let faW = 16, faH = 9; // fight aspect (camera viewport)
       const a = globalThis.ikemenAspect;
       if (a === '16:9') {
-        w = 1280; h = 720; faW = 16; faH = 9;
+        w = 1280; h = 720;
       } else if (a && typeof a === 'object') {
         w = a.w | 0; h = a.h | 0;
-        // Force 4:3 fight camera — shows classic MUGEN 4:3 view
-        // Stage overdrawhigh/low set to 0 to prevent stage edges
-        faW = 4; faH = 3;
       }
       const cfg = contents.get('save/config.ini');
       if (cfg) {
         const text = new TextDecoder().decode(cfg);
         let patched = text.replace(/^(\s*GameWidth\s*=\s*)[0-9]+/mi, '$1' + w);
         patched = patched.replace(/^(\s*GameHeight\s*=\s*)[0-9]+/mi, '$1' + h);
-        patched = patched.replace(/^(\s*FightAspectWidth\s*=\s*)-?[0-9]+/mi, '$1' + faW);
-        patched = patched.replace(/^(\s*FightAspectHeight\s*=\s*)-?[0-9]+/mi, '$1' + faH);
+        // FightAspect=0,0 = "Default" = use GameWidth/GameHeight ratio
+        // This makes the fight camera match the canvas aspect ratio
+        patched = patched.replace(/^(\s*FightAspectWidth\s*=\s*)-?[0-9]+/mi, '$1' + 0);
+        patched = patched.replace(/^(\s*FightAspectHeight\s*=\s*)-?[0-9]+/mi, '$1' + 0);
         if (patched !== text) contents.set('save/config.ini', new TextEncoder().encode(patched));
       }
     } catch (e) { /* leave the shipped size */ }
