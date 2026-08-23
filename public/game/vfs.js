@@ -612,19 +612,6 @@
     // Apply the boot-page picture choice. This controls TWO things:
     // 1. GameWidth/GameHeight: the canvas resolution (rendering pixels)
     // 2. FightAspectWidth/FightAspectHeight: the fight CAMERA aspect ratio
-    //
-    // globalThis.ikemenAspect can be:
-    // - String '16:9' → 1280×720 canvas, FightAspect=0,0 (use canvas ratio = 16:9)
-    // - Object {w, h} → custom canvas, FightAspect=0,0 (use canvas ratio)
-    //
-    // FightAspectWidth=0, FightAspectHeight=0 means "Default" in IKEMEN's
-    // options — the engine uses GameWidth/GameHeight as the fight camera
-    // aspect ratio. This is how IKEMEN Windows works:
-    // - 320×240 canvas → 4:3 fight camera (shows more stage vertically)
-    // - 640×480 canvas → 4:3 fight camera
-    // - 1280×720 canvas → 16:9 fight camera
-    //
-    // This matches the IKEMEN Windows resolution options exactly.
     try {
       let w = 1280, h = 720; // default 16:9
       const a = globalThis.ikemenAspect;
@@ -638,11 +625,13 @@
         const text = new TextDecoder().decode(cfg);
         let patched = text.replace(/^(\s*GameWidth\s*=\s*)[0-9]+/mi, '$1' + w);
         patched = patched.replace(/^(\s*GameHeight\s*=\s*)[0-9]+/mi, '$1' + h);
-        // FightAspect=0,0 = "Default" = use GameWidth/GameHeight ratio
-        // This makes the fight camera match the canvas aspect ratio
         patched = patched.replace(/^(\s*FightAspectWidth\s*=\s*)-?[0-9]+/mi, '$1' + 0);
         patched = patched.replace(/^(\s*FightAspectHeight\s*=\s*)-?[0-9]+/mi, '$1' + 0);
         if (patched !== text) contents.set('save/config.ini', new TextEncoder().encode(patched));
+        // DEBUG: log what we patched
+        console.log('[vfs] ikemenAspect=' + JSON.stringify(a) + ' → GameWidth=' + w + ' GameHeight=' + h + ' FightAspect=0,0');
+        console.log('[vfs] config GameWidth line:', patched.match(/^(\s*GameWidth\s*=\s*.+)$/mi)?.[1]);
+        console.log('[vfs] config FightAspectWidth line:', patched.match(/^(\s*FightAspectWidth\s*=\s*.+)$/mi)?.[1]);
       }
     } catch (e) { /* leave the shipped size */ }
 
