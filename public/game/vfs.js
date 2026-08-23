@@ -610,21 +610,31 @@
     } catch (e) { /* leave config as restored */ }
 
     // Apply the boot-page picture choice.
+    // For 4:3 modes, use FightAspect=-1,-1 (Stage aspect) which makes the
+    // engine use the stage's localcoord (1280×720 = 16:9) as the fight camera.
+    // This gives a 16:9 fight view in a 4:3 canvas — letterboxed with black
+    // bars on top/bottom. No stage edges visible.
+    //
+    // For 16:9, use FightAspect=0,0 (Default) which uses the canvas ratio.
     try {
       let w = 1280, h = 720;
+      let faW = 0, faH = 0; // Default: use canvas ratio (16:9)
       const a = globalThis.ikemenAspect;
       if (a === '16:9') {
-        w = 1280; h = 720;
+        w = 1280; h = 720; faW = 0; faH = 0;
       } else if (a && typeof a === 'object') {
         w = a.w | 0; h = a.h | 0;
+        // Use stage aspect (-1,-1) for 4:3 modes — gives 16:9 fight camera
+        // (letterboxed, no stage edges)
+        faW = -1; faH = -1;
       }
       const cfg = contents.get('save/config.ini');
       if (cfg) {
         const text = new TextDecoder().decode(cfg);
         let patched = text.replace(/^(\s*GameWidth\s*=\s*)[0-9]+/mi, '$1' + w);
         patched = patched.replace(/^(\s*GameHeight\s*=\s*)[0-9]+/mi, '$1' + h);
-        patched = patched.replace(/^(\s*FightAspectWidth\s*=\s*)-?[0-9]+/mi, '$1' + 0);
-        patched = patched.replace(/^(\s*FightAspectHeight\s*=\s*)-?[0-9]+/mi, '$1' + 0);
+        patched = patched.replace(/^(\s*FightAspectWidth\s*=\s*)-?[0-9]+/mi, '$1' + faW);
+        patched = patched.replace(/^(\s*FightAspectHeight\s*=\s*)-?[0-9]+/mi, '$1' + faH);
         if (patched !== text) contents.set('save/config.ini', new TextEncoder().encode(patched));
       }
     } catch (e) { /* leave the shipped size */ }
