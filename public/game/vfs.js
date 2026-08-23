@@ -635,16 +635,16 @@
       }
     } catch (e) { /* leave the shipped size */ }
 
-    // DEBUG: log canvas dimensions after engine creates it
-    setTimeout(() => {
+    // DEBUG: log canvas dimensions when engine creates it
+    const canvasObserver = new MutationObserver(() => {
       const canvas = document.querySelector('canvas');
-      if (canvas) {
-        console.log('[vfs] Canvas backing store:', canvas.width, 'x', canvas.height);
-        console.log('[vfs] Canvas display size:', canvas.getBoundingClientRect().width, 'x', canvas.getBoundingClientRect().height);
-      } else {
-        console.log('[vfs] No canvas found yet');
+      if (canvas && canvas.width > 0) {
+        console.log('[vfs] Canvas created! backing:', canvas.width, 'x', canvas.height,
+                    'display:', Math.round(canvas.getBoundingClientRect().width), 'x', Math.round(canvas.getBoundingClientRect().height));
+        canvasObserver.disconnect();
       }
-    }, 3000);
+    });
+    canvasObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['width', 'height'] });
 
     // Apply the boot-page netcode choice by patching RollbackNetcode in
     // config.ini in place, AFTER restorePersisted so it beats any persisted
