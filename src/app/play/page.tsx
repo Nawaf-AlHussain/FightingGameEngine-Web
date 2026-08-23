@@ -184,7 +184,19 @@ function PlayPageInner() {
         // Start WASM fetch immediately (don't await yet — runs in background)
         // go.argv is set later (after CDN downloads) with resolved character paths
         const go = new (g.Go as any)();
-        go.env = { GOGC: '100', GOMEMLIMIT: '800MiB' };
+        // GC settings:
+        // - GOGC=50: More frequent, shorter GC pauses (better for smoothness
+        //   than fewer/longer pauses). Claude's analysis: with frame-skip yield
+        //   now working (F-027), the engine can recover between pauses.
+        //   energyjp tested 200/500 (worse) but never tested LOWER than 100.
+        // - GODEBUG=gctrace=1: Prints GC events to console for diagnosis.
+        //   Each line shows: gc N @time X%: mark+term ms, heap MB→MB→MB
+        //   Zero overhead beyond console output, can be removed later.
+        go.env = {
+          GOGC: '50',
+          GOMEMLIMIT: '800MiB',
+          GODEBUG: 'gctrace=1',
+        };
 
         const wasmUrl = '/game/ikemen.wasm';
         const wasmPromise = WebAssembly.instantiateStreaming(
