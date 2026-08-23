@@ -635,6 +635,17 @@
       }
     } catch (e) { /* leave the shipped size */ }
 
+    // DEBUG: log canvas dimensions after engine creates it
+    setTimeout(() => {
+      const canvas = document.querySelector('canvas');
+      if (canvas) {
+        console.log('[vfs] Canvas backing store:', canvas.width, 'x', canvas.height);
+        console.log('[vfs] Canvas display size:', canvas.getBoundingClientRect().width, 'x', canvas.getBoundingClientRect().height);
+      } else {
+        console.log('[vfs] No canvas found yet');
+      }
+    }, 3000);
+
     // Apply the boot-page netcode choice by patching RollbackNetcode in
     // config.ini in place, AFTER restorePersisted so it beats any persisted
     // config. Delay (=0) is the shipped default; Rollback (=1) is the opt-in
