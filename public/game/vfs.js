@@ -612,35 +612,32 @@
     // Apply the boot-page picture choice. This controls TWO things:
     // 1. GameWidth/GameHeight: the canvas resolution (rendering pixels)
     // 2. FightAspectWidth/FightAspectHeight: the fight CAMERA aspect ratio
-    //    (what part of the stage is visible).
     //
     // globalThis.ikemenAspect can be:
     // - String '16:9' → 1280×720 canvas, 16:9 camera
-    // - String '4:3'  → 640×480 canvas, 4:3 camera (true 4:3, taller view)
-    // - Object {w, h} → custom canvas, 16:9 camera (letterboxed)
-    // - Object {w, h, faW, faH} → custom canvas + custom fight camera
+    // - Object {w, h} → custom canvas, NATIVE camera (FightAspect=-1,-1)
+    //   The engine uses its native 4:3 camera at 320×240 base resolution.
+    //   Stages are authored for this — no stage edges visible.
+    //   This matches how Dolmexica/MUGEN render at 320×240 or 640×480.
     try {
       let w = 1280, h = 720; // default 16:9
       let faW = 16, faH = 9; // fight aspect (camera viewport)
       const a = globalThis.ikemenAspect;
-      if (a === '4:3') { w = 640; h = 480; faW = 4; faH = 3; }
-      else if (a === '16:9') { w = 1280; h = 720; faW = 16; faH = 9; }
-      else if (a && typeof a === 'object') {
+      if (a === '16:9') {
+        w = 1280; h = 720; faW = 16; faH = 9;
+      } else if (a && typeof a === 'object') {
         w = a.w | 0; h = a.h | 0;
-        if (a.faW && a.faH) {
-          // Custom fight camera specified
-          faW = a.faW; faH = a.faH;
-        } else {
-          // No fight camera specified — default to 16:9 (letterboxed)
-          faW = 16; faH = 9;
-        }
+        // Use native camera — engine uses stage localcoord or motif aspect.
+        // For 320×240/640×480 (4:3), this gives the classic MUGEN 4:3 view
+        // that stages are designed for. No stage edges visible.
+        faW = -1; faH = -1;
       }
       const cfg = contents.get('save/config.ini');
       if (cfg) {
         const text = new TextDecoder().decode(cfg);
         let patched = text.replace(/^(\s*GameWidth\s*=\s*)[0-9]+/mi, '$1' + w);
         patched = patched.replace(/^(\s*GameHeight\s*=\s*)[0-9]+/mi, '$1' + h);
-        // Set fight aspect ratio — overrides stage localcoord
+        // Set fight aspect ratio — -1,-1 means use native (stage localcoord)
         patched = patched.replace(/^(\s*FightAspectWidth\s*=\s*)-?[0-9]+/mi, '$1' + faW);
         patched = patched.replace(/^(\s*FightAspectHeight\s*=\s*)-?[0-9]+/mi, '$1' + faH);
         if (patched !== text) contents.set('save/config.ini', new TextEncoder().encode(patched));

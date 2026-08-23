@@ -55,7 +55,7 @@ export default function LocalPlayPage() {
   const [p1Ready, setP1Ready] = useState(false);
   const [p2Ready, setP2Ready] = useState(false);
   const [aiLevel, setAiLevel] = useState(5);
-  const [aspect, setAspect] = useState<'480p' | '4:3-lb' | '4:3' | '16:9'>('4:3');
+  const [aspect, setAspect] = useState<'480p' | '4:3' | '16:9'>('4:3');
 
   const isP2Ai = mode === 'vs-ai' || mode === 'training';
 
@@ -222,10 +222,9 @@ export default function LocalPlayPage() {
           <span className="text-gray-400 text-sm tracking-wider font-bold">RES</span>
           <div className="flex gap-2 flex-wrap justify-center">
             {([
-              { id: '480p' as const,   label: '480p',   hint: '320×240, 16:9 (fastest)' },
-              { id: '4:3-lb' as const, label: '4:3 LB', hint: '640×480, 16:9 (letterboxed)' },
-              { id: '4:3' as const,    label: '4:3',    hint: '640×480, true 4:3 (taller view)' },
-              { id: '16:9' as const,   label: '16:9',   hint: '1280×720, 16:9 (highest)' },
+              { id: '480p' as const, label: '480p',  hint: '320×240, native 4:3 (fastest, like Dolmexica)' },
+              { id: '4:3' as const,  label: '4:3',   hint: '640×480, native 4:3 (balanced)' },
+              { id: '16:9' as const, label: '16:9',  hint: '1280×720, 16:9 (highest quality)' },
             ]).map(r => (
               <button
                 key={r.id}
@@ -241,10 +240,9 @@ export default function LocalPlayPage() {
             ))}
           </div>
           <span className="text-gray-700 text-xs font-mono ml-2 w-full text-center">
-            {aspect === '480p'   ? '320×240, 16:9 camera (letterboxed, fastest)' :
-             aspect === '4:3-lb' ? '640×480, 16:9 camera (letterboxed, balanced)' :
-             aspect === '4:3'    ? '640×480, true 4:3 camera (taller view, may show stage edges)' :
-                                   '1280×720, 16:9 camera (highest quality)'}
+            {aspect === '480p' ? '320×240, native 4:3 camera (fastest, like Dolmexica)' :
+             aspect === '4:3'  ? '640×480, native 4:3 camera (balanced)' :
+                                 '1280×720, 16:9 camera (highest quality)'}
           </span>
         </div>
 
