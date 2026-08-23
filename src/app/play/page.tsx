@@ -184,13 +184,26 @@ function PlayPageInner() {
         // Start WASM fetch immediately (don't await yet — runs in background)
         // go.argv is set later (after CDN downloads) with resolved character paths
         const go = new (g.Go as any)();
-        // GC settings:
-        // - GOGC=100: Reverted from 50. Data showed GC pause duration is
-        //   proportional to live heap size (51MB), not GC frequency. Lower
-        //   GOGC just makes pauses more frequent without reducing duration.
-        // - GODEBUG=gctrace=1: Keep for now — useful for future diagnosis.
+        // GC settings (tuned based on gctrace data + Claude's analysis):
+        // - GOGC=off: Disables automatic GC entirely. GC only runs at our
+        //   forced call sites (platformIdleGC at round transitions, pauses,
+        //   match load). This eliminates mid-round GC pauses.
+        //
+        //   Why this works: GC trace data showed pause duration (~200ms) is
+        //   proportional to live heap size (51MB), NOT GC frequency. GOGC
+        //   only controls when GC triggers, not how long it takes. So:
+        //   - GOGC=100: 200ms pause every ~8s (automatic)
+        //   - GOGC=50: 200ms pause every ~4s (worse — more frequent)
+        //   - GOGC=off: 0 automatic pauses, only forced ones at round transitions
+        //
+        //   Safety: GOMEMLIMIT=800MiB remains as backstop. A 60s round
+        //   generates ~200MB garbage — well under 800MB. platformIdleGC()
+        //   runs between rounds to collect before garbage accumulates.
+        //
+        // - GODEBUG=gctrace=1: Keep for diagnosis — verify automatic GC
+        //   lines disappear and only (forced) ones remain.
         go.env = {
-          GOGC: '100',
+          GOGC: 'off',
           GOMEMLIMIT: '800MiB',
           GODEBUG: 'gctrace=1',
         };
