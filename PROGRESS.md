@@ -1,5 +1,45 @@
 # PROGRESS — Fighting Game Engine Web
 
+## Session: August 23, 2026 — Aspect ratio investigation + resolution (F-034)
+
+### Work Done
+
+#### Aspect ratio investigation
+Extensive investigation into 4:3 rendering. User wanted true 4:3 fight camera
+(showing more stage vertically, like IKEMEN Windows) without stage edges.
+
+Tested 3 FightAspect settings:
+1. -1,-1 (Stage) → 16:9 fight camera, letterboxed black bars
+2. 4,3 (Custom) → 4:3 fight camera, showed stage edges (background areas)
+3. 0,0 (Default) → 4:3 fight camera, showed stage background (looked like black bars)
+
+Added Go source debug logging to `GetScaledViewportSize()` confirming:
+- Canvas: 640×480 (4:3) ✅
+- Fight camera: 320×240 (4:3) ✅
+- aspectGame == aspectWindow (1.333 == 1.333) → no engine letterboxing ✅
+
+Root cause: The "black bars" in true 4:3 mode were the **stage's own background**,
+not letterboxing. Stage0-720 (localcoord=1280,720 = 16:9) doesn't have enough
+art to cover a 4:3 camera viewport vertically.
+
+#### Resolution
+Reverted to FightAspect=-1,-1 (Stage aspect) for 4:3 modes. This gives clean
+letterboxed 16:9 fight camera in 4:3 canvas. No stage edges visible. User
+confirmed this is the preferred behavior.
+
+3 resolution options:
+1. 480p — 320×240, 16:9 fight camera (letterboxed, fastest)
+2. 4:3  — 640×480, 16:9 fight camera (letterboxed, balanced)
+3. 16:9 — 1280×720, 16:9 fight camera (highest quality)
+
+### Current Status — FULLY WORKING
+- ✅ Smooth 60fps gameplay (GOGC=off)
+- ✅ 85 characters + 5 stages from CDN
+- ✅ 3 resolution options (letterboxed 4:3 + 16:9)
+- ✅ Fast load (.pak + parallel + caching)
+
+---
+
 ## Session: August 22, 2026 (Final) — GOGC=off, smooth gameplay achieved
 
 ### Work Done
