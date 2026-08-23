@@ -51,8 +51,8 @@ floortension = 200
  ;left or right. Typically 50 or 60.
 tension = 200
 
-overdrawhigh = 120
-overdrawlow = 120
+overdrawhigh = 0
+overdrawlow = 0
 cuthigh = 0
 cutlow = 0
 
