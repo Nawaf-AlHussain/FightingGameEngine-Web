@@ -54,31 +54,15 @@ function PlayPageInner() {
         const aspectParam = searchParams.get('aspect') || '4:3';
 
         // Map aspect param to resolution for vfs.js
-        // All modes use the engine's NATIVE camera (no FightAspect override).
-        // The engine's native camera is 4:3 at 320×240 base resolution.
-        // Stages are authored for this — no stage edges will be visible.
-        //
-        // - '480p' = 320×240  (fastest, like Dolmexica)
-        // - '4:3'  = 640×480  (balanced, 2x scale of 320×240)
-        // - '16:9' = 1280×720 (highest quality, 16:9 camera)
-        //
-        // vfs.js reads globalThis.ikemenAspect:
-        // - String '16:9' → 1280×720, 16:9 camera
-        // - Object {w, h} → custom canvas, native camera (no FightAspect override)
+        // 'low' = 320×240 (fastest), '4:3' = 640×480, '16:9' = 1280×720
         let ikemenAspect: any;
-        if (aspectParam === '16:9') {
-          ikemenAspect = '16:9';
-        } else if (aspectParam === '480p') {
-          ikemenAspect = { w: 320, h: 240 };  // native MUGEN resolution
-        } else if (aspectParam === '4:3') {
-          ikemenAspect = { w: 640, h: 480 };  // 2x scale
-        } else {
-          ikemenAspect = { w: 640, h: 480 };  // default
-        }
+        if (aspectParam === '16:9') ikemenAspect = '16:9';
+        else if (aspectParam === 'low') ikemenAspect = { w: 320, h: 240 };
+        else ikemenAspect = '4:3'; // default
 
         log(`Match: P1=${p1} vs P2=${p2}${p2ai ? ` (CPU lv${p2ai})` : ''}`);
         log(`Stage: ${stage}`);
-        log(`Resolution: ${typeof ikemenAspect === 'object' ? `${ikemenAspect.w}×${ikemenAspect.h}` : ikemenAspect}`);
+        log(`Aspect: ${aspectParam} → ${typeof ikemenAspect === 'object' ? `${ikemenAspect.w}×${ikemenAspect.h}` : ikemenAspect}`);
 
         // --- 0. Install keyboard bridge BEFORE anything else ---
         const g = globalThis as any;

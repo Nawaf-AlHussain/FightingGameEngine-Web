@@ -6,62 +6,53 @@ Format: newest entries at the top. Each entry gets a unique ID for cross-referen
 
 ---
 
-## F-034 | Aspect ratio investigation — 4:3 fight camera shows stage background
-**Date**: 2026-08-23 | **Type**: Finding (aspect ratio behavior)
+## F-034 | Aspect ratio investigation — true 4:3 shows stage background, reverted to letterbox
+**Date**: 2026-08-23 | **Type**: Finding + Mistake (lost Go patches during rebuild)
 
-Extensive investigation into why 4:3 modes showed "black bars" on top/bottom.
+### Aspect ratio investigation
+User wanted true 4:3 fight camera (showing more stage vertically, like IKEMEN
+Windows) without stage edges. Tested 3 FightAspect settings:
 
-### What was tried
-1. **FightAspect=-1,-1 (Stage)**: Engine uses stage's localcoord (1280×720 = 16:9)
-   → 16:9 fight camera in 4:3 canvas → black bars (letterboxed)
-2. **FightAspect=4,3 (Custom)**: Forced 4:3 fight camera on 16:9 stage
-   → Showed stage edges (black areas beyond stage art, shadows/reflections visible)
-3. **FightAspect=0,0 (Default)**: Should use canvas ratio (4:3 for 640×480)
-   → Still showed what appeared to be black bars
+1. **FightAspect=-1,-1 (Stage)**: 16:9 fight camera, letterboxed black bars
+2. **FightAspect=4,3 (Custom)**: 4:3 fight camera, showed stage edges (background)
+3. **FightAspect=0,0 (Default)**: 4:3 fight camera, showed stage background
 
-### Debug data (Go source logging)
-Added `console.log` to `GetScaledViewportSize()` in system_js.go. Data confirmed:
+Added Go source debug logging to `GetScaledViewportSize()`. Data confirmed:
 ```
-canvas=640x480  aspectGame=1.333  aspectWindow=1.333  FightAspectW=0  FightAspectH=0  scrrect=640x480  gameW=320.0  gameH=240.0
+canvas=640x480  aspectGame=1.333  aspectWindow=1.333  gameW=320.0  gameH=240.0
 ```
-- Canvas IS 640×480 (4:3) ✅
-- Fight camera IS 4:3 (gameW=320, gameH=240) ✅
-- aspectGame == aspectWindow (1.333 == 1.333) → no engine letterboxing ✅
+The engine was working correctly — the "black bars" in true 4:3 mode were
+the **stage's own background**, not letterboxing. Stage0-720 (localcoord=
+1280,720 = 16:9) doesn't have enough art to cover a 4:3 camera vertically.
 
-### Root cause
-The "black bars" in FightAspect=0,0 mode were NOT letterboxing — they were
-the **stage's own background**. Stage0-720 has `localcoord=1280,720` (16:9).
-When the fight camera is 4:3 (320×240), it shows more vertically than the
-stage's art covers. The areas above/below the stage art are the stage's
-empty background (shadows, reflections, black areas).
+**Resolution**: Reverted to FightAspect=-1,-1 (Stage aspect) for 4:3 modes.
+Gives clean letterboxed 16:9 fight camera. No stage edges visible.
 
-This is inherent to using a 16:9 stage with a 4:3 camera. The stage art
-simply doesn't extend far enough vertically.
+### Mistake: Lost Go patches during WASM rebuild (same as F-027)
+When rebuilding the WASM to add/remove debug logging, /tmp was cleared and
+the fresh clone was missing all 3 Go patches:
+1. time.Sleep(1ms) frame-skip yield (F-025/F-027)
+2. runtime.Gosched() in loader (F-025)
+3. Lenient state controller parsing (F-032)
 
-### Why IKEMEN Windows is different
-IKEMEN Windows with 640×480 resolution + Default aspect ratio produces the
-same 4:3 fight camera. If the user doesn't see stage edges in Windows, it
-may be because:
-- Different stage being used
-- Different camera bounds (boundhigh, overdrawhigh)
-- Or the Windows version clips the stage background differently
+Result: Game felt laggy (no frame-skip yield) and some characters would
+crash (strict parsing). Fixed by re-applying patches and rebuilding.
 
-### Resolution
-Reverted to FightAspect=-1,-1 (Stage aspect) for 4:3 modes. This gives a
-16:9 fight camera in a 4:3 canvas — letterboxed with clean black bars.
-No stage edges visible. This is the version the user preferred.
+**This happened TWICE** (F-027 and F-034). Lesson reinforced: ALWAYS verify
+Go patches are present before building. Created `apply_all_go_patches.py`
+script for future rebuilds.
 
-16:9 mode uses FightAspect=0,0 (Default) — uses canvas ratio (16:9).
+### Final resolution
+Rolled back all code to commit a2ee988 (the last known-good state before
+aspect ratio changes). This restores:
+- The working 3-option resolution toggle (480p / 4:3 / 16:9)
+- vfs.js without FightAspect patching (uses stage's default -1,-1)
+- Simple CSS (no object-fit interference)
+- WASM with all 3 Go patches
 
-### Lesson
-When investigating "black bars," verify whether they're from:
-1. **CSS letterboxing** (object-fit, container aspect mismatch)
-2. **Engine viewport scaling** (GetScaledViewportSize)
-3. **Stage background** (stage art doesn't cover the camera viewport)
-
-Only #3 applied here — the engine was working correctly, the stage just
-didn't have enough art for a 4:3 view. Adding Go source debug logging
-was the key to distinguishing these causes.
+The 4:3 modes are letterboxed (16:9 fight camera in 4:3 canvas). This is
+clean and works well. True 4:3 fight camera is not feasible with 16:9 stages
+without showing stage background areas.
 
 ---
 
