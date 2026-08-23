@@ -53,16 +53,32 @@ function PlayPageInner() {
         const p2ai = searchParams.get('p2ai') || '5';
         const aspectParam = searchParams.get('aspect') || '4:3';
 
-        // Map aspect param to resolution for vfs.js
-        // 'low' = 320×240 (fastest), '4:3' = 640×480, '16:9' = 1280×720
+        // Map aspect param to {w, h, camera} for vfs.js
+        // - '480p'   = 320×240,  16:9 camera (letterboxed, fastest)
+        // - '4:3-lb' = 640×480,  16:9 camera (letterboxed, balanced)
+        // - '4:3'    = 640×480,  true 4:3 camera (taller view, may show stage edges)
+        // - '16:9'   = 1280×720, 16:9 camera (highest quality)
+        //
+        // vfs.js reads globalThis.ikemenAspect:
+        // - String '16:9' or '4:3' → sets both canvas resolution AND fight camera aspect
+        // - Object {w, h}          → sets canvas resolution, fight camera = 16:9 (letterboxed)
+        // - Object {w, h, faW, faH} → sets canvas resolution + custom fight camera
         let ikemenAspect: any;
-        if (aspectParam === '16:9') ikemenAspect = '16:9';
-        else if (aspectParam === 'low') ikemenAspect = { w: 320, h: 240 };
-        else ikemenAspect = '4:3'; // default
+        if (aspectParam === '16:9') {
+          ikemenAspect = '16:9';
+        } else if (aspectParam === '4:3') {
+          ikemenAspect = '4:3';  // true 4:3 camera
+        } else if (aspectParam === '4:3-lb') {
+          ikemenAspect = { w: 640, h: 480 };  // 4:3 canvas, 16:9 camera (letterboxed)
+        } else if (aspectParam === '480p') {
+          ikemenAspect = { w: 320, h: 240 };  // low res, 16:9 camera (letterboxed)
+        } else {
+          ikemenAspect = '4:3'; // default
+        }
 
         log(`Match: P1=${p1} vs P2=${p2}${p2ai ? ` (CPU lv${p2ai})` : ''}`);
         log(`Stage: ${stage}`);
-        log(`Aspect: ${aspectParam} → ${typeof ikemenAspect === 'object' ? `${ikemenAspect.w}×${ikemenAspect.h}` : ikemenAspect}`);
+        log(`Aspect: ${aspectParam} → ${typeof ikemenAspect === 'object' ? `${ikemenAspect.w}×${ikemenAspect.h} (letterboxed)` : ikemenAspect + ' camera'}`);
 
         // --- 0. Install keyboard bridge BEFORE anything else ---
         const g = globalThis as any;

@@ -612,11 +612,14 @@
     // Apply the boot-page picture choice. This controls TWO things:
     // 1. GameWidth/GameHeight: the canvas resolution (rendering pixels)
     // 2. FightAspectWidth/FightAspectHeight: the fight CAMERA aspect ratio
-    //    (what part of the stage is visible). Without this, the engine uses
-    //    the stage's localcoord (often 16:9), so 4:3 mode would just show
-    //    16:9 content with black bars instead of showing more of the stage.
+    //    (what part of the stage is visible).
+    //
+    // globalThis.ikemenAspect can be:
+    // - String '16:9' → 1280×720 canvas, 16:9 camera
+    // - String '4:3'  → 640×480 canvas, 4:3 camera (true 4:3, taller view)
+    // - Object {w, h} → custom canvas, 16:9 camera (letterboxed)
+    // - Object {w, h, faW, faH} → custom canvas + custom fight camera
     try {
-      // Support either a preset ('16:9'/'4:3') or explicit {w,h} from JS.
       let w = 1280, h = 720; // default 16:9
       let faW = 16, faH = 9; // fight aspect (camera viewport)
       const a = globalThis.ikemenAspect;
@@ -624,10 +627,13 @@
       else if (a === '16:9') { w = 1280; h = 720; faW = 16; faH = 9; }
       else if (a && typeof a === 'object') {
         w = a.w | 0; h = a.h | 0;
-        // Calculate fight aspect from the resolution
-        const gcd = (x, y) => y === 0 ? x : gcd(y, x % y);
-        const g = gcd(w, h);
-        faW = w / g; faH = h / g;
+        if (a.faW && a.faH) {
+          // Custom fight camera specified
+          faW = a.faW; faH = a.faH;
+        } else {
+          // No fight camera specified — default to 16:9 (letterboxed)
+          faW = 16; faH = 9;
+        }
       }
       const cfg = contents.get('save/config.ini');
       if (cfg) {

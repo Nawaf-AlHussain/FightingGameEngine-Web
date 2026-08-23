@@ -55,7 +55,7 @@ export default function LocalPlayPage() {
   const [p1Ready, setP1Ready] = useState(false);
   const [p2Ready, setP2Ready] = useState(false);
   const [aiLevel, setAiLevel] = useState(5);
-  const [aspect, setAspect] = useState<'16:9' | '4:3' | 'low'>('4:3');
+  const [aspect, setAspect] = useState<'480p' | '4:3-lb' | '4:3' | '16:9'>('4:3');
 
   const isP2Ai = mode === 'vs-ai' || mode === 'training';
 
@@ -218,13 +218,14 @@ export default function LocalPlayPage() {
         </div>
 
         {/* Resolution Toggle */}
-        <div className="flex justify-center items-center gap-4 mb-12">
+        <div className="flex justify-center items-center gap-4 mb-12 flex-wrap">
           <span className="text-gray-400 text-sm tracking-wider font-bold">RES</span>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap justify-center">
             {([
-              { id: 'low' as const, label: '480p', hint: 'fastest' },
-              { id: '4:3' as const, label: '4:3', hint: '640×480' },
-              { id: '16:9' as const, label: '16:9', hint: '1280×720' },
+              { id: '480p' as const,   label: '480p',   hint: '320×240, 16:9 (fastest)' },
+              { id: '4:3-lb' as const, label: '4:3 LB', hint: '640×480, 16:9 (letterboxed)' },
+              { id: '4:3' as const,    label: '4:3',    hint: '640×480, true 4:3 (taller view)' },
+              { id: '16:9' as const,   label: '16:9',   hint: '1280×720, 16:9 (highest)' },
             ]).map(r => (
               <button
                 key={r.id}
@@ -239,8 +240,11 @@ export default function LocalPlayPage() {
               </button>
             ))}
           </div>
-          <span className="text-gray-700 text-xs font-mono ml-2">
-            {aspect === 'low' ? '(320×240, fastest)' : aspect === '4:3' ? '(640×480, balanced)' : '(1280×720, highest)'}
+          <span className="text-gray-700 text-xs font-mono ml-2 w-full text-center">
+            {aspect === '480p'   ? '320×240, 16:9 camera (letterboxed, fastest)' :
+             aspect === '4:3-lb' ? '640×480, 16:9 camera (letterboxed, balanced)' :
+             aspect === '4:3'    ? '640×480, true 4:3 camera (taller view, may show stage edges)' :
+                                   '1280×720, 16:9 camera (highest quality)'}
           </span>
         </div>
 
