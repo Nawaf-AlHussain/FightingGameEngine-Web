@@ -1,10 +1,10 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { useWipeNavigation } from '@/components/WipeTransition';
 
 export default function LobbyPage() {
-  const router = useRouter();
+  const { navigate } = useWipeNavigation();
   const [glow, setGlow] = useState(false);
 
   useEffect(() => {
@@ -13,7 +13,7 @@ export default function LobbyPage() {
   }, []);
 
   const handleStart = () => {
-    router.push('/local');
+    navigate('/local');
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -25,85 +25,66 @@ export default function LobbyPage() {
 
   return (
     <main
-      className="min-h-screen bg-black flex flex-col items-center justify-center relative overflow-hidden"
+      className="lobby bg-grid"
       onKeyDown={handleKeyDown}
       tabIndex={0}
+      aria-label="Title screen"
     >
-      {/* Animated background grid */}
+      {/* Animated red glow behind the title */}
       <div
-        className="absolute inset-0 opacity-10"
-        style={{
-          backgroundImage: 'linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px)',
-          backgroundSize: '60px 60px',
-        }}
         aria-hidden="true"
-      />
-
-      {/* Glow effect */}
-      <div
-        className="absolute w-[600px] h-[600px] rounded-full blur-[150px] transition-opacity duration-1000"
         style={{
-          background: glow ? 'radial-gradient(circle, rgba(239,68,68,0.15), transparent 70%)' : 'radial-gradient(circle, rgba(239,68,68,0.08), transparent 70%)',
+          position: 'absolute',
+          width: 600,
+          height: 600,
+          borderRadius: '50%',
+          filter: 'blur(150px)',
+          background: glow
+            ? 'radial-gradient(circle, rgba(217,35,35,0.30), transparent 70%)'
+            : 'radial-gradient(circle, rgba(217,35,35,0.15), transparent 70%)',
           opacity: glow ? 1 : 0.5,
+          transition: 'opacity 1s ease, background 1s ease',
+          pointerEvents: 'none',
+          zIndex: 0,
         }}
-        aria-hidden="true"
       />
 
-      {/* Main card */}
-      <div className="relative z-10 flex flex-col items-center gap-8 px-4">
-        {/* Title */}
-        <div className="text-center select-none">
-          <div className="text-5xl md:text-7xl font-black tracking-tighter text-white leading-none">
-            <span>FIGHTING</span>
-          </div>
-          <div className="text-5xl md:text-7xl font-black tracking-tighter text-red-500 leading-none mt-1">
-            <span>GAME</span>
-          </div>
-          <div className="text-5xl md:text-7xl font-black tracking-tighter text-white leading-none mt-1">
-            <span>ENGINE</span>
-          </div>
-        </div>
+      {/* Title */}
+      <div className="lobby__title" style={{ zIndex: 1 }}>
+        <h1 className="lobby__title-main text-stroke text-shadow-red">
+          <span>FIGHTING </span>
+          <span>GAME</span>
+        </h1>
+        <div className="lobby__title-sub">ENGINE · WASM · 60FPS</div>
+      </div>
 
-        {/* Subtitle */}
-        <div className="text-gray-400 text-sm tracking-[0.3em] font-mono select-none">
-          <span className="text-gray-600">[</span>
-          {'BROWSER · WASM · 60FPS'}
-          <span className="text-gray-600">]</span>
-        </div>
+      {/* PRESS START button (angular clip-path from CSS) */}
+      <button
+        type="button"
+        className="lobby__start-btn"
+        onClick={handleStart}
+        style={{ zIndex: 1 }}
+      >
+        PRESS START
+      </button>
 
-        {/* Start button */}
-        <div className="mt-4">
-          <button
-            onClick={handleStart}
-            className="group relative px-12 py-4 border-2 border-white/20 hover:border-red-500/60 text-white text-xl font-bold tracking-widest transition-all duration-300 hover:bg-red-500/10 hover:scale-105 active:scale-95 cursor-pointer"
-          >
-            <span className="relative z-10">PRESS START</span>
-          </button>
-          <p className="text-gray-500 text-xs text-center mt-3 tracking-wider select-none">
-            VS AI · 1P KEYBOARD
-          </p>
-        </div>
-
-        {/* Roster preview */}
-        <div className="mt-8 text-center select-none">
-          <div className="text-gray-600 text-xs tracking-[0.2em] mb-3">ROSTER</div>
-          <div className="flex items-center gap-4">
-            <span className="text-2xl font-black text-white/80">KFM</span>
-            <span className="text-red-500 text-lg font-bold">VS</span>
-            <span className="text-2xl font-black text-white/80">KFM</span>
-          </div>
-        </div>
-
-        {/* Controls hint */}
-        <div className="mt-8 text-center text-gray-600 text-xs font-mono select-none space-y-1">
-          <p>P1: <span className="text-gray-400">WASD</span> move · <span className="text-gray-400">U I O</span> punches · <span className="text-gray-400">J K L</span> kicks · <span className="text-gray-400">1</span> start</p>
+      {/* Controls hint */}
+      <div
+        className="cs__controls-help"
+        style={{
+          marginTop: '2rem',
+          textAlign: 'center',
+          zIndex: 1,
+        }}
+      >
+        <div>P1: <span>WASD</span> move · <span>U I O</span> punches · <span>J K L</span> kicks</div>
+        <div style={{ marginTop: '0.25rem' }}>
+          Press <span>ENTER</span> or click START to begin
         </div>
       </div>
 
-      {/* Footer */}
-      <footer className="absolute bottom-4 text-gray-700 text-xs font-mono select-none">
-        Made by Nawaf Al Hussain
-      </footer>
+      {/* Footer credit */}
+      <div className="footer-credit">Made by Nawaf Al Hussain</div>
     </main>
   );
 }
