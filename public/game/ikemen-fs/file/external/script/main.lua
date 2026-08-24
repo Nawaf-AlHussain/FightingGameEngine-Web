@@ -3564,18 +3564,24 @@ function main.f_quickMatch(params)
 	modifyGameOption('Config.BootLoadingMode', 1)
 	loadFightScreen()
 	-- Add characters (must be done before clearSelected/selectChar)
+	-- Use a running ref counter because addChar() adds to the engine's
+	-- internal list but doesn't update main.t_selChars (Lua table).
+	-- Without this, both characters get the same ref and both appear as P1.
+	local nextRef = #main.t_selChars + 1
 	local p1char = params.p1 or 'kfm'
 	local p1ref = main.t_charDef[p1char:lower()]
 	if p1ref == nil then
 		addChar(p1char)
-		p1ref = #main.t_selChars
+		p1ref = nextRef
+		nextRef = nextRef + 1
 		main.t_charDef[p1char:lower()] = p1ref
 	end
 	local p2char = params.p2 or 'kfm'
 	local p2ref = main.t_charDef[p2char:lower()]
 	if p2ref == nil then
 		addChar(p2char)
-		p2ref = #main.t_selChars
+		p2ref = nextRef
+		nextRef = nextRef + 1
 		main.t_charDef[p2char:lower()] = p2ref
 	end
 	-- Add stage
