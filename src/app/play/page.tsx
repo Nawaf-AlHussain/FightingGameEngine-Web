@@ -50,7 +50,7 @@ function PlayPageInner() {
         const p1 = searchParams.get('p1') || 'kfm';
         const p2 = searchParams.get('p2') || 'kfm';
         const stage = searchParams.get('stage') || 'stages/stage0-720.def';
-        const p2ai = searchParams.get('p2ai') || '5';
+        const p2ai = searchParams.get('p2ai'); // null = human, number = AI level
         const aspectParam = searchParams.get('aspect') || '4:3';
 
         // Map aspect param to resolution for vfs.js
@@ -308,7 +308,7 @@ function PlayPageInner() {
           '-qp1', p1Path,
           '-qp2', p2Path,
           '-qstage', stagePath,
-          '-qp2ai', String(p2ai),
+          '-qp2ai', p2ai || '0', // 0 = human, >0 = AI level
         ];
 
         // Hide the boot log once the engine starts
