@@ -3596,9 +3596,14 @@ function main.f_quickMatch(params)
 	selectStage(stageRef)
 	setTeamMode(1, 0, 1)
 	setTeamMode(2, 0, 1)
-	-- Select P1 (human)
+	-- Select P1 (human or AI)
 	selectChar(1, p1ref, 1)
-	setCom(1, 0)
+	local p1ai = tonumber(params.p1ai or '0')
+	if p1ai and p1ai > 0 then
+		setCom(1, p1ai) -- P1 is AI (watch mode)
+	else
+		setCom(1, 0)    -- P1 is human
+	end
 	remapInput(1, 1)
 	-- Select P2 (AI or human)
 	selectChar(2, p2ref, 1)
@@ -3609,9 +3614,16 @@ function main.f_quickMatch(params)
 		setCom(2, 0)
 	end
 	remapInput(2, 2)
-	-- Set round time (default 99)
-	local frames = fightScreenVar("time.framespercount")
-	setRoundTime(math.max(-1, (params.time or 99) * frames))
+	-- Training mode: set game mode to training
+	local training = tonumber(params.training or '0')
+	if training and training > 0 then
+		setGameMode('training')
+		setRoundTime(-1) -- infinite time
+	else
+		-- Set round time (default 99)
+		local frames = fightScreenVar("time.framespercount")
+		setRoundTime(math.max(-1, (params.time or 99) * frames))
+	end
 	-- Build load params and start
 	loadStart('pausemenu=false')
 	game()
@@ -4142,8 +4154,11 @@ if getCommandLineValue("-qp1") ~= nil and getCommandLineValue("-qp2") ~= nil the
 	main.f_quickMatch({
 		p1 = getCommandLineValue("-qp1"),
 		p2 = getCommandLineValue("-qp2"),
-		stage = getCommandLineValue("-qstage"),
-		p2ai = getCommandLineValue("-qp2ai"),
+		stage = getCommandLineValue("-qstage") or 'stages/stage0-720.def',
+		p2ai = getCommandLineValue("-qp2ai") or '5',
+		p1ai = getCommandLineValue("-qp1ai") or '0',
+		training = getCommandLineValue("-qtraining") or '0',
+		time = getCommandLineValue("-qtime") or '99',
 	})
 elseif motif.attract_mode.enabled then
 	main.f_attractMode()
