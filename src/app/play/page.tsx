@@ -208,7 +208,6 @@ function PlayPageInner() {
         go.env = {
           GOGC: 'off',
           GOMEMLIMIT: '800MiB',
-          GODEBUG: 'gctrace=1',
         };
 
         const wasmUrl = '/game/ikemen.wasm';
