@@ -570,10 +570,21 @@ button {
   animation: csCardEnter 0.3s forwards;
 }
 
-/* --- Engine canvas --- */
+/* --- Engine canvas: fill screen, centered, maintain aspect ratio --- */
+#game-container {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--black);
+}
 #game-container canvas {
   display: block;
-  margin: 0 auto;
+  max-width: 100vw;
+  max-height: 100vh;
+  width: auto;
+  height: auto;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
 }
