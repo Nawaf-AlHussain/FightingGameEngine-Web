@@ -9,7 +9,10 @@
 // because jsDelivr returns 403 for some files (especially with '!' in names),
 // and raw.githubusercontent.com doesn't set CORS headers for browser fetch.
 
-const ASSETS_MANIFEST_URL = 'https://cdn.jsdelivr.net/gh/FightingGameEngine/Assets@main/manifest.json';
+// Fetch manifest through our own API proxy to avoid CORS issues with
+// raw.githubusercontent.com and jsDelivr CDN caching delays.
+// The proxy fetches from GitHub raw (always up-to-date) and serves with CORS.
+const ASSETS_MANIFEST_URL = '/api/assets-manifest';
 const CDN_PROXY_BASE = '/api/cdn/';
 
 import {
@@ -63,7 +66,7 @@ let cachedManifest: AssetsManifest | null = null;
 export async function fetchAssetsManifest(): Promise<AssetsManifest> {
   if (cachedManifest) return cachedManifest;
 
-  const res = await fetch(ASSETS_MANIFEST_URL, { cache: 'force-cache' });
+  const res = await fetch(ASSETS_MANIFEST_URL, { cache: 'no-cache' });
   if (!res.ok) {
     throw new Error(`Failed to fetch Assets manifest: ${res.status}`);
   }
