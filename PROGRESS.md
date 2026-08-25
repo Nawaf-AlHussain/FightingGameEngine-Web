@@ -1,5 +1,39 @@
 # PROGRESS — Fighting Game Engine Web
 
+## Session: August 25, 2026 (Late) — IndexedDB caching + gctrace fix (F-036)
+
+### Work Done
+
+#### GODEBUG=gctrace=1 removed (F-036)
+The `gctrace=1` diagnostic flag was accidentally left in production after
+GC analysis (F-033). It caused micro-stutters from console I/O when DevTools
+was open. Removed it — game is back to best performance.
+
+#### IndexedDB caching re-enabled
+Re-applied the IndexedDB character/stage caching system (from commit 3de352d)
+with the gctrace fix. The caching system:
+
+- **Phase 1 (select page)**: Characters download to IndexedDB when selected,
+  with visual indicators (✓ CACHED / DOWNLOADING · X% / DOWNLOAD · X MB)
+- **Phase 2 (play page)**: Inject from IndexedDB cache into VFS (instant,
+  no network wait)
+- **FIGHT button disabled** until both characters are cached
+- **Cross-session persistence**: IndexedDB survives browser restarts
+
+User confirmed: "Works without lag" with IndexedDB caching + gctrace removed.
+
+### Current Status — BEST PERFORMANCE + CACHING
+- ✅ Smooth gameplay with all characters (even heavy at 16:9)
+- ✅ No audio stutter during special attacks
+- ✅ No mid-round GC pauses (GOGC=off + safety-net GC every 60s)
+- ✅ IndexedDB caching (characters download once, instant on repeat)
+- ✅ 85 characters + 5 stages from CDN
+- ✅ 7 game modes all working
+- ✅ Persona 5 UI with grid character select + stage select + wipe transitions
+- ✅ 3 resolution options (480p / 4:3 / 16:9)
+
+---
+
 ## Session: August 25, 2026 — Performance optimization round 2 (F-035)
 
 ### Work Done
