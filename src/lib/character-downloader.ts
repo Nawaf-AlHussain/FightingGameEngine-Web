@@ -1,19 +1,30 @@
 // Character/stage downloader — fetches files from our CDN proxy (which
-// fetches from GitHub raw) and injects them into the IKEMEN VFS.
+// fetches from GitHub raw) and caches them in IndexedDB.
+//
+// Two-phase approach:
+// Phase 1 (on select page): Download to IndexedDB cache (no VFS needed)
+// Phase 2 (on play page): Inject cached files into VFS (instant, no network)
 //
 // We use a Vercel serverless proxy (/api/cdn/) instead of jsDelivr directly
 // because jsDelivr returns 403 for some files (especially with '!' in names),
 // and raw.githubusercontent.com doesn't set CORS headers for browser fetch.
-//
-// Flow:
-// 1. User selects character on /local page
-// 2. React fetches the Assets manifest from jsDelivr CDN (small JSON, works)
-// 3. When user clicks FIGHT, we download all character files via /api/cdn/
-// 4. Inject each file into the VFS via globalThis.ikemenInjectFile()
-// 5. Engine boots and reads the character from VFS as if it were local
 
 const ASSETS_MANIFEST_URL = 'https://cdn.jsdelivr.net/gh/FightingGameEngine/Assets@main/manifest.json';
 const CDN_PROXY_BASE = '/api/cdn/';
+
+import {
+  cacheCharacter,
+  cacheStage,
+  getCachedCharacter,
+  getCachedStage,
+  isCharacterCached,
+  isStageCached,
+  getCachedCharacterIds,
+  getCachedStageIds,
+  type CachedAsset,
+} from './character-cache';
+
+export { isCharacterCached, isStageCached, getCachedCharacterIds, getCachedStageIds };
 
 export interface CharacterInfo {
   id: string;
@@ -201,4 +212,136 @@ export function getCharacterDefPath(char: CharacterInfo): string {
 export function getStageDefPath(stage: StageInfo): string {
   const defFile = stage.files.find(f => f.endsWith('.def')) || `${stage.id}.def`;
   return `stages/${defFile}`;
+}
+
+// ===========================================================================
+// Phase 1: Download to IndexedDB cache (called from select page)
+// ===========================================================================
+
+/**
+ * Download a character's files from CDN and store in IndexedDB.
+ * Does NOT inject into VFS — that happens later in injectCachedCharacter().
+ * Called when the user selects a character on the select screen.
+ */
+export async function downloadCharacterToCache(
+  char: CharacterInfo,
+  onProgress?: (pct: number, msg: string) => void
+): Promise<void> {
+  // Check if already cached
+  if (await isCharacterCached(char.id)) {
+    onProgress?.(100, `${char.displayName} cached`);
+    return;
+  }
+
+  const files = char.files;
+  const total = files.length;
+  let completed = 0;
+  const downloadedFiles: Record<string, Uint8Array> = {};
+
+  onProgress?.(0, `Downloading ${char.displayName}...`);
+
+  const BATCH_SIZE = 6;
+  for (let i = 0; i < files.length; i += BATCH_SIZE) {
+    const batch = files.slice(i, i + BATCH_SIZE);
+    await Promise.all(batch.map(async (filename) => {
+      const url = CDN_PROXY_BASE + 'chars/' + char.id + '/' + filename;
+      try {
+        const res = await fetch(url, { cache: 'force-cache' });
+        if (!res.ok) {
+          console.warn(`Failed to download ${filename}: ${res.status}`);
+          return;
+        }
+        downloadedFiles[filename] = new Uint8Array(await res.arrayBuffer());
+        completed++;
+        onProgress?.(Math.round((completed / total) * 100), `Downloaded ${filename}`);
+      } catch (e) {
+        console.warn(`Error downloading ${filename}:`, e);
+      }
+    }));
+  }
+
+  // Store in IndexedDB
+  await cacheCharacter(char.id, downloadedFiles);
+  onProgress?.(100, `${char.displayName} ready`);
+}
+
+/**
+ * Download a stage's files from CDN and store in IndexedDB.
+ */
+export async function downloadStageToCache(
+  stage: StageInfo,
+  onProgress?: (pct: number, msg: string) => void
+): Promise<void> {
+  if (await isStageCached(stage.id)) {
+    onProgress?.(100, `${stage.displayName} cached`);
+    return;
+  }
+
+  const files = stage.files;
+  const total = files.length;
+  let completed = 0;
+  const downloadedFiles: Record<string, Uint8Array> = {};
+
+  onProgress?.(0, `Downloading ${stage.displayName}...`);
+
+  await Promise.all(files.map(async (filename) => {
+    const url = CDN_PROXY_BASE + 'stages/' + filename;
+    try {
+      const res = await fetch(url, { cache: 'force-cache' });
+      if (!res.ok) {
+        console.warn(`Failed to download ${filename}: ${res.status}`);
+        return;
+      }
+      downloadedFiles[filename] = new Uint8Array(await res.arrayBuffer());
+      completed++;
+      onProgress?.(Math.round((completed / total) * 100), `Downloaded ${filename}`);
+    } catch (e) {
+      console.warn(`Error downloading ${filename}:`, e);
+    }
+  }));
+
+  await cacheStage(stage.id, downloadedFiles);
+  onProgress?.(100, `${stage.displayName} ready`);
+}
+
+// ===========================================================================
+// Phase 2: Inject from IndexedDB cache into VFS (called from play page)
+// ===========================================================================
+
+/**
+ * Inject a character's cached files into the IKEMEN VFS.
+ * Returns true if successful, false if not cached.
+ */
+export async function injectCachedCharacter(charId: string): Promise<boolean> {
+  const g = globalThis as any;
+  const cached = await getCachedCharacter(charId);
+  if (!cached) return false;
+
+  for (const [filename, data] of Object.entries(cached.files)) {
+    const vpath = `chars/${charId}/${filename}`;
+    if (g.ikemenInjectFile) {
+      g.ikemenInjectFile(vpath, data);
+    }
+  }
+  console.log(`[cache] Injected ${Object.keys(cached.files).length} files for character: ${charId}`);
+  return true;
+}
+
+/**
+ * Inject a stage's cached files into the IKEMEN VFS.
+ * Returns true if successful, false if not cached.
+ */
+export async function injectCachedStage(stageId: string): Promise<boolean> {
+  const g = globalThis as any;
+  const cached = await getCachedStage(stageId);
+  if (!cached) return false;
+
+  for (const [filename, data] of Object.entries(cached.files)) {
+    const vpath = `stages/${filename}`;
+    if (g.ikemenInjectFile) {
+      g.ikemenInjectFile(vpath, data);
+    }
+  }
+  console.log(`[cache] Injected ${Object.keys(cached.files).length} files for stage: ${stageId}`);
+  return true;
 }

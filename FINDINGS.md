@@ -6,6 +6,33 @@ Format: newest entries at the top. Each entry gets a unique ID for cross-referen
 
 ---
 
+## F-036 | GODEBUG=gctrace=1 was causing micro-stutters — removed
+**Date**: 2026-08-25 | **Type**: Mistake (diagnostic left enabled)
+
+The `GODEBUG=gctrace=1` flag was added during GC analysis (F-033) and was
+accidentally left enabled in production. It prints a line to the browser
+console every time GC runs. When DevTools is open (even in a background
+tab), the console I/O causes micro-stutters.
+
+**Symptom**: User reported "slight lag" after playing for a while — the
+game felt slightly less smooth than the confirmed-good version.
+
+**Fix**: Removed `GODEBUG: 'gctrace=1'` from `go.env`. The game is now
+back to best performance.
+
+**Also documented**: The safety-net GC (every 60s in the WASM) causes a
+single ~200ms pause once per minute. This is by design — prevents memory
+growth with GOGC=off. Users may feel one brief stutter per minute during
+long sessions without round transitions. This is the practical limit of
+Go WASM with GOGC=off.
+
+**Lesson**: Diagnostic flags must be removed before deploying. Always
+check `go.env` for leftover debug settings before pushing. A simple
+`GODEBUG=gctrace=1` can cause noticeable performance degradation from
+console I/O overhead, especially when DevTools is open.
+
+---
+
 ## F-035 | Audio buffer increase + safety-net GC + GOWASM flags — significant performance improvement
 **Date**: 2026-08-25 | **Type**: Breakthrough (performance, from Claude's analysis)
 

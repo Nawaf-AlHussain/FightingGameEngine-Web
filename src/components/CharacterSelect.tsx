@@ -7,7 +7,10 @@ import {
   useState,
 } from 'react';
 import {
+  downloadCharacterToCache,
+  getCachedCharacterIds,
   getCharacters,
+  isCharacterCached,
   type CharacterInfo,
 } from '@/lib/character-downloader';
 
@@ -43,6 +46,13 @@ interface CharacterSelectProps {
     p1Difficulty?: Difficulty
   ) => void;
   onCancel: () => void;
+}
+
+type DownloadStatus = 'idle' | 'downloading' | 'cached' | 'error';
+
+interface DownloadState {
+  status: DownloadStatus;
+  progress: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -93,6 +103,9 @@ export default function CharacterSelect({
 }: CharacterSelectProps) {
   // Roster state
   const [roster, setRoster] = useState<LocalCharacter[]>(BUNDLED_CHARS);
+  // Full CharacterInfo objects keyed by id (needed for downloadCharacterToCache,
+  // which requires the manifest entry with `files`, `cdnBase`, etc.).
+  const [characterInfos, setCharacterInfos] = useState<Record<string, CharacterInfo>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -104,9 +117,29 @@ export default function CharacterSelect({
   const [p1, setP1] = useState<CursorState>({ index: 0, locked: false });
   const [p2, setP2] = useState<CursorState>({ index: 0, locked: false });
 
+  // ---- Download cache state ----
+  // cachedIds: characters already in IndexedDB (populated on mount + updated
+  // when a download completes). Used for the bothReady check.
+  const [cachedIds, setCachedIds] = useState<Set<string>>(new Set());
+  // downloadStates: per-character download progress / status for the UI.
+  const [downloadStates, setDownloadStates] = useState<Record<string, DownloadState>>({});
+
   // Track if onLockIn has been fired for this lock-in cycle (prevents double fire
   // in StrictMode dev).
   const lockInFiredRef = useRef(false);
+
+  // Refs that mirror state for use inside stable callbacks / async closures
+  // (avoids stale closures without re-creating the triggerDownload callback).
+  const characterInfosRef = useRef<Record<string, CharacterInfo>>({});
+  const cachedIdsRef = useRef<Set<string>>(new Set());
+  const downloadStatesRef = useRef<Record<string, DownloadState>>({});
+  // Tracks which character downloads are currently in-flight (prevents
+  // double-triggering when state updates fire effects repeatedly).
+  const inflightRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => { characterInfosRef.current = characterInfos; }, [characterInfos]);
+  useEffect(() => { cachedIdsRef.current = cachedIds; }, [cachedIds]);
+  useEffect(() => { downloadStatesRef.current = downloadStates; }, [downloadStates]);
 
   // ---- Fetch roster from CDN ----
   useEffect(() => {
@@ -121,6 +154,9 @@ export default function CharacterSelect({
           sizeMB: c.sizeMB,
           bundled: false,
         }));
+        const infoMap: Record<string, CharacterInfo> = {};
+        for (const c of chars) infoMap[c.id] = c;
+        setCharacterInfos(infoMap);
         setRoster([...BUNDLED_CHARS, ...cdnChars]);
         setLoading(false);
       })
@@ -133,6 +169,111 @@ export default function CharacterSelect({
       cancelled = true;
     };
   }, []);
+
+  // ---- On mount, check which characters are already cached in IndexedDB ----
+  useEffect(() => {
+    let cancelled = false;
+    getCachedCharacterIds()
+      .then((ids: Set<string>) => {
+        if (cancelled) return;
+        setCachedIds(ids);
+      })
+      .catch(() => {
+        // IndexedDB might be unavailable (private mode, etc.) — just ignore.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // ---- Trigger a background download for a character (non-blocking) ----
+  // Idempotent: skips if already cached, already downloading, or in-flight.
+  const triggerDownload = useCallback((charId: string) => {
+    const info = characterInfosRef.current[charId];
+    if (!info) return; // bundled or unknown — nothing to download
+    if (cachedIdsRef.current.has(charId)) return; // already cached
+    const cur = downloadStatesRef.current[charId];
+    if (cur?.status === 'downloading' || cur?.status === 'cached') return;
+    if (inflightRef.current.has(charId)) return; // already started
+    inflightRef.current.add(charId);
+
+    // Optimistically mark as downloading so the UI shows immediate feedback.
+    setDownloadStates(prev => ({
+      ...prev,
+      [charId]: { status: 'downloading', progress: 0 },
+    }));
+
+    // Defensive: verify against IndexedDB in case our cachedIds state is stale
+    // (e.g., the character was cached in another browser tab). If it's already
+    // there, mark as cached and skip the actual download.
+    isCharacterCached(charId)
+      .then((alreadyCached) => {
+        if (alreadyCached) {
+          setDownloadStates(prev => ({
+            ...prev,
+            [charId]: { status: 'cached', progress: 100 },
+          }));
+          setCachedIds(prev => {
+            if (prev.has(charId)) return prev;
+            const next = new Set(prev);
+            next.add(charId);
+            return next;
+          });
+          return;
+        }
+        return downloadCharacterToCache(info, (pct) => {
+          setDownloadStates(prev => {
+            const c = prev[charId];
+            if (c?.status !== 'downloading') return prev; // stale update
+            return { ...prev, [charId]: { status: 'downloading', progress: pct } };
+          });
+        });
+      })
+      .then(() => {
+        // downloadCharacterToCache completed (or was already cached).
+        // Only transition to 'cached' if we're still in 'downloading' — don't
+        // clobber an 'error' state set elsewhere.
+        setDownloadStates(prev => {
+          const c = prev[charId];
+          if (c?.status !== 'downloading') return prev;
+          return { ...prev, [charId]: { status: 'cached', progress: 100 } };
+        });
+        setCachedIds(prev => {
+          if (prev.has(charId)) return prev;
+          const next = new Set(prev);
+          next.add(charId);
+          return next;
+        });
+      })
+      .catch((err: unknown) => {
+        console.warn(`[select] Failed to download character ${charId}:`, err);
+        setDownloadStates(prev => ({
+          ...prev,
+          [charId]: { status: 'error', progress: 0 },
+        }));
+      })
+      .finally(() => {
+        inflightRef.current.delete(charId);
+      });
+  }, []);
+
+  // ---- Trigger download for P1's currently-selected character ----
+  useEffect(() => {
+    if (loading) return;
+    const char = roster[p1.index];
+    if (char && !char.bundled) {
+      triggerDownload(char.id);
+    }
+  }, [p1.index, roster, loading, triggerDownload]);
+
+  // ---- Trigger download for P2's currently-selected character ----
+  useEffect(() => {
+    if (loading) return;
+    const char = roster[p2.index];
+    if (char && !char.bundled) {
+      triggerDownload(char.id);
+    }
+  }, [p2.index, roster, loading, triggerDownload]);
 
   // ---- Determine if each side is AI in the actual fight ----
   // (Affects label only — selection UX is the same for all modes:
@@ -215,9 +356,27 @@ export default function CharacterSelect({
     lockInFiredRef.current = false;
   }, [mode]);
 
-  // ---- Fire onLockIn when both are locked ----
+  // ---- "Ready" check: a character is ready if bundled or cached ----
+  const isReady = useCallback((c?: LocalCharacter): boolean => {
+    if (!c) return false;
+    if (c.bundled) return true;
+    return cachedIds.has(c.id);
+  }, [cachedIds]);
+
+  const p1Char = roster[p1.index];
+  const p2Char = roster[p2.index];
+  const bothReady = isReady(p1Char) && isReady(p2Char);
+
+  // ---- Fire onLockIn when both are locked AND both are ready ----
+  // Downloads are non-blocking — the user can lock in via keyboard before
+  // downloads finish; onLockIn waits until bothReady becomes true.
   useEffect(() => {
     if (loading) return;
+    if (!bothReady) {
+      // Don't reset lockInFiredRef here — we want it to fire once bothReady
+      // becomes true while both are locked (downloads just completed).
+      return;
+    }
     if (!p1Locked || !p2Locked) {
       lockInFiredRef.current = false;
       return;
@@ -225,16 +384,17 @@ export default function CharacterSelect({
     if (lockInFiredRef.current) return;
     lockInFiredRef.current = true;
 
-    const p1Char = roster[p1.index] ?? roster[0];
-    const p2Char = roster[p2.index] ?? roster[0];
-    if (!p1Char || !p2Char) return;
+    const c1 = roster[p1.index] ?? roster[0];
+    const c2 = roster[p2.index] ?? roster[0];
+    if (!c1 || !c2) return;
 
     // For watch mode, both AIs use the max difficulty.
     const p1Diff = p1IsAI ? 'hard' : undefined;
-    onLockIn(p1Char.id, p2Char.id, mode, difficulty, p1Diff);
+    onLockIn(c1.id, c2.id, mode, difficulty, p1Diff);
   }, [
     p1Locked,
     p2Locked,
+    bothReady,
     loading,
     roster,
     p1.index,
@@ -258,13 +418,19 @@ export default function CharacterSelect({
     [p1Locked, p2Locked]
   );
 
-  // ---- Render helpers ----
-  const p1Char = roster[p1.index];
-  const p2Char = roster[p2.index];
+  // ---- FIGHT button: lock both players at once (triggers onLockIn) ----
+  const handleFightClick = useCallback(() => {
+    if (!bothReady) return;
+    setP1(prev => ({ ...prev, locked: true }));
+    setP2(prev => ({ ...prev, locked: true }));
+  }, [bothReady]);
 
+  // ---- Render helpers ----
   const cardClasses = useCallback(
     (index: number) => {
       const classes = ['cs__card', 'cs__card--enter'];
+      const char = roster[index];
+      if (char && isReady(char)) classes.push('cs__card--ready');
       const isP1 = p1.index === index;
       const isP2 = p2.index === index;
       if (isP1 && isP2) classes.push('cs__card--both');
@@ -273,10 +439,73 @@ export default function CharacterSelect({
       if ((isP1 && p1Locked) || (isP2 && p2Locked)) classes.push('cs__card--locked');
       return classes.join(' ');
     },
-    [p1.index, p2.index, p1Locked, p2Locked]
+    [roster, p1.index, p2.index, p1Locked, p2Locked, isReady]
   );
 
+  // ---- Render the download status block for a card ----
+  const renderDownloadStatus = (char: LocalCharacter) => {
+    // Bundled characters (KFM) — always ready, no download needed.
+    if (char.bundled) {
+      return (
+        <div className="cs__card-download" style={{ color: 'var(--green)' }}>
+          BUNDLED
+        </div>
+      );
+    }
+
+    // Already cached (in IndexedDB before mount or via a completed download).
+    if (cachedIds.has(char.id)) {
+      return (
+        <div className="cs__card-download" style={{ color: 'var(--green)' }}>
+          ✓ CACHED
+        </div>
+      );
+    }
+
+    const ds = downloadStates[char.id];
+
+    // Download in progress — show percent + progress bar.
+    if (ds?.status === 'downloading') {
+      return (
+        <>
+          <div className="cs__card-download">
+            DOWNLOADING · {ds.progress}%
+          </div>
+          <div className="cs__card-progress" aria-hidden="true">
+            <div
+              className="cs__card-progress-fill"
+              style={{ width: `${ds.progress}%` }}
+            />
+          </div>
+        </>
+      );
+    }
+
+    // Download failed.
+    if (ds?.status === 'error') {
+      return (
+        <div className="cs__card-download" style={{ color: 'var(--red)' }}>
+          ⚠ DOWNLOAD FAILED
+        </div>
+      );
+    }
+
+    // Not yet downloaded — show size hint.
+    return (
+      <div className="cs__card-download">
+        DOWNLOAD · {char.sizeMB.toFixed(1)} MB
+      </div>
+    );
+  };
+
   const showDifficulty = p2IsAI || p1IsAI;
+
+  // ---- Status line for the FIGHT button area ----
+  const fightStatus = bothReady
+    ? null
+    : p1Locked && p2Locked
+    ? 'PREPARING DOWNLOADS…'
+    : 'SELECT FIGHTERS';
 
   return (
     <main className="cs bg-grid" tabIndex={0}>
@@ -397,15 +626,7 @@ export default function CharacterSelect({
                   )}
                 </div>
                 <div className="cs__card-info">{char.displayName}</div>
-                {char.bundled ? (
-                  <div className="cs__card-download" style={{ color: 'var(--green)' }}>
-                    BUNDLED
-                  </div>
-                ) : (
-                  <div className="cs__card-download">
-                    DOWNLOAD · {char.sizeMB.toFixed(1)} MB
-                  </div>
-                )}
+                {renderDownloadStatus(char)}
               </div>
             );
           })}
@@ -421,12 +642,36 @@ export default function CharacterSelect({
             P2{p2IsAI ? ' (CPU)' : ''}: <span>ARROWS</span> move · <span>ENTER</span> lock-in
           </div>
           <div>
-            Click a card to set the next player's character
+            Click a card to set the next player&apos;s character
           </div>
         </div>
         <div className="cs__footer-btns">
+          {fightStatus && (
+            <span
+              className="cs__fight-status"
+              style={{
+                fontSize: '0.65rem',
+                color: 'var(--gold)',
+                letterSpacing: '0.15em',
+                alignSelf: 'center',
+                marginRight: '0.5rem',
+              }}
+            >
+              {fightStatus}
+            </span>
+          )}
           <button type="button" className="cs__btn-back" onClick={onCancel}>
             ← BACK
+          </button>
+          <button
+            type="button"
+            className="cs__btn-fight"
+            onClick={handleFightClick}
+            disabled={!bothReady}
+            aria-disabled={!bothReady}
+            title={bothReady ? 'Lock in and fight!' : 'Both fighters must be downloaded first'}
+          >
+            FIGHT!
           </button>
         </div>
       </div>

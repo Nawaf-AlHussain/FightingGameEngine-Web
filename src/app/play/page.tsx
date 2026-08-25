@@ -1,7 +1,14 @@
 'use client';
 import { useSearchParams } from 'next/navigation';
 import { useEffect, useRef, Suspense } from 'react';
-import { fetchAssetsManifest, downloadCharacter, downloadStage, getStageDefPath } from '@/lib/character-downloader';
+import {
+  fetchAssetsManifest,
+  downloadCharacter,
+  downloadStage,
+  getStageDefPath,
+  injectCachedCharacter,
+  injectCachedStage,
+} from '@/lib/character-downloader';
 
 // This page loads the IKEMEN GO WASM engine and starts a fight directly,
 // bypassing the laggy menu (F-026) using the smooth game() path.
@@ -203,7 +210,6 @@ function PlayPageInner() {
         //   generates ~200MB garbage — well under 800MB. platformIdleGC()
         //   runs between rounds to collect before garbage accumulates.
         //
-        // - GODEBUG=gctrace=1: Keep for diagnosis — verify automatic GC
         //   lines disappear and only (forced) ones remain.
         go.env = {
           GOGC: 'off',
@@ -240,64 +246,86 @@ function PlayPageInner() {
 
         // --- 8. Download non-bundled characters/stages from CDN ---
         // KFM and stage0-720 are bundled in game.pak — skip download.
-        // Other characters are fetched from jsDelivr CDN and injected into VFS.
+        // Other characters are injected from IndexedDB cache (if available)
+        // or downloaded as fallback.
         //
-        // IMPORTANT: addChar() expects just the character ID (e.g. 'kfm' or
-        // '!Nightwing-o'), NOT the full path. It internally looks for
-        // chars/<id>/<id>.def. Passing a full path breaks relative path
-        // resolution in the .def file (sprite = X.sff can't be found).
-        // addStage() expects the full path (e.g. 'stages/DU_Campus.def').
-        let p1Path = p1; // character ID (e.g. 'kfm' or '!Nightwing-o')
+        // IMPORTANT: addChar() expects just the character ID, NOT the full path.
+        let p1Path = p1;
         let p2Path = p2;
-        let stagePath = stage; // full path (e.g. 'stages/stage0-720.def')
+        let stagePath = stage;
 
         const isBundledChar = (id: string) => id === 'kfm';
         const isBundledStage = (s: string) => s === 'stages/stage0-720.def';
 
         if (!isBundledChar(p1) || !isBundledChar(p2) || !isBundledStage(stage)) {
-          log('Fetching character roster from CDN...');
-          const manifest = await fetchAssetsManifest();
+          // Try to inject from IndexedDB cache first (instant)
+          log('Loading characters from cache...');
 
-          // Download P1 if not bundled
+          // P1: try cache, fallback to download
           if (!isBundledChar(p1)) {
-            const char = manifest.characters.find(c => c.id === p1);
-            if (char) {
-              log(`Downloading P1: ${char.displayName} (~${char.sizeMB} MB)...`);
-              await downloadCharacter(char, (pct, msg) => {
-                setBootLine('[P1] ', `${msg} (${pct}%)`);
-              });
-              p1Path = char.id; // just the ID, not the full path
-              log(`P1 ready: ${char.id}`);
+            const injected = await injectCachedCharacter(p1);
+            if (injected) {
+              log(`P1 loaded from cache: ${p1}`);
+              p1Path = p1;
             } else {
-              log(`ERROR: Character "${p1}" not found in manifest`);
+              log(`P1 not in cache, downloading...`);
+              const manifest = await fetchAssetsManifest();
+              const char = manifest.characters.find(c => c.id === p1);
+              if (char) {
+                log(`Downloading P1: ${char.displayName} (~${char.sizeMB} MB)...`);
+                await downloadCharacter(char, (pct, msg) => {
+                  setBootLine('[P1] ', `${msg} (${pct}%)`);
+                });
+                p1Path = char.id;
+                log(`P1 ready: ${char.id}`);
+              } else {
+                log(`ERROR: Character "${p1}" not found in manifest`);
+              }
             }
           }
 
-          // Download P2 if not bundled
+          // P2: try cache, fallback to download
           if (!isBundledChar(p2)) {
-            const char = manifest.characters.find(c => c.id === p2);
-            if (char) {
-              log(`Downloading P2: ${char.displayName} (~${char.sizeMB} MB)...`);
-              await downloadCharacter(char, (pct, msg) => {
-                setBootLine('[P2] ', `${msg} (${pct}%)`);
-              });
-              p2Path = char.id; // just the ID
-              log(`P2 ready: ${char.id}`);
+            const injected = await injectCachedCharacter(p2);
+            if (injected) {
+              log(`P2 loaded from cache: ${p2}`);
+              p2Path = p2;
             } else {
-              log(`ERROR: Character "${p2}" not found in manifest`);
+              log(`P2 not in cache, downloading...`);
+              const manifest = await fetchAssetsManifest();
+              const char = manifest.characters.find(c => c.id === p2);
+              if (char) {
+                log(`Downloading P2: ${char.displayName} (~${char.sizeMB} MB)...`);
+                await downloadCharacter(char, (pct, msg) => {
+                  setBootLine('[P2] ', `${msg} (${pct}%)`);
+                });
+                p2Path = char.id;
+                log(`P2 ready: ${char.id}`);
+              } else {
+                log(`ERROR: Character "${p2}" not found in manifest`);
+              }
             }
           }
 
-          // Download stage if not bundled
+          // Stage: try cache, fallback to download
           if (!isBundledStage(stage)) {
+            // For stages, the URL param is the stage ID (e.g. 'DU_Campus')
+            // not the full path. We need to find it in the manifest.
+            const manifest = await fetchAssetsManifest();
             const stg = manifest.stages.find(s => s.id === stage);
             if (stg) {
-              log(`Downloading stage: ${stg.displayName} (~${stg.sizeMB} MB)...`);
-              await downloadStage(stg, (pct, msg) => {
-                setBootLine('[STAGE] ', `${msg} (${pct}%)`);
-              });
-              stagePath = getStageDefPath(stg); // full path for stages
-              log(`Stage ready: ${stagePath}`);
+              const stageInjected = await injectCachedStage(stg.id);
+              if (stageInjected) {
+                log(`Stage loaded from cache: ${stg.id}`);
+                stagePath = getStageDefPath(stg);
+              } else {
+                log(`Downloading stage: ${stg.displayName} (~${stg.sizeMB} MB)...`);
+                await downloadStage(stg, (pct, msg) => {
+                  setBootLine('[STAGE] ', `${msg} (${pct}%)`);
+                });
+                stagePath = getStageDefPath(stg);
+                log(`Stage ready: ${stagePath}`);
+              }
             } else {
               log(`ERROR: Stage "${stage}" not found in manifest, using default`);
               stagePath = 'stages/stage0-720.def';
