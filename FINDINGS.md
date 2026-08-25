@@ -6,6 +6,68 @@ Format: newest entries at the top. Each entry gets a unique ID for cross-referen
 
 ---
 
+## F-035 | Audio buffer increase + safety-net GC + GOWASM flags — significant performance improvement
+**Date**: 2026-08-25 | **Type**: Breakthrough (performance, from Claude's analysis)
+
+After consulting Claude about audio stutter during special attacks and frame
+drops, three safe optimizations were applied:
+
+### 1. Audio buffer size: 0 → 8192 (audio_js.go)
+The ScriptProcessorNode buffer was set to 0 (oto's default, ~256 samples =
+~6ms at 44100Hz). During special attacks, the engine takes 20-50ms per
+frame, starving the tiny audio buffer and causing the "broken record" sound.
+
+Increased to 8192 samples (~186ms of headroom). Frame spikes of 20-50ms
+no longer starve the buffer. Audio latency is ~93ms average (double-buffered)
+— acceptable for a fighting game.
+
+This was Claude's "quick win" suggestion — one line change, zero risk,
+immediate improvement.
+
+### 2. Periodic safety-net GC (system.go)
+With GOGC=off (F-033), automatic GC is disabled. Garbage accumulates
+during long sessions without round transitions. Added a forced GC every
+3600 frames (~60 seconds at 60fps) in the `update()` function, using the
+existing `platformIdleGC()` which is safe (skips during netplay, runs at
+non-disruptive moments).
+
+This prevents the heap from growing unbounded during long training mode
+sessions or defensive rounds that last 60+ seconds.
+
+### 3. GOWASM=satconv,signext (build flags)
+Added `GOWASM=satconv,signext` to the build command. These enable WASM
+sign-extension and saturating float-to-int conversion opcodes that all
+modern browsers support. The Go compiler emits tighter, faster code
+without polyfilling these operations.
+
+Free performance — no code changes, just compiler flags.
+
+### Result
+User reports: "The game has actually gotten better performance wise now.
+Even heavy character in the 16:9 mode gives good performance."
+
+The combination of all three changes (plus the existing GOGC=off +
+frame-skip yield + loader Gosched + lenient parsing) has brought the
+game to a state where heavy characters at full 16:9 resolution are
+playable without noticeable stutter.
+
+### What was NOT done (deferred for future)
+- AudioWorklet migration (requires COOP/COEP headers, SharedArrayBuffer)
+- Spatial grid broad-phase collision (deep engine change, high risk)
+- sync.Pool (needs heap profiling)
+- Arena allocation for static character data (complex)
+
+These remain available if further optimization is needed, but the current
+performance is satisfactory.
+
+### Lesson
+Claude's prioritization was correct: "ScriptProcessorNode buffer bump
+(hours) → GOWASM flags → spatial grid → AudioWorklet → sync.Pool."
+The cheapest changes (buffer size, compiler flags) delivered the most
+improvement. Always try the easy wins before the complex solutions.
+
+---
+
 ## F-034 | Aspect ratio investigation — true 4:3 shows stage background, reverted to letterbox
 **Date**: 2026-08-23 | **Type**: Finding + Mistake (lost Go patches during rebuild)
 
