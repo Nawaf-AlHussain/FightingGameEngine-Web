@@ -1,5 +1,58 @@
 # PROGRESS — Fighting Game Engine Web
 
+## Session: August 25, 2026 — Performance optimization round 2 (F-035)
+
+### Work Done
+
+#### Audio buffer increase + safety-net GC + GOWASM flags
+After consulting Claude about audio stutter and frame drops during special
+attacks, applied three safe optimizations:
+
+1. **Audio buffer size: 0 → 8192** (audio_js.go)
+   - ScriptProcessorNode buffer increased from ~6ms to ~186ms of headroom
+   - Frame spikes of 20-50ms no longer starve the audio buffer
+   - Eliminates "broken record" sound during special attacks
+
+2. **Periodic safety-net GC** (system.go)
+   - Forced GC every 3600 frames (~60s) using platformIdleGC()
+   - Prevents garbage accumulation in long sessions with GOGC=off
+
+3. **GOWASM=satconv,signext** (build flags)
+   - WASM sign-extension and saturating conversion opcodes
+   - Tighter compiler output, free performance
+
+#### WASM rebuilt with all 5 Go patches:
+1. Frame-skip yield (time.Sleep(1ms)) — F-025/F-027
+2. Loader Gosched — F-025
+3. Lenient state parsing — F-032
+4. Audio buffer increase — F-035 (NEW)
+5. Periodic safety-net GC — F-035 (NEW)
+
+Plus GOWASM=satconv,signext compiler flags.
+
+### Current Status — BEST PERFORMANCE YET
+- ✅ Smooth gameplay even with heavy characters at 16:9
+- ✅ No audio stutter during special attacks
+- ✅ No mid-round GC pauses (GOGC=off + safety-net GC)
+- ✅ 85 characters + 5 stages from CDN
+- ✅ 7 game modes (VS CPU, VS Player, Training, Arcade, Survival, Time Attack, Watch)
+- ✅ Persona 5 UI with grid character select + stage select + wipe transitions
+- ✅ 3 resolution options (480p / 4:3 / 16:9)
+
+### Performance journey (complete)
+1. F-018: BootLoadingMode=0 freeze → fixed
+2. F-023: vfs.js Promise cache storm → fixed
+3. F-024/F-025: Frame-skip tight loop → fixed (time.Sleep(1ms))
+4. F-026: Menu GC pressure → bypassed (f_quickMatch)
+5. F-027: time.Sleep(0) was no-op → fixed (Claude caught it)
+6. F-028: f_quickMatch works → fights playable
+7. F-029: .pak bundling → fast load
+8. F-032: Lenient state parsing → all characters load
+9. F-033: GOGC=off → no mid-round GC pauses
+10. **F-035: Audio buffer + safety-net GC + GOWASM flags → best performance**
+
+---
+
 ## Session: August 23, 2026 — Aspect ratio investigation, rollback to a2ee988 (F-034)
 
 ### Work Done

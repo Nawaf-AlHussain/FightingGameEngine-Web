@@ -4,14 +4,17 @@
 
 **Replace the Dolmexica Infinite WASM engine with IKEMEN GO v2 WASM, keeping the best UI from FightingGameEngine-Demo and the 85+ character roster from FightingGameEngine/Assets.**
 
-## CURRENT STATE (August 23, 2026) — ✅ ROLLED BACK TO a2ee988 (stable)
+## CURRENT STATE (August 25, 2026) — ✅ BEST PERFORMANCE
 
-- ✅ Smooth 60fps gameplay for ALL characters (GOGC=off — F-033)
-- ✅ No mid-round GC pauses
+- ✅ Smooth gameplay even with heavy characters at 16:9 (F-035)
+- ✅ No audio stutter during special attacks (audio buffer 8192)
+- ✅ No mid-round GC pauses (GOGC=off + safety-net GC every 60s)
 - ✅ 85 characters + 5 stages available from CDN
-- ✅ Fast load (.pak bundling + parallel loading + immutable caching)
-- ✅ 3 resolution options (480p / 4:3 / 16:9, all letterboxed)
-- ✅ React character select with mode/character/stage/AI/resolution
+- ✅ 7 game modes all working (VS CPU, VS Player, Training, Arcade, Survival, Time Attack, Watch)
+- ✅ Persona 5 UI with grid character select + stage select + wipe transitions
+- ✅ 3 resolution options (480p / 4:3 / 16:9)
+- ✅ Fast load (.pak bundling + parallel loading)
+- ✅ GOWASM=satconv,signext compiler optimizations
 
 ---
 
@@ -114,7 +117,10 @@
 | F-029 | ✅ Breakthrough | .pak bundling — 1 HTTP request instead of 48 |
 | F-030 | ✅ Fixed | Lazy file registration caused in-game lag |
 | F-031 | ✅ Documented | Character compatibility — .cmd syntax issues |
-| **F-032** | **✅ Breakthrough** | **Lenient state parsing — all 85 chars load** |
+| F-032 | ✅ Breakthrough | Lenient state parsing — all 85 chars load |
+| F-033 | ✅ Breakthrough | GOGC=off — eliminates mid-round GC pauses |
+| F-034 | ✅ Documented | Aspect ratio investigation — reverted to letterbox |
+| **F-035** | **✅ Breakthrough** | **Audio buffer + safety-net GC + GOWASM flags — best performance** |
 
 ---
 
