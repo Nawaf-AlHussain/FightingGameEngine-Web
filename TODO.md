@@ -99,6 +99,29 @@
 
 ---
 
+## Potential Future Optimizations (researched, not yet done)
+
+### Tier 1: Safe, build-flag only (try first)
+- [ ] **PGO (Profile-Guided Optimization)**: Capture CPU profile during fight, rebuild with `-pgo=profile.pprof`. Go 1.21+ supports this for GOOS=js. Expected 5-15% faster hot paths. Need to add `runtime/pprof` CPU profile export via `syscall/js` (Blob download).
+- [ ] **`-gcflags="-B"` (disable bounds checks)**: Go inserts bounds checks on every array/slice access. Disabling them saves 3-8% in array-heavy code. One build flag, no code changes. Low-medium risk.
+
+### Tier 2: Medium effort, medium risk
+- [ ] **Spatial grid broad-phase collision**: Bolt a uniform spatial grid in front of O(n²) collision check. Only check entities in same/adjacent cells. ~150 lines in char.go/system.go. Large gain during special attacks (50 entities → ~5 checks instead of ~2500).
+- [ ] **sync.Pool for hot allocations**: Pool frequently allocated structs (helpers, projectiles, explods). Reduces allocation overhead and shrinks live heap (shorter GC pauses).
+
+### Tier 3: Confirmed dead ends (don't try)
+- [x] ~~WASM SIMD~~: Go compiler doesn't autovectorize. No stable path.
+- [x] ~~True multithreading~~: Go GOOS=js is single-threaded. No change as of Go 1.24.
+- [x] ~~Web Worker~~: Isolates from main thread but doesn't speed up engine.
+
+### Build command with all optimizations (for future rebuilds)
+```bash
+GOEXPERIMENT=arenas GOWASM=satconv,signext GOOS=js GOARCH=wasm CGO_ENABLED=0 \
+  go build -trimpath -pgo=profile.pprof -gcflags="-B" -o bin/ikemen-v2.wasm ./src
+```
+
+---
+
 ## Key Findings Summary
 
 | ID | Status | Summary |
