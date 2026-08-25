@@ -4,11 +4,12 @@
 
 **Replace the Dolmexica Infinite WASM engine with IKEMEN GO v2 WASM, keeping the best UI from FightingGameEngine-Demo and the 85+ character roster from FightingGameEngine/Assets.**
 
-## CURRENT STATE (August 25, 2026) — ✅ BEST PERFORMANCE
+## CURRENT STATE (August 25, 2026) — ✅ BEST PERFORMANCE + CACHING
 
 - ✅ Smooth gameplay even with heavy characters at 16:9 (F-035)
 - ✅ No audio stutter during special attacks (audio buffer 8192)
 - ✅ No mid-round GC pauses (GOGC=off + safety-net GC every 60s)
+- ✅ IndexedDB caching — characters download once, instant on repeat (F-036)
 - ✅ 85 characters + 5 stages available from CDN
 - ✅ 7 game modes all working (VS CPU, VS Player, Training, Arcade, Survival, Time Attack, Watch)
 - ✅ Persona 5 UI with grid character select + stage select + wipe transitions
@@ -121,6 +122,8 @@
 | F-033 | ✅ Breakthrough | GOGC=off — eliminates mid-round GC pauses |
 | F-034 | ✅ Documented | Aspect ratio investigation — reverted to letterbox |
 | **F-035** | **✅ Breakthrough** | **Audio buffer + safety-net GC + GOWASM flags — best performance** |
+| F-036 | ✅ Fixed | GODEBUG=gctrace=1 was causing micro-stutters — removed |
+| F-037 | ✅ Feature | IndexedDB caching — download-on-select, instant fight start |
 
 ---
 
