@@ -350,7 +350,7 @@ function PlayPageInner() {
               width: 100vw !important;
               height: auto !important;
               max-height: 100vh !important;
-              aspect-ratio: 16 / 9 !important;
+              aspect-ratio: 16 / 10 !important;
               top: 50% !important;
               left: 50% !important;
               transform: translate(-50%, -50%) !important;
