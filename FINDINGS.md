@@ -6,57 +6,6 @@ Format: newest entries at the top. Each entry gets a unique ID for cross-referen
 
 ---
 
-## F-037 | IndexedDB caching — download-on-select, instant fight start
-**Date**: 2026-08-25 | **Type**: Feature (performance improvement)
-
-Implemented two-phase IndexedDB caching system for character/stage files.
-
-### Phase 1: Download-on-select (CharacterSelect / StageSelect)
-When the user moves their cursor to a character or stage, the download
-starts automatically in the background. Visual indicators on each card:
-- ✓ CACHED (green) — already downloaded, instant next time
-- DOWNLOADING · X% (gold) + progress bar — currently downloading
-- DOWNLOAD · X MB (gray) — not yet downloaded
-- BUNDLED (green) — KFM/stage0-720, no download needed
-
-The FIGHT button is disabled until both P1 and P2 characters are cached
-(or bundled). This prevents starting a fight with uncached characters.
-
-### Phase 2: Cache-first injection (play page)
-When the play page boots, it checks IndexedDB first:
-- If cached: injects files into VFS instantly (no network wait)
-- If not cached: falls back to CDN download (shouldn't happen with blocking)
-
-### Cross-session persistence
-IndexedDB survives browser restarts. Characters downloaded in one session
-are available instantly in the next. No re-downloading needed.
-
-### Implementation
-- `src/lib/character-cache.ts`: IndexedDB layer (store/retrieve/check/clear)
-- `src/lib/character-downloader.ts`: Added downloadCharacterToCache,
-  downloadStageToCache, injectCachedCharacter, injectCachedStage
-- `src/components/CharacterSelect.tsx`: Download-on-select + visual indicators
-- `src/components/StageSelect.tsx`: Download-on-select + visual indicators
-- `src/app/play/page.tsx`: Cache-first injection with download fallback
-
-### Result
-User confirmed: "Works without lag" with IndexedDB caching enabled.
-First-time character download shows progress on the card. Repeat
-selections are instant (green checkmark, no download). Fight starts
-immediately after clicking FIGHT (no download wait).
-
-### Initial issue (resolved)
-When first deployed (commit 3de352d), the game felt laggy. This was
-caused by GODEBUG=gctrace=1 still being enabled (F-036), not by the
-IndexedDB code itself. After removing gctrace, the caching system works
-without any performance impact.
-
-**Lesson**: When a new feature appears to cause lag, isolate the variable.
-The IndexedDB code was correct — the lag was from a pre-existing diagnostic
-flag (gctrace) that happened to be in the same deploy.
-
----
-
 ## F-036 | GODEBUG=gctrace=1 was causing micro-stutters — removed
 **Date**: 2026-08-25 | **Type**: Mistake (diagnostic left enabled)
 

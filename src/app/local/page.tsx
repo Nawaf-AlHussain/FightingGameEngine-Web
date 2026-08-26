@@ -47,7 +47,6 @@ export default function LocalPlayPage() {
   const [screen, setScreen] = useState<Screen>('select');
   const [lockIn, setLockIn] = useState<LockInResult | null>(null);
   const [aspect, setAspect] = useState<Aspect>('4:3');
-  const [fillMode, setFillMode] = useState<'fill' | 'fixed'>('fill');
 
   // ---- Character lock-in: save state, advance to stage select ----
   const handleLockIn = useCallback(
@@ -74,7 +73,6 @@ export default function LocalPlayPage() {
       params.set('p2', lockIn.p2Id);
       params.set('stage', stageId);
       params.set('aspect', aspect);
-      params.set('fill', fillMode);
 
       switch (lockIn.mode) {
         case 'vs-ai':
@@ -105,7 +103,7 @@ export default function LocalPlayPage() {
 
       navigate(`/play?${params.toString()}`);
     },
-    [lockIn, aspect, fillMode, navigate]
+    [lockIn, aspect, navigate]
   );
 
   // ---- Cancel handlers ----
@@ -165,25 +163,6 @@ export default function LocalPlayPage() {
           {r.label}
         </button>
       ))}
-      <span style={{ width: 1, height: 16, background: 'var(--gray-dark)', margin: '0 2px' }} />
-      <button
-        type="button"
-        onClick={() => setFillMode('fill')}
-        title="Stretch canvas to fill screen"
-        className={`cs__diff-btn${fillMode === 'fill' ? ' cs__diff-btn--active' : ''}`}
-        style={{ cursor: 'pointer' }}
-      >
-        FILL
-      </button>
-      <button
-        type="button"
-        onClick={() => setFillMode('fixed')}
-        title="Lock to 16:9 aspect ratio, centered (no stretching on ultrawide)"
-        className={`cs__diff-btn${fillMode === 'fixed' ? ' cs__diff-btn--active' : ''}`}
-        style={{ cursor: 'pointer' }}
-      >
-        16:9
-      </button>
     </div>
   );
 
