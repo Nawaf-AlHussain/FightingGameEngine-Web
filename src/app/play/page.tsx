@@ -1,6 +1,7 @@
 'use client';
 import { useSearchParams } from 'next/navigation';
-import { useEffect, useRef, Suspense } from 'react';
+import { useEffect, useRef, useState, Suspense } from 'react';
+import dynamic from 'next/dynamic';
 import {
   fetchAssetsManifest,
   downloadCharacter,
@@ -24,9 +25,22 @@ import {
 // - The laggy menu (GC pressure from unoptimized menu rendering — F-026)
 // - The f_commandLine loading/compilation freeze (F-022 through F-025)
 
+// Touch controls — only loaded on touch devices (detected at runtime)
+const TouchControls = dynamic(() => import('@/components/TouchControls'), { ssr: false });
+
+function isTouchDevice(): boolean {
+  if (typeof window === 'undefined') return false;
+  // Touch laptops have maxTouchPoints > 0 but also have fine pointer (mouse)
+  // Only show touch controls on devices WITHOUT a fine pointer (phones/tablets)
+  const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  const hasFinePointer = window.matchMedia('(pointer: fine)').matches;
+  return hasTouch && !hasFinePointer;
+}
+
 function PlayPageInner() {
   const bootRef = useRef<HTMLPreElement>(null);
   const searchParams = useSearchParams();
+  const [showTouchControls, setShowTouchControls] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -410,6 +424,9 @@ function PlayPageInner() {
       }
     }
 
+    // Detect touch device
+    setShowTouchControls(isTouchDevice());
+
     bootEngine();
 
     return () => {
@@ -427,6 +444,12 @@ function PlayPageInner() {
       />
       {/* The engine creates its own canvas element */}
       <div id="game-container" />
+      {/* Touch controls — only on phones/tablets */}
+      {showTouchControls && (
+        <div className="touch-controls active">
+          <TouchControls />
+        </div>
+      )}
     </div>
   );
 }

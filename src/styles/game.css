@@ -621,3 +621,133 @@ body.fighting {
   width: 100vw;
   height: 100vh;
 }
+
+/* --- Touch Controls (mobile only) --- */
+.touch-controls {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  pointer-events: none;
+  display: none; /* Hidden by default, shown via JS on touch devices */
+}
+.touch-controls.active {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding: 0 16px 16px 16px;
+  pointer-events: none;
+}
+
+/* Start button — top center */
+.tc-start-btn {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 20px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  background: rgba(217,35,35,0.4);
+  color: var(--white);
+  border: 1px solid rgba(217,35,35,0.8);
+  border-radius: 4px;
+  pointer-events: auto;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.tc-start-btn:active {
+  background: rgba(217,35,35,0.7);
+}
+
+/* D-pad — left side, cross shape */
+.tc-dpad {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+}
+.tc-dpad-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.tc-dpad-spacer {
+  width: 48px;
+  height: 48px;
+}
+.tc-dpad-center {
+  width: 48px;
+  height: 48px;
+  background: rgba(42,42,42,0.4);
+  border: 1px solid rgba(123,123,123,0.3);
+}
+.tc-dpad-btn {
+  width: 48px;
+  height: 48px;
+  background: rgba(26,26,26,0.5);
+  border: 1px solid rgba(123,123,123,0.5);
+  border-radius: 4px;
+  pointer-events: auto;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  position: relative;
+}
+.tc-dpad-btn:active {
+  background: rgba(13,217,255,0.4);
+  border-color: var(--cyan);
+}
+/* Arrow indicators on D-pad buttons */
+.tc-dpad-up::before { content: '▲'; position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); font-size: 14px; color: rgba(255,255,255,0.4); }
+.tc-dpad-down::before { content: '▼'; position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); font-size: 14px; color: rgba(255,255,255,0.4); }
+.tc-dpad-left::before { content: '◀'; position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); font-size: 14px; color: rgba(255,255,255,0.4); }
+.tc-dpad-right::before { content: '▶'; position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); font-size: 14px; color: rgba(255,255,255,0.4); }
+
+/* Action buttons — right side */
+.tc-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+.tc-action-row {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+.tc-action-btn {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: rgba(26,26,26,0.5);
+  border: 2px solid;
+  font-size: 0.8rem;
+  font-weight: 900;
+  font-family: var(--font-display);
+  text-transform: uppercase;
+  pointer-events: auto;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.tc-action-btn:active {
+  background: rgba(255,255,255,0.2);
+  transform: scale(0.92);
+}
+
+/* Hide touch controls on desktop (no touch) */
+@media (hover: hover) and (pointer: fine) {
+  .touch-controls { display: none !important; }
+}
