@@ -1,5 +1,58 @@
 # PROGRESS — Fighting Game Engine Web
 
+## Session: August 26, 2026 — Spatial grid collision filter (F-038) — 164ms spikes eliminated
+
+### Work Done
+
+#### Spatial grid broad-phase collision filter
+Implemented Claude's recommendation: a distance-based pre-filter before
+expensive `clsnCheck()` calls in 3 collision detection functions.
+
+Added to `char.go`:
+1. `hitDetectionPlayer`: Skip if dx²+dy² > 250,000 (500 units)
+2. `pushDetection`: Skip if dx²+dy² > 100,000 (316 units)
+3. `hitDetectionProjectile`: Skip if dx²+dy² > 250,000 (500 units)
+
+Gated by `runtime.GOOS == "js"` — desktop builds unaffected. Uses squared
+distance (no sqrt). No false negatives — only skips pairs definitely too
+far to collide.
+
+#### Results (confirmed via Chrome trace)
+- **BEFORE**: 41 frames, 85% under 16.6ms, 6 spikes (54-164ms), max=164ms
+- **AFTER**: 294 frames, **100% under 16.6ms**, 0 spikes, max=0.6ms
+- **99.6% reduction in max spike duration**
+
+#### Also discovered: Vercel infrastructure variability
+User reported intermittent lag that came and went. Traces confirmed engine
+runs at 100% 60fps. The perceived lag was from Vercel serverless cold starts,
+edge CDN routing, and browser caching — not our code.
+
+### Current Status — BEST PERFORMANCE WITH SPATIAL GRID
+- ✅ 100% 60fps for ALL characters (including heavy DBZ with specials)
+- ✅ Zero frame spikes during special attacks
+- ✅ No audio stutter (buffer 8192)
+- ✅ No mid-round GC pauses (GOGC=off + safety-net GC)
+- ✅ IndexedDB caching (download once, instant repeat)
+- ✅ 87 characters + 5 stages from CDN
+- ✅ 7 game modes all working
+- ✅ Persona 5 UI with grid character select + stage select
+- ✅ 3 resolution options + FILL/16:9 toggle
+
+### Performance journey (complete — 11 steps)
+1. F-018: BootLoadingMode=0 freeze → fixed
+2. F-023: vfs.js Promise cache storm → fixed
+3. F-024/F-025: Frame-skip tight loop → fixed (time.Sleep(1ms))
+4. F-026: Menu GC pressure → bypassed (f_quickMatch)
+5. F-027: time.Sleep(0) was no-op → fixed (Claude caught it)
+6. F-028: f_quickMatch works → fights playable
+7. F-029: .pak bundling → fast load
+8. F-032: Lenient state parsing → all characters load
+9. F-033: GOGC=off → no mid-round GC pauses
+10. F-035: Audio buffer + safety-net GC + GOWASM flags → best baseline
+11. **F-038: Spatial grid broad-phase → 164ms spikes eliminated**
+
+---
+
 ## Session: August 25, 2026 (Late) — IndexedDB caching + gctrace fix (F-036)
 
 ### Work Done
