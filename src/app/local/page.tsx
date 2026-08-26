@@ -6,7 +6,9 @@ import CharacterSelect, {
   type Difficulty,
 } from '@/components/CharacterSelect';
 import StageSelect from '@/components/StageSelect';
+import RotateOverlay from '@/components/RotateOverlay';
 import { useWipeNavigation } from '@/components/WipeTransition';
+import { useIsTouchDevice } from '@/lib/use-touch-device';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -43,6 +45,7 @@ const DIFFICULTY_TO_AI: Record<Difficulty, number> = {
 
 export default function LocalPlayPage() {
   const { navigate } = useWipeNavigation();
+  const isTouch = useIsTouchDevice();
 
   const [screen, setScreen] = useState<Screen>('select');
   const [lockIn, setLockIn] = useState<LockInResult | null>(null);
@@ -190,6 +193,7 @@ export default function LocalPlayPage() {
   if (screen === 'stage-select' && lockIn) {
     return (
       <div>
+        {isTouch && <RotateOverlay />}
         {aspectToggle}
         <StageSelect
           onSelect={handleStageSelect}
@@ -201,8 +205,13 @@ export default function LocalPlayPage() {
 
   return (
     <div>
+      {isTouch && <RotateOverlay />}
       {aspectToggle}
-      <CharacterSelect onLockIn={handleLockIn} onCancel={handleCancelSelect} />
+      <CharacterSelect
+        onLockIn={handleLockIn}
+        onCancel={handleCancelSelect}
+        isTouch={isTouch}
+      />
       {/* Footer credit */}
       <div className="footer-credit">Made by Nawaf Al Hussain</div>
     </div>

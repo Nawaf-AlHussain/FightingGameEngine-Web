@@ -1,7 +1,6 @@
 'use client';
 import { useSearchParams } from 'next/navigation';
-import { useEffect, useRef, useState, Suspense } from 'react';
-import dynamic from 'next/dynamic';
+import { useEffect, useRef, useState, Suspense, lazy } from 'react';
 import {
   fetchAssetsManifest,
   downloadCharacter,
@@ -10,6 +9,12 @@ import {
   injectCachedCharacter,
   injectCachedStage,
 } from '@/lib/character-downloader';
+import { useIsTouchDevice } from '@/lib/use-touch-device';
+import RotateOverlay from '@/components/RotateOverlay';
+
+// TouchControls is dynamically loaded because it touches `window` (touch
+// event detection) and must only render client-side.
+const TouchControls = lazy(() => import('@/components/TouchControls'));
 
 // This page loads the IKEMEN GO WASM engine and starts a fight directly,
 // bypassing the laggy menu (F-026) using the smooth game() path.
@@ -25,22 +30,31 @@ import {
 // - The laggy menu (GC pressure from unoptimized menu rendering — F-026)
 // - The f_commandLine loading/compilation freeze (F-022 through F-025)
 
-// Touch controls — only loaded on touch devices (detected at runtime)
-const TouchControls = dynamic(() => import('@/components/TouchControls'), { ssr: false });
-
-function isTouchDevice(): boolean {
-  if (typeof window === 'undefined') return false;
-  // Touch laptops have maxTouchPoints > 0 but also have fine pointer (mouse)
-  // Only show touch controls on devices WITHOUT a fine pointer (phones/tablets)
-  const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-  const hasFinePointer = window.matchMedia('(pointer: fine)').matches;
-  return hasTouch && !hasFinePointer;
-}
-
 function PlayPageInner() {
   const bootRef = useRef<HTMLPreElement>(null);
   const searchParams = useSearchParams();
-  const [showTouchControls, setShowTouchControls] = useState(false);
+  const isTouch = useIsTouchDevice();
+  // Touch controls are shown after the boot log fades (i.e., engine is running).
+  // We toggle this true once go.run() is called.
+  const [engineRunning, setEngineRunning] = useState(false);
+  // Exit confirmation — show a small floating X on touch devices.
+  const [showExit, setShowExit] = useState(false);
+
+  // Expose exit handler so the touch exit button can call it.
+  const exitFightRef = useRef<(() => void) | null>(null);
+  exitFightRef.current = () => {
+    // Send Escape key to engine (which is mapped to menu/pause) — if that
+    // doesn't work, hard-navigate back to /local.
+    try {
+      const g = globalThis as any;
+      if (g.__ikemenKeyDown) g.__ikemenKeyDown.push('Escape');
+      setTimeout(() => g.__ikemenKeyUp?.push('Escape'), 50);
+    } catch {}
+    // Always go back to character select after a short delay
+    setTimeout(() => {
+      window.location.href = '/local';
+    }, 200);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -405,6 +419,11 @@ function PlayPageInner() {
         document.addEventListener('click', clickHandler);
 
         // --- 11. Run the engine ---
+        setEngineRunning(true);
+        // Show floating exit button on touch devices after engine starts.
+        if (isTouch) {
+          setTimeout(() => setShowExit(true), 1500);
+        }
         await go.run(result.instance);
 
         // Engine exited — fight is over.
@@ -424,15 +443,12 @@ function PlayPageInner() {
       }
     }
 
-    // Detect touch device
-    setShowTouchControls(isTouchDevice());
-
     bootEngine();
 
     return () => {
       cancelled = true;
     };
-  }, [searchParams]);
+  }, [searchParams, isTouch]);
 
   return (
     <div className="min-h-screen bg-black flex flex-col items-center justify-center">
@@ -444,11 +460,31 @@ function PlayPageInner() {
       />
       {/* The engine creates its own canvas element */}
       <div id="game-container" />
-      {/* Touch controls — only on phones/tablets */}
-      {showTouchControls && (
-        <div className="touch-controls active">
-          <TouchControls />
-        </div>
+
+      {/* Rotate overlay for portrait touch devices */}
+      {isTouch && <RotateOverlay />}
+
+      {/* Floating exit button — touch only, shown after engine starts */}
+      {isTouch && showExit && (
+        <button
+          type="button"
+          className="fight__exit-touch"
+          onClick={() => exitFightRef.current?.()}
+          aria-label="Exit fight"
+        >
+          ✕
+        </button>
+      )}
+
+      {/* Touch controls — rendered once engine is running, touch only.
+          Suspense fallback is null because TouchControls has no async
+          imports and should resolve instantly. */}
+      {isTouch && engineRunning && (
+        <Suspense fallback={null}>
+          <div className="touch-controls active">
+            <TouchControls />
+          </div>
+        </Suspense>
       )}
     </div>
   );
