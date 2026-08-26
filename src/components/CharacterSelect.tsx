@@ -86,7 +86,7 @@ const DIFFICULTIES: { id: Difficulty; label: string }[] = [
 ];
 
 // Number of columns in the character grid (must match .cs__grid in game.css).
-const GRID_COLS = 6;
+const GRID_COLS = 8;
 
 interface CursorState {
   index: number;
