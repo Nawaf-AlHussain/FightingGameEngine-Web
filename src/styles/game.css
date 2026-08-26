@@ -664,33 +664,29 @@ body.fighting {
   background: rgba(217,35,35,0.7);
 }
 
-/* D-pad — left side, cross shape */
+/* D-pad — 3x3 grid with 8 directions + center */
 .tc-dpad {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  gap: 2px;
   pointer-events: none;
 }
 .tc-dpad-row {
   display: flex;
-  align-items: center;
   gap: 2px;
 }
-.tc-dpad-spacer {
-  width: 48px;
-  height: 48px;
-}
 .tc-dpad-center {
-  width: 48px;
-  height: 48px;
-  background: rgba(42,42,42,0.4);
-  border: 1px solid rgba(123,123,123,0.3);
+  width: 44px;
+  height: 44px;
+  background: rgba(42,42,42,0.3);
+  border: 1px solid rgba(123,123,123,0.2);
+  border-radius: 4px;
 }
 .tc-dpad-btn {
-  width: 48px;
-  height: 48px;
-  background: rgba(26,26,26,0.5);
-  border: 1px solid rgba(123,123,123,0.5);
+  width: 44px;
+  height: 44px;
+  background: rgba(26,26,26,0.55);
+  border: 1px solid rgba(123,123,123,0.45);
   border-radius: 4px;
   pointer-events: auto;
   cursor: pointer;
@@ -699,16 +695,34 @@ body.fighting {
   user-select: none;
   -webkit-user-select: none;
   position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: background 0.08s, border-color 0.08s;
 }
 .tc-dpad-btn:active {
   background: rgba(13,217,255,0.4);
   border-color: var(--cyan);
 }
-/* Arrow indicators on D-pad buttons */
-.tc-dpad-up::before { content: '▲'; position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); font-size: 14px; color: rgba(255,255,255,0.4); }
-.tc-dpad-down::before { content: '▼'; position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); font-size: 14px; color: rgba(255,255,255,0.4); }
-.tc-dpad-left::before { content: '◀'; position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); font-size: 14px; color: rgba(255,255,255,0.4); }
-.tc-dpad-right::before { content: '▶'; position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); font-size: 14px; color: rgba(255,255,255,0.4); }
+/* Diagonal buttons — visually distinct (slightly smaller / rotated accent) */
+.tc-dpad-diag {
+  background: rgba(20,20,20,0.55);
+}
+.tc-dpad-diag:active {
+  background: rgba(217,35,35,0.4);
+  border-color: var(--red);
+}
+.tc-dpad-arrow {
+  font-size: 18px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.6);
+  line-height: 1;
+  pointer-events: none;
+}
+.tc-dpad-btn:active .tc-dpad-arrow {
+  color: var(--white);
+}
 
 /* Action buttons — right side */
 .tc-actions {
@@ -747,7 +761,207 @@ body.fighting {
   transform: scale(0.92);
 }
 
+/* Action button color variants */
+.tc-action-a, .tc-action-b, .tc-action-c { border-color: rgba(13,217,255,0.7); color: var(--cyan); }
+.tc-action-x, .tc-action-y, .tc-action-z { border-color: rgba(217,35,35,0.7); color: var(--red); }
+.tc-action-a:active, .tc-action-b:active, .tc-action-c:active {
+  background: rgba(13,217,255,0.25);
+  border-color: var(--cyan);
+}
+.tc-action-x:active, .tc-action-y:active, .tc-action-z:active {
+  background: rgba(217,35,35,0.25);
+  border-color: var(--red);
+}
+
 /* Hide touch controls on desktop (no touch) */
 @media (hover: hover) and (pointer: fine) {
   .touch-controls { display: none !important; }
+}
+
+/* ========================================
+   MOBILE RESPONSIVE UI
+   Targets phones/tablets (coarse pointer + small viewport)
+   ======================================== */
+
+/* Detect touch devices: hide keyboard-only control hints */
+@media (pointer: coarse) {
+  .cs__controls-help { display: none; }
+}
+
+/* ---- Mobile: ≤ 768px (phones) ---- */
+@media (max-width: 768px) {
+  /* Lobby */
+  .lobby__title-main { font-size: clamp(2rem, 10vw, 3.5rem); }
+  .lobby__title-sub  { font-size: 0.7rem; letter-spacing: 0.2em; }
+  .lobby__start-btn {
+    padding: 1.2rem 4rem;
+    font-size: 1.4rem;
+    letter-spacing: 0.2em;
+    /* Bigger touch target */
+    min-height: 64px;
+  }
+
+  /* Character select */
+  .cs { padding: 0.5rem; }
+  .cs__title-main { font-size: clamp(1.5rem, 6vw, 2rem); }
+  .cs__title-sub  { font-size: 0.7rem; letter-spacing: 0.25em; }
+
+  /* Mode bar — horizontal scroll instead of wrapping */
+  .cs__mode-bar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 4px;
+    margin-bottom: 0.4rem;
+    justify-content: flex-start;
+    gap: 0.25rem;
+  }
+  .cs__mode-bar::-webkit-scrollbar { display: none; }
+  .cs__mode-btn {
+    padding: 0.4rem 0.9rem;
+    font-size: 0.7rem;
+    flex-shrink: 0;
+    /* Bigger touch target */
+    min-height: 36px;
+  }
+
+  /* Difficulty bar — also scrollable */
+  .cs__difficulty-bar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    justify-content: flex-start;
+    margin-bottom: 0.4rem;
+  }
+  .cs__difficulty-bar::-webkit-scrollbar { display: none; }
+  .cs__diff-btn {
+    padding: 0.4rem 0.9rem;
+    font-size: 0.7rem;
+    flex-shrink: 0;
+    min-height: 36px;
+  }
+
+  /* VS bar — compact horizontal */
+  .cs__vs-bar {
+    gap: 0.5rem;
+    margin-bottom: 0.4rem;
+  }
+  .cs__player-tag {
+    min-width: 0;
+    flex: 1;
+    max-width: 45vw;
+    padding: 0.3rem 0.5rem;
+  }
+  .cs__player-tag-name {
+    font-size: 0.7rem;
+    max-width: 100%;
+  }
+  .cs__vs { font-size: 1.2rem; }
+
+  /* Grid — already responsive (3 cols on ≤600px), but tighten gaps */
+  .cs__grid { gap: 2px; max-height: 60vh; }
+  .cs__card-info { font-size: 0.5rem; padding: 1px 2px; }
+  .cs__card-download { font-size: 0.5rem; padding: 1px; }
+  .cs__card-cursor { font-size: 0.5rem; padding: 1px 4px; }
+
+  /* Disable hover lift on touch (sticks after tap) */
+  .cs__card:hover { transform: none; }
+  .cs__card--locked { transform: translateY(-3px); }
+
+  /* Footer — stack, big FIGHT button */
+  .cs__footer {
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.5rem;
+  }
+  .cs__footer-btns {
+    width: 100%;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+  .cs__btn-back {
+    padding: 0.8rem 1.5rem;
+    font-size: 0.85rem;
+    min-height: 48px;
+    flex: 1;
+  }
+  .cs__btn-fight {
+    padding: 0.8rem 2.5rem;
+    font-size: 1.1rem;
+    min-height: 48px;
+    flex: 2;
+  }
+
+  /* Stage select */
+  .ss { padding: 0.5rem; }
+  .ss__title { margin-bottom: 0.75rem; }
+  .ss__title-main { font-size: clamp(1.5rem, 6vw, 2rem); }
+  .ss__grid {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 8px;
+    padding: 0.25rem;
+  }
+  .ss__card { min-height: 140px; }
+  .ss__card-portrait { height: 80px; }
+  .ss__card-name { font-size: 0.7rem; padding: 4px 6px 2px; }
+  .ss__card-desc { font-size: 0.55rem; padding: 0 6px 2px; }
+  .ss__card-download { font-size: 0.55rem; padding: 4px 6px; }
+  .ss__footer { flex-direction: column; gap: 0.5rem; padding: 0.5rem; }
+  .ss__footer .cs__footer-btns { width: 100%; }
+
+  /* Resolution toggle (top-right) — compact on mobile */
+  .cs__diff-btn { padding: 0.3rem 0.6rem; font-size: 0.6rem; }
+}
+
+/* ---- Mobile: ≤ 480px (small phones) ---- */
+@media (max-width: 480px) {
+  /* Even smaller grid: 3 columns */
+  .cs__grid { grid-template-columns: repeat(3, 1fr) !important; }
+  .ss__grid { grid-template-columns: repeat(2, 1fr); }
+
+  /* Action buttons — slightly smaller to fit narrow screens */
+  .tc-action-btn { width: 46px; height: 46px; font-size: 0.75rem; }
+  .tc-dpad-btn, .tc-dpad-center { width: 40px; height: 40px; }
+  .tc-dpad-arrow { font-size: 16px; }
+
+  /* VS bar — make tags smaller */
+  .cs__player-tag-label { font-size: 0.55rem; }
+  .cs__player-tag-name { font-size: 0.65rem; }
+  .cs__player-tag-status { font-size: 0.5rem; }
+}
+
+/* ---- Landscape phones (short height) ---- */
+@media (max-height: 500px) and (orientation: landscape) {
+  /* Compact mode bar to save vertical space */
+  .cs__title { margin-bottom: 0.25rem; }
+  .cs__title-main { font-size: 1.5rem; }
+  .cs__title-sub { font-size: 0.6rem; }
+  .cs__mode-bar { margin-bottom: 0.15rem; }
+  .cs__vs-bar { margin-bottom: 0.15rem; }
+  .cs__grid { max-height: 50vh; }
+  .cs__footer { padding: 0.25rem; }
+}
+
+/* ---- Touch controls: landscape orientation tweaks ---- */
+@media (orientation: landscape) and (max-height: 500px) {
+  /* In landscape, keep controls compact to not block too much screen */
+  .touch-controls.active {
+    padding: 0 8px 8px 8px;
+  }
+  .tc-start-btn {
+    top: 4px;
+    padding: 4px 12px;
+    font-size: 0.6rem;
+  }
+}
+
+/* ---- Safe area insets (notch / dynamic island) ---- */
+@supports (padding: env(safe-area-inset-bottom)) {
+  .touch-controls.active {
+    padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  }
+  .tc-start-btn {
+    top: calc(12px + env(safe-area-inset-top));
+  }
 }
