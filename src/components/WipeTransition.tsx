@@ -81,13 +81,21 @@ export function WipeTransitionProvider({
 
   const navigate = useCallback((path: string) => {
     if (phase !== 'idle') return;
-    pendingRef.current = { path };
+    // Navigate IMMEDIATELY — Next.js client-side navigation is async, so
+    // we kick it off now and let the wipe animation cover the transition.
+    // By the time the wipe sweeps away (~700ms later) the new page should
+    // be rendered, avoiding a flash of the old page.
+    router.push(path);
+    // No midpoint action needed — the wipe is purely visual now.
+    pendingRef.current = null;
     setPhase('in');
-  }, [phase]);
+  }, [phase, router]);
 
   useEffect(() => {
     if (phase === 'in') {
-      // After wipeIn completes, fire the midpoint action then sweep out.
+      // After wipeIn completes (screen fully covered), sweep out. Any
+      // pending onMid callback (from triggerWipe, not navigate) still
+      // fires here. Navigation already happened at the start of the wipe.
       const t = window.setTimeout(() => {
         const p = pendingRef.current;
         if (p?.onMid) {
@@ -96,9 +104,6 @@ export function WipeTransitionProvider({
           } catch (err) {
             console.error('[wipe] onMid callback threw:', err);
           }
-        }
-        if (p?.path) {
-          router.push(p.path);
         }
         setPhase('out');
       }, WIPE_IN_MS);
@@ -112,7 +117,7 @@ export function WipeTransitionProvider({
       }, WIPE_OUT_MS);
       return () => window.clearTimeout(t);
     }
-  }, [phase, router]);
+  }, [phase]);
 
   const className = phase === 'in' ? 'active' : phase === 'out' ? 'exiting' : '';
 
