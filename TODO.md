@@ -4,12 +4,11 @@
 
 **Replace the Dolmexica Infinite WASM engine with IKEMEN GO v2 WASM, keeping the best UI from FightingGameEngine-Demo and the 85+ character roster from FightingGameEngine/Assets.**
 
-## CURRENT STATE (August 25, 2026) — ✅ BEST PERFORMANCE + CACHING
+## CURRENT STATE (August 25, 2026) — ✅ BEST PERFORMANCE
 
 - ✅ Smooth gameplay even with heavy characters at 16:9 (F-035)
 - ✅ No audio stutter during special attacks (audio buffer 8192)
 - ✅ No mid-round GC pauses (GOGC=off + safety-net GC every 60s)
-- ✅ IndexedDB caching — characters download once, instant on repeat (F-036)
 - ✅ 85 characters + 5 stages available from CDN
 - ✅ 7 game modes all working (VS CPU, VS Player, Training, Arcade, Survival, Time Attack, Watch)
 - ✅ Persona 5 UI with grid character select + stage select + wipe transitions
@@ -99,29 +98,6 @@
 
 ---
 
-## Potential Future Optimizations (researched, not yet done)
-
-### Tier 1: Safe, build-flag only (try first)
-- [ ] **PGO (Profile-Guided Optimization)**: Capture CPU profile during fight, rebuild with `-pgo=profile.pprof`. Go 1.21+ supports this for GOOS=js. Expected 5-15% faster hot paths. Need to add `runtime/pprof` CPU profile export via `syscall/js` (Blob download).
-- [ ] **`-gcflags="-B"` (disable bounds checks)**: Go inserts bounds checks on every array/slice access. Disabling them saves 3-8% in array-heavy code. One build flag, no code changes. Low-medium risk.
-
-### Tier 2: Medium effort, medium risk
-- [ ] **Spatial grid broad-phase collision**: Bolt a uniform spatial grid in front of O(n²) collision check. Only check entities in same/adjacent cells. ~150 lines in char.go/system.go. Large gain during special attacks (50 entities → ~5 checks instead of ~2500).
-- [ ] **sync.Pool for hot allocations**: Pool frequently allocated structs (helpers, projectiles, explods). Reduces allocation overhead and shrinks live heap (shorter GC pauses).
-
-### Tier 3: Confirmed dead ends (don't try)
-- [x] ~~WASM SIMD~~: Go compiler doesn't autovectorize. No stable path.
-- [x] ~~True multithreading~~: Go GOOS=js is single-threaded. No change as of Go 1.24.
-- [x] ~~Web Worker~~: Isolates from main thread but doesn't speed up engine.
-
-### Build command with all optimizations (for future rebuilds)
-```bash
-GOEXPERIMENT=arenas GOWASM=satconv,signext GOOS=js GOARCH=wasm CGO_ENABLED=0 \
-  go build -trimpath -pgo=profile.pprof -gcflags="-B" -o bin/ikemen-v2.wasm ./src
-```
-
----
-
 ## Key Findings Summary
 
 | ID | Status | Summary |
@@ -145,8 +121,6 @@ GOEXPERIMENT=arenas GOWASM=satconv,signext GOOS=js GOARCH=wasm CGO_ENABLED=0 \
 | F-033 | ✅ Breakthrough | GOGC=off — eliminates mid-round GC pauses |
 | F-034 | ✅ Documented | Aspect ratio investigation — reverted to letterbox |
 | **F-035** | **✅ Breakthrough** | **Audio buffer + safety-net GC + GOWASM flags — best performance** |
-| F-036 | ✅ Fixed | GODEBUG=gctrace=1 was causing micro-stutters — removed |
-| F-037 | ✅ Feature | IndexedDB caching — download-on-select, instant fight start |
 
 ---
 

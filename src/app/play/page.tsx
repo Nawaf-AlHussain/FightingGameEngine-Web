@@ -62,7 +62,6 @@ function PlayPageInner() {
         const training = searchParams.get('training') || '0';
         const time = searchParams.get('time') || '99';
         const aspectParam = searchParams.get('aspect') || '4:3';
-        const fillMode = searchParams.get('fill') || 'fill'; // 'fill' or 'fixed'
 
         // Map aspect param to resolution for vfs.js
         // 'low' = 320×240 (fastest), '4:3' = 640×480, '16:9' = 1280×720
@@ -338,26 +337,6 @@ function PlayPageInner() {
 
         // --- 9. Build go.argv with the resolved character/stage paths ---
         log('Engine starting... (quick match, bypassing menu)');
-
-        // Apply fill mode CSS to the canvas
-        // 'fill' = stretch to fill screen (current behavior)
-        // 'fixed' = lock to 16:9, centered, no stretching on ultrawide
-        if (fillMode === 'fixed') {
-          const style = document.createElement('style');
-          style.id = 'ikemen-fill-mode';
-          style.textContent = `
-            canvas#ikemen-canvas {
-              width: 100vw !important;
-              height: auto !important;
-              max-height: 100vh !important;
-              aspect-ratio: 16 / 10 !important;
-              top: 50% !important;
-              left: 50% !important;
-              transform: translate(-50%, -50%) !important;
-            }
-          `;
-          document.head.appendChild(style);
-        }
         go.argv = [
           'ikemen',
           '-qp1', p1Path,
