@@ -594,6 +594,8 @@ canvas#ikemen-canvas {
   image-rendering: pixelated;
   image-rendering: crisp-edges;
   z-index: 1;
+  /* Prevent touch scrolling / pinch-zoom on the canvas */
+  touch-action: none;
 }
 
 /* --- Scrollbar --- */
@@ -622,13 +624,15 @@ body.fighting {
   height: 100vh;
 }
 
-/* --- Touch Controls (mobile only) --- */
+/* ========================================
+   TOUCH CONTROLS (mobile only)
+   ======================================== */
 .touch-controls {
   position: fixed;
   inset: 0;
   z-index: 100;
   pointer-events: none;
-  display: none; /* Hidden by default, shown via JS on touch devices */
+  display: none; /* Hidden by default, shown via .active class on touch devices */
 }
 .touch-controls.active {
   display: flex;
@@ -659,6 +663,7 @@ body.fighting {
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
+  z-index: 110;
 }
 .tc-start-btn:active {
   background: rgba(217,35,35,0.7);
@@ -705,7 +710,7 @@ body.fighting {
   background: rgba(13,217,255,0.4);
   border-color: var(--cyan);
 }
-/* Diagonal buttons — visually distinct (slightly smaller / rotated accent) */
+/* Diagonal buttons — visually distinct */
 .tc-dpad-diag {
   background: rgba(20,20,20,0.55);
 }
@@ -755,6 +760,8 @@ body.fighting {
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 0;
+  transition: background 0.08s, transform 0.08s;
 }
 .tc-action-btn:active {
   background: rgba(255,255,255,0.2);
@@ -779,13 +786,93 @@ body.fighting {
 }
 
 /* ========================================
+   ROTATE OVERLAY (portrait touch devices)
+   ======================================== */
+.rotate-overlay { display: none; }
+
+@media (orientation: portrait) and (pointer: coarse) {
+  .rotate-overlay {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    background: var(--black);
+    color: var(--white);
+    text-align: center;
+    padding: 40px 20px;
+  }
+  .rotate-overlay__icon {
+    font-size: 56px;
+    animation: rotate-icon 2s ease-in-out infinite;
+    margin-bottom: 20px;
+  }
+  @keyframes rotate-icon {
+    0%, 100% { transform: rotate(0deg); }
+    50% { transform: rotate(90deg); }
+  }
+  .rotate-overlay__text h2 {
+    font-size: 1.5rem;
+    font-weight: 900;
+    font-style: italic;
+    text-transform: uppercase;
+    color: var(--white);
+    text-shadow: 3px 3px 0 var(--red);
+    margin-bottom: 0.75rem;
+  }
+  .rotate-overlay__text p {
+    font-size: 0.9rem;
+    color: var(--gray);
+    margin-bottom: 0.5rem;
+  }
+  .rotate-overlay__hint {
+    font-size: 0.75rem !important;
+    color: var(--cyan) !important;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    margin-top: 1rem !important;
+  }
+}
+
+/* ========================================
+   FIGHT EXIT BUTTON (touch only)
+   ======================================== */
+.fight__exit-touch {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  width: 40px;
+  height: 40px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 18px;
+  font-weight: bold;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  line-height: 1;
+}
+.fight__exit-touch:active {
+  background: rgba(217, 35, 35, 0.7);
+  border-color: var(--red);
+}
+
+/* ========================================
    MOBILE RESPONSIVE UI
-   Targets phones/tablets (coarse pointer + small viewport)
    ======================================== */
 
 /* Detect touch devices: hide keyboard-only control hints */
 @media (pointer: coarse) {
-  .cs__controls-help { display: none; }
+  .cs__controls-help { font-size: 0.65rem; }
 }
 
 /* ---- Mobile: ≤ 768px (phones) ---- */
@@ -797,7 +884,6 @@ body.fighting {
     padding: 1.2rem 4rem;
     font-size: 1.4rem;
     letter-spacing: 0.2em;
-    /* Bigger touch target */
     min-height: 64px;
   }
 
@@ -822,7 +908,6 @@ body.fighting {
     padding: 0.4rem 0.9rem;
     font-size: 0.7rem;
     flex-shrink: 0;
-    /* Bigger touch target */
     min-height: 36px;
   }
 
@@ -859,7 +944,7 @@ body.fighting {
   }
   .cs__vs { font-size: 1.2rem; }
 
-  /* Grid — already responsive (3 cols on ≤600px), but tighten gaps */
+  /* Grid — tighten gaps */
   .cs__grid { gap: 2px; max-height: 60vh; }
   .cs__card-info { font-size: 0.5rem; padding: 1px 2px; }
   .cs__card-download { font-size: 0.5rem; padding: 1px; }
@@ -945,7 +1030,6 @@ body.fighting {
 
 /* ---- Touch controls: landscape orientation tweaks ---- */
 @media (orientation: landscape) and (max-height: 500px) {
-  /* In landscape, keep controls compact to not block too much screen */
   .touch-controls.active {
     padding: 0 8px 8px 8px;
   }
@@ -953,6 +1037,13 @@ body.fighting {
     top: 4px;
     padding: 4px 12px;
     font-size: 0.6rem;
+  }
+  .fight__exit-touch {
+    top: 4px;
+    right: 4px;
+    width: 32px;
+    height: 32px;
+    font-size: 14px;
   }
 }
 
@@ -963,5 +1054,9 @@ body.fighting {
   }
   .tc-start-btn {
     top: calc(12px + env(safe-area-inset-top));
+  }
+  .fight__exit-touch {
+    top: calc(12px + env(safe-area-inset-top));
+    right: calc(12px + env(safe-area-inset-right));
   }
 }

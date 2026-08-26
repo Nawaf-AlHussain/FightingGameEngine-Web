@@ -46,6 +46,14 @@ interface CharacterSelectProps {
     p1Difficulty?: Difficulty
   ) => void;
   onCancel: () => void;
+  /**
+   * When true, the UI is optimized for touch devices:
+   *   - Tap a card to lock-in immediately (first tap = P1, second = P2)
+   *   - Tap a locked card to unlock it (toggle)
+   *   - Hide keyboard hints, show touch hint instead
+   *   - Larger touch targets via CSS
+   */
+  isTouch?: boolean;
 }
 
 type DownloadStatus = 'idle' | 'downloading' | 'cached' | 'error';
@@ -100,6 +108,7 @@ interface CursorState {
 export default function CharacterSelect({
   onLockIn,
   onCancel,
+  isTouch = false,
 }: CharacterSelectProps) {
   // Roster state
   const [roster, setRoster] = useState<LocalCharacter[]>(BUNDLED_CHARS);
@@ -314,7 +323,10 @@ export default function CharacterSelect({
   );
 
   // ---- Keyboard controls ----
+  // Disabled on touch devices — no keyboard available, and we don't want
+  // to interfere with any native browser shortcuts.
   useEffect(() => {
+    if (isTouch) return; // no keyboard on phones
     const onKey = (e: KeyboardEvent) => {
       const code = e.code;
 
@@ -342,7 +354,7 @@ export default function CharacterSelect({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [moveCursor, toggleLock]);
+  }, [moveCursor, toggleLock, isTouch]);
 
   // ---- When mode changes, reset lock states ----
   useEffect(() => {
@@ -400,20 +412,67 @@ export default function CharacterSelect({
     onLockIn,
   ]);
 
-  // ---- Click handler: assigns char to first unlocked player ----
-  // P1 gets priority; if P1 is locked, click sets P2.
+  // ---- Click/tap handler ----
+  // Behavior depends on isTouch:
+  //
+  // TOUCH (isTouch=true):
+  //   - Tap unlocked card → lock it (first tap = P1, second = P2)
+  //   - Tap locked card for the active player → unlock (toggle)
+  //   - Tap a non-ready card → trigger download (no lock)
+  //   This is the only way to select on mobile — there's no keyboard.
+  //
+  // DESKTOP (isTouch=false):
+  //   - Click moves the cursor (no lock). User presses U / Enter or
+  //     clicks FIGHT to lock. Allows previewing cards without committing.
   const handleCardClick = useCallback(
     (index: number) => {
-      if (!p1Locked) {
-        setP1({ index, locked: false });
-      } else if (!p2Locked) {
-        setP2({ index, locked: false });
+      const char = roster[index];
+      if (!char) return;
+
+      // If character isn't ready (not bundled + not cached), tap/click
+      // triggers a download but doesn't lock.
+      if (!isReady(char)) {
+        if (!char.bundled) triggerDownload(char.id);
+        return;
+      }
+
+      if (isTouch) {
+        // Touch: tap-to-lock semantics
+        if (!p1Locked) {
+          // P1 isn't locked → assign + lock P1
+          setP1({ index, locked: true });
+        } else if (!p2Locked) {
+          // P1 is locked, P2 isn't → assign + lock P2
+          // (Special case: if user taps P1's locked card, unlock P1)
+          if (p1.index === index) {
+            setP1(prev => ({ ...prev, locked: false }));
+          } else {
+            setP2({ index, locked: true });
+          }
+        } else {
+          // Both locked — tap a locked card to unlock it (for re-pick)
+          if (p1.index === index) {
+            setP1(prev => ({ ...prev, locked: false }));
+          } else if (p2.index === index) {
+            setP2(prev => ({ ...prev, locked: false }));
+          }
+        }
+      } else {
+        // Desktop: click moves cursor only (no lock)
+        if (!p1Locked) {
+          setP1({ index, locked: false });
+        } else if (!p2Locked) {
+          setP2({ index, locked: false });
+        }
       }
     },
-    [p1Locked, p2Locked]
+    [roster, isReady, isTouch, p1Locked, p2Locked, p1.index, p2.index, triggerDownload]
   );
 
   // ---- FIGHT button: lock both players at once (triggers onLockIn) ----
+  // On touch, both are usually already locked via tap-to-lock, so this
+  // just confirms and fires onLockIn. On desktop, this is the primary
+  // way to lock both at once.
   const handleFightClick = useCallback(() => {
     if (!bothReady) return;
     setP1(prev => ({ ...prev, locked: true }));
@@ -630,15 +689,30 @@ export default function CharacterSelect({
       {/* Footer */}
       <div className="cs__footer">
         <div className="cs__controls-help">
-          <div>
-            P1: <span>WASD</span> move · <span>U</span> lock-in
-          </div>
-          <div>
-            P2{p2IsAI ? ' (CPU)' : ''}: <span>ARROWS</span> move · <span>ENTER</span> lock-in
-          </div>
-          <div>
-            Click a card to set the next player&apos;s character
-          </div>
+          {isTouch ? (
+            <>
+              <div>
+                {!p1Locked
+                  ? <><span>TAP</span> a character to lock in P1</>
+                  : !p2Locked
+                  ? <><span>TAP</span> a character to lock in {p2IsAI ? 'CPU' : 'P2'}
+                    {' · '}<span>TAP P1</span> to re-pick</>
+                  : <><span>TAP</span> a locked character to re-pick · <span>FIGHT!</span> to begin</>}
+              </div>
+            </>
+          ) : (
+            <>
+              <div>
+                P1: <span>WASD</span> move · <span>U</span> lock-in
+              </div>
+              <div>
+                P2{p2IsAI ? ' (CPU)' : ''}: <span>ARROWS</span> move · <span>ENTER</span> lock-in
+              </div>
+              <div>
+                Click a card to set the next player&apos;s character
+              </div>
+            </>
+          )}
         </div>
         <div className="cs__footer-btns">
           {fightStatus && (
