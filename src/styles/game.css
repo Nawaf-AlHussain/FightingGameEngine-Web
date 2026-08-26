@@ -273,12 +273,12 @@ button {
 .cs__grid {
   display: grid;
   grid-template-columns: repeat(6, 1fr);
-  gap: 10px;
+  gap: 6px;
   flex: 1;
   overflow-y: auto;
   padding: 0.5rem;
   z-index: 1;
-  max-height: 50vh;
+  max-height: 70vh;
 }
 @media (max-width: 900px) { .cs__grid { grid-template-columns: repeat(4, 1fr); } }
 @media (max-width: 600px) { .cs__grid { grid-template-columns: repeat(3, 1fr); } }
@@ -304,7 +304,7 @@ button {
 .cs__card--greyed { opacity: 0.5; }
 
 .cs__card-portrait {
-  aspect-ratio: 3/4;
+  aspect-ratio: 3/3.5;
   background: var(--black);
   position: relative;
   overflow: hidden;
@@ -460,7 +460,7 @@ button {
   min-height: 180px;
   background: var(--black-soft);
   border: 2px solid var(--gray-dark);
-  clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
+  clip-path: polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px);
   overflow: hidden;
   cursor: pointer;
   transition: all 0.2s;
