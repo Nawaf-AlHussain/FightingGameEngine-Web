@@ -6,7 +6,7 @@ import { useCallback, useRef } from 'react';
  * TouchControls — on-screen controls for mobile devices.
  *
  * Layout:
- *   - Left side: Cross D-pad (up/down/left/right)
+ *   - Left side: 8-direction D-pad (3x3 grid: UL U UR / L C R / DL D DR)
  *   - Right side: 6 action buttons in 2 rows of 3 (A B C / X Y Z)
  *   - Top center: Start button
  *
@@ -14,83 +14,116 @@ import { useCallback, useRef } from 'react';
  * by mapping touch events to the same key codes the engine expects
  * from config.ini:
  *   P1 movement: W (up), S (down), A (left), D (right)
- *   P1 actions: 8 (A), 9 (B), 0 (C), I (X), O (Y), P (Z)
+ *   P1 actions:  8 (A), 9 (B), 0 (C), I (X), O (Y), P (Z)
  *   Start: U
  *
+ * Diagonal directions (UL/UR/DL/DR) press TWO cardinal keys at once
+ * (e.g. UR = Up + Right). The engine natively interprets this as the
+ * diagonal direction (forward-jump, back-jump, crouch-forward, etc.).
+ *
+ * Reference counting: a key code is only released when ALL buttons
+ * referencing it have been released. This handles the diagonal overlap
+ * case — e.g. pressing UR then UL (both share Up) then releasing UR
+ * keeps Up held until UL is also released.
+ *
  * Multi-touch: Each touch is tracked by identifier so multiple buttons
- * can be pressed simultaneously (e.g., hold D to walk + press A to punch).
+ * can be pressed simultaneously (e.g., hold DR to crouch-block + press
+ * A to punch).
  */
 
-// Key code mapping (matches config.ini P1 bindings)
-const KEY_MAP = {
-  up: 'KeyW',
-  down: 'KeyS',
-  left: 'KeyA',
-  right: 'KeyD',
-  A: 'Digit8',
-  B: 'Digit9',
-  C: 'Digit0',
-  X: 'KeyI',
-  Y: 'KeyO',
-  Z: 'KeyP',
-  Start: 'KeyU',
+// Key code mapping (matches config.ini P1 bindings).
+// Values are ARRAYS because diagonal buttons press 2 keys simultaneously.
+const KEY_MAP: Record<string, readonly string[]> = {
+  // Cardinals
+  up:    ['KeyW'],
+  down:  ['KeyS'],
+  left:  ['KeyA'],
+  right: ['KeyD'],
+  // Diagonals — press both adjacent cardinals
+  upLeft:    ['KeyW', 'KeyA'],
+  upRight:   ['KeyW', 'KeyD'],
+  downLeft:  ['KeyS', 'KeyA'],
+  downRight: ['KeyS', 'KeyD'],
+  // Actions
+  A: ['Digit8'],
+  B: ['Digit9'],
+  C: ['Digit0'],
+  X: ['KeyI'],
+  Y: ['KeyO'],
+  Z: ['KeyP'],
+  Start: ['KeyU'],
 } as const;
 
 type ButtonId = keyof typeof KEY_MAP;
 
 export default function TouchControls() {
-  const pressedRef = useRef<Set<string>>(new Set());
+  // Reference count per key code. A key is "held" while count > 0.
+  // This prevents premature release when two buttons share a cardinal
+  // (e.g. UR and UL both reference Up).
+  const keyRefCount = useRef<Map<string, number>>(new Map());
 
-  const pressKey = useCallback((btnId: ButtonId) => {
-    const code = KEY_MAP[btnId];
-    if (pressedRef.current.has(code)) return; // already pressed
-    pressedRef.current.add(code);
+  const pressKeys = useCallback((keys: readonly string[]) => {
     const g = globalThis as any;
-    if (g.__ikemenKeyDown) g.__ikemenKeyDown.push(code);
+    if (!g.__ikemenKeyDown) return;
+    for (const code of keys) {
+      const count = keyRefCount.current.get(code) ?? 0;
+      keyRefCount.current.set(code, count + 1);
+      if (count === 0) {
+        // First holder — fire keyDown
+        g.__ikemenKeyDown.push(code);
+      }
+    }
   }, []);
 
-  const releaseKey = useCallback((btnId: ButtonId) => {
-    const code = KEY_MAP[btnId];
-    if (!pressedRef.current.has(code)) return; // not pressed
-    pressedRef.current.delete(code);
+  const releaseKeys = useCallback((keys: readonly string[]) => {
     const g = globalThis as any;
-    if (g.__ikemenKeyUp) g.__ikemenKeyUp.push(code);
+    if (!g.__ikemenKeyUp) return;
+    for (const code of keys) {
+      const count = keyRefCount.current.get(code) ?? 0;
+      if (count === 0) continue; // not held — ignore
+      const next = count - 1;
+      if (next === 0) {
+        // Last holder released — fire keyUp
+        keyRefCount.current.delete(code);
+        g.__ikemenKeyUp.push(code);
+      } else {
+        keyRefCount.current.set(code, next);
+      }
+    }
   }, []);
 
   // Touch handlers — use onTouchStart/End to avoid 300ms click delay
   const handleTouchStart = useCallback((e: React.TouchEvent, btnId: ButtonId) => {
     e.preventDefault();
-    pressKey(btnId);
-  }, [pressKey]);
+    pressKeys(KEY_MAP[btnId]);
+  }, [pressKeys]);
 
   const handleTouchEnd = useCallback((e: React.TouchEvent, btnId: ButtonId) => {
     e.preventDefault();
-    releaseKey(btnId);
-  }, [releaseKey]);
+    releaseKeys(KEY_MAP[btnId]);
+  }, [releaseKeys]);
 
-  // D-pad button component
-  const DPadButton = ({ dir, className }: { dir: ButtonId; className: string }) => (
+  // Generic touch button factory
+  const TouchBtn = ({
+    btnId,
+    className,
+    children,
+    ariaLabel,
+  }: {
+    btnId: ButtonId;
+    className: string;
+    children?: React.ReactNode;
+    ariaLabel: string;
+  }) => (
     <button
-      className={`tc-dpad-btn ${className}`}
-      onTouchStart={(e) => handleTouchStart(e, dir)}
-      onTouchEnd={(e) => handleTouchEnd(e, dir)}
-      onTouchCancel={(e) => handleTouchEnd(e, dir)}
+      className={className}
+      onTouchStart={(e) => handleTouchStart(e, btnId)}
+      onTouchEnd={(e) => handleTouchEnd(e, btnId)}
+      onTouchCancel={(e) => handleTouchEnd(e, btnId)}
       onContextMenu={(e) => e.preventDefault()}
-      aria-label={dir}
-    />
-  );
-
-  // Action button component
-  const ActionButton = ({ btn, label, color }: { btn: ButtonId; label: string; color: string }) => (
-    <button
-      className="tc-action-btn"
-      style={{ borderColor: color, color: color }}
-      onTouchStart={(e) => handleTouchStart(e, btn)}
-      onTouchEnd={(e) => handleTouchEnd(e, btn)}
-      onTouchCancel={(e) => handleTouchEnd(e, btn)}
-      onContextMenu={(e) => e.preventDefault()}
+      aria-label={ariaLabel}
     >
-      {label}
+      {children}
     </button>
   );
 
@@ -107,36 +140,64 @@ export default function TouchControls() {
         START
       </button>
 
-      {/* D-pad — left side */}
+      {/* 8-direction D-pad — 3x3 grid */}
       <div className="tc-dpad">
         <div className="tc-dpad-row">
-          <div className="tc-dpad-spacer" />
-          <DPadButton dir="up" className="tc-dpad-up" />
-          <div className="tc-dpad-spacer" />
+          <TouchBtn btnId="upLeft" className="tc-dpad-btn tc-dpad-diag tc-dpad-ul" ariaLabel="Up-Left (back jump)">
+            <span className="tc-dpad-arrow">↖</span>
+          </TouchBtn>
+          <TouchBtn btnId="up" className="tc-dpad-btn tc-dpad-up" ariaLabel="Up (neutral jump)">
+            <span className="tc-dpad-arrow">↑</span>
+          </TouchBtn>
+          <TouchBtn btnId="upRight" className="tc-dpad-btn tc-dpad-diag tc-dpad-ur" ariaLabel="Up-Right (forward jump)">
+            <span className="tc-dpad-arrow">↗</span>
+          </TouchBtn>
         </div>
         <div className="tc-dpad-row">
-          <DPadButton dir="left" className="tc-dpad-left" />
-          <div className="tc-dpad-center" />
-          <DPadButton dir="right" className="tc-dpad-right" />
+          <TouchBtn btnId="left" className="tc-dpad-btn tc-dpad-left" ariaLabel="Left (walk back / block)">
+            <span className="tc-dpad-arrow">←</span>
+          </TouchBtn>
+          <div className="tc-dpad-center" aria-hidden="true" />
+          <TouchBtn btnId="right" className="tc-dpad-btn tc-dpad-right" ariaLabel="Right (walk forward)">
+            <span className="tc-dpad-arrow">→</span>
+          </TouchBtn>
         </div>
         <div className="tc-dpad-row">
-          <div className="tc-dpad-spacer" />
-          <DPadButton dir="down" className="tc-dpad-down" />
-          <div className="tc-dpad-spacer" />
+          <TouchBtn btnId="downLeft" className="tc-dpad-btn tc-dpad-diag tc-dpad-dl" ariaLabel="Down-Left (crouch block)">
+            <span className="tc-dpad-arrow">↙</span>
+          </TouchBtn>
+          <TouchBtn btnId="down" className="tc-dpad-btn tc-dpad-down" ariaLabel="Down (crouch)">
+            <span className="tc-dpad-arrow">↓</span>
+          </TouchBtn>
+          <TouchBtn btnId="downRight" className="tc-dpad-btn tc-dpad-diag tc-dpad-dr" ariaLabel="Down-Right (crouch forward)">
+            <span className="tc-dpad-arrow">↘</span>
+          </TouchBtn>
         </div>
       </div>
 
       {/* Action buttons — right side, 2 rows of 3 */}
       <div className="tc-actions">
         <div className="tc-action-row">
-          <ActionButton btn="A" label="A" color="#0dd9ff" />
-          <ActionButton btn="B" label="B" color="#0dd9ff" />
-          <ActionButton btn="C" label="C" color="#0dd9ff" />
+          <TouchBtn btnId="A" className="tc-action-btn tc-action-a" ariaLabel="A (light punch)">
+            A
+          </TouchBtn>
+          <TouchBtn btnId="B" className="tc-action-btn tc-action-b" ariaLabel="B (medium punch)">
+            B
+          </TouchBtn>
+          <TouchBtn btnId="C" className="tc-action-btn tc-action-c" ariaLabel="C (heavy punch)">
+            C
+          </TouchBtn>
         </div>
         <div className="tc-action-row">
-          <ActionButton btn="X" label="X" color="#d92323" />
-          <ActionButton btn="Y" label="Y" color="#d92323" />
-          <ActionButton btn="Z" label="Z" color="#d92323" />
+          <TouchBtn btnId="X" className="tc-action-btn tc-action-x" ariaLabel="X (light kick)">
+            X
+          </TouchBtn>
+          <TouchBtn btnId="Y" className="tc-action-btn tc-action-y" ariaLabel="Y (medium kick)">
+            Y
+          </TouchBtn>
+          <TouchBtn btnId="Z" className="tc-action-btn tc-action-z" ariaLabel="Z (heavy kick)">
+            Z
+          </TouchBtn>
         </div>
       </div>
     </div>
