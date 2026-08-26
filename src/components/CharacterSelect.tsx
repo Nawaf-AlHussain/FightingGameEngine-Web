@@ -86,7 +86,7 @@ const DIFFICULTIES: { id: Difficulty; label: string }[] = [
 ];
 
 // Number of columns in the character grid (must match .cs__grid in game.css).
-const GRID_COLS = 6;
+const GRID_COLS = 10;
 
 interface CursorState {
   index: number;
@@ -257,23 +257,23 @@ export default function CharacterSelect({
       });
   }, []);
 
-  // ---- Trigger download for P1's currently-selected character ----
-  useEffect(() => {
-    if (loading) return;
-    const char = roster[p1.index];
-    if (char && !char.bundled) {
-      triggerDownload(char.id);
-    }
-  }, [p1.index, roster, loading, triggerDownload]);
-
-  // ---- Trigger download for P2's currently-selected character ----
-  useEffect(() => {
-    if (loading) return;
-    const char = roster[p2.index];
-    if (char && !char.bundled) {
-      triggerDownload(char.id);
-    }
-  }, [p2.index, roster, loading, triggerDownload]);
+  // ---- Toggle lock for a player (keyboard: U / Enter; click uses FIGHT) ----
+  // Downloads only fire HERE — on lock-in — not when the cursor merely
+  // passes over a character. If the character is already cached the call
+  // is a no-op; otherwise the download runs in the background and the
+  // FIGHT button stays gated on `bothReady` until both are cached.
+  const toggleLock = useCallback((player: 1 | 2) => {
+    const setter = player === 1 ? setP1 : setP2;
+    setter(prev => {
+      if (!prev.locked) {
+        const char = roster[prev.index];
+        if (char && !char.bundled) {
+          triggerDownload(char.id);
+        }
+      }
+      return { ...prev, locked: !prev.locked };
+    });
+  }, [roster, triggerDownload]);
 
   // ---- Determine if each side is AI in the actual fight ----
   // (Affects label only — selection UX is the same for all modes:
@@ -312,11 +312,6 @@ export default function CharacterSelect({
     },
     [roster.length]
   );
-
-  const toggleLock = useCallback((player: 1 | 2) => {
-    const setter = player === 1 ? setP1 : setP2;
-    setter(prev => ({ ...prev, locked: !prev.locked }));
-  }, []);
 
   // ---- Keyboard controls ----
   useEffect(() => {

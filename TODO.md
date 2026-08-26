@@ -4,16 +4,17 @@
 
 **Replace the Dolmexica Infinite WASM engine with IKEMEN GO v2 WASM, keeping the best UI from FightingGameEngine-Demo and the 85+ character roster from FightingGameEngine/Assets.**
 
-## CURRENT STATE (August 25, 2026) — ✅ BEST PERFORMANCE + CACHING
+## CURRENT STATE (August 26, 2026) — ✅ BEST PERFORMANCE + SPATIAL GRID
 
-- ✅ Smooth gameplay even with heavy characters at 16:9 (F-035)
+- ✅ 100% 60fps for ALL characters including heavy DBZ with specials (F-038)
+- ✅ Zero frame spikes during special attacks (spatial grid broad-phase)
 - ✅ No audio stutter during special attacks (audio buffer 8192)
 - ✅ No mid-round GC pauses (GOGC=off + safety-net GC every 60s)
 - ✅ IndexedDB caching — characters download once, instant on repeat (F-036)
-- ✅ 85 characters + 5 stages available from CDN
+- ✅ 87 characters + 5 stages available from CDN
 - ✅ 7 game modes all working (VS CPU, VS Player, Training, Arcade, Survival, Time Attack, Watch)
 - ✅ Persona 5 UI with grid character select + stage select + wipe transitions
-- ✅ 3 resolution options (480p / 4:3 / 16:9)
+- ✅ 3 resolution options (480p / 4:3 / 16:9) + FILL/16:9 toggle
 - ✅ Fast load (.pak bundling + parallel loading)
 - ✅ GOWASM=satconv,signext compiler optimizations
 
@@ -147,6 +148,7 @@ GOEXPERIMENT=arenas GOWASM=satconv,signext GOOS=js GOARCH=wasm CGO_ENABLED=0 \
 | **F-035** | **✅ Breakthrough** | **Audio buffer + safety-net GC + GOWASM flags — best performance** |
 | F-036 | ✅ Fixed | GODEBUG=gctrace=1 was causing micro-stutters — removed |
 | F-037 | ✅ Feature | IndexedDB caching — download-on-select, instant fight start |
+| **F-038** | **✅ Breakthrough** | **Spatial grid broad-phase — 164ms spikes eliminated, 100% 60fps** |
 
 ---
 

@@ -205,17 +205,6 @@ export default function StageSelect({ onSelect, onCancel }: StageSelectProps) {
       });
   }, []);
 
-  // ---- When the cursor lands on a stage, start its background download ----
-  // Fires for both keyboard navigation and click (both update selectedIndex).
-  // Non-blocking: download happens in the background, selection is not gated.
-  useEffect(() => {
-    if (loading) return;
-    const stage = stages[selectedIndex];
-    if (stage && !stage.bundled) {
-      triggerDownload(stage.id);
-    }
-  }, [selectedIndex, stages, loading, triggerDownload]);
-
   // ---- "Ready" check: a stage is ready if bundled or cached ----
   const isReady = useCallback((s?: LocalStage): boolean => {
     if (!s) return false;
@@ -226,15 +215,20 @@ export default function StageSelect({ onSelect, onCancel }: StageSelectProps) {
   const selectedStage = useMemo(() => stages[selectedIndex], [stages, selectedIndex]);
   const selectedReady = isReady(selectedStage);
 
-  // ---- Confirm current selection ----
-  // Don't fire onSelect until the selected stage is actually ready
-  // (bundled or fully downloaded to IndexedDB). The download itself never
-  // blocks selection — the user can move the cursor freely — but confirming
-  // before a download completes would enter the game with missing files.
+  // ---- Confirm current selection (Enter / double-click / FIGHT button) ----
+  // Downloads only fire HERE — on confirm — not when the cursor merely
+  // lands on a stage. If the stage is already cached the triggerDownload
+  // call is a no-op; otherwise the download runs in the background and
+  // the FIGHT button stays gated on `selectedReady` until it completes.
+  // The user must press ENTER again once the download finishes.
   const handleConfirm = useCallback(() => {
-    if (!selectedStage || !selectedReady) return;
+    if (!selectedStage) return;
+    if (!selectedStage.bundled) {
+      triggerDownload(selectedStage.id);
+    }
+    if (!selectedReady) return;
     onSelect(selectedStage.id);
-  }, [selectedStage, selectedReady, onSelect]);
+  }, [selectedStage, selectedReady, onSelect, triggerDownload]);
 
   // ---- Keyboard controls ----
   useEffect(() => {

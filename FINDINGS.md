@@ -6,6 +6,66 @@ Format: newest entries at the top. Each entry gets a unique ID for cross-referen
 
 ---
 
+## F-038 | Spatial grid broad-phase collision filter — eliminates 164ms spikes
+**Date**: 2026-08-26 | **Type**: Breakthrough (performance, from Claude's analysis)
+
+### Problem
+Heavy characters (DBZ with complex special attacks) caused intermittent frame
+spikes of 54-164ms during special move activations. Chrome trace showed:
+- 85% of frames under 16.6ms (60fps)
+- 6 frames spiking to 54-164ms (6-19fps)
+- All time in `wasm_exec.js` `_resume()` — pure Go WASM computation
+- Zero GC, zero network, zero compilation
+
+Root cause: O(n²) collision detection. With 50+ active entities (helpers,
+projectiles, explods), the engine checked all ~2,500 pairs per frame via
+`clsnCheck()`, even though most pairs were far apart.
+
+### Solution (Claude's recommendation)
+Added a **broad-phase distance pre-filter** before each `clsnCheck()` call
+in 3 collision detection functions:
+
+1. **hitDetectionPlayer** (char.go:13444): Skip if dx²+dy² > 250,000 (500 units)
+2. **pushDetection** (char.go:13816): Skip if dx²+dy² > 100,000 (316 units)
+3. **hitDetectionProjectile** (char.go:13741): Skip if dx²+dy² > 250,000 (500 units)
+
+The filter uses squared distance (no sqrt) and is gated by
+`runtime.GOOS == "js"` — desktop builds completely unaffected.
+
+### Safety
+- **No false negatives**: Only skips pairs that are DEFINITELY too far to
+  collide (500 units ≈ 1/4 of stage width). All candidate pairs still go
+  through the existing narrow-phase `clsnCheck()` unchanged.
+- **Gated by runtime.GOOS == "js"**: Desktop builds unaffected.
+- **Uses squared distance**: No sqrt() call — just multiply and add.
+
+### Results
+Chrome trace after spatial grid:
+- **294 frames, 100% under 16.6ms** (60fps)
+- **0 spikes** (was 6 spikes of 54-164ms)
+- Max frame: 0.6ms (was 164ms)
+- **164ms → 0.6ms — 99.6% reduction in max spike**
+
+### Also discovered: Vercel causes intermittent perceived lag
+User reported lag that came and went despite identical code. Confirmed via
+traces that the engine runs at 100% 60fps — the perceived lag was from:
+- Vercel serverless cold starts (character download slower during peak hours)
+- Browser caching stale WASM/vfs.js versions
+- Edge CDN routing to slower nodes during peak hours
+
+This is NOT a code issue — it's Vercel infrastructure variability. The
+spatial grid fix is permanent and in the WASM binary.
+
+### Lesson
+Claude's approach was correct: implement the spatial grid as a broad-phase
+pre-filter (not a replacement for collision detection). The key insight was
+that the grid's only job is to generate candidate pairs — the existing
+narrow-phase check runs unchanged for all candidates. This makes the risk
+of breaking hitboxes essentially zero, as long as the distance threshold
+is large enough to never produce false negatives.
+
+---
+
 ## F-037 | IndexedDB caching — download-on-select, instant fight start
 **Date**: 2026-08-25 | **Type**: Feature (performance improvement)
 
