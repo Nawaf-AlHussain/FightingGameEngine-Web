@@ -457,13 +457,18 @@ button {
   z-index: 1;
 }
 .ss__card {
-  min-height: 180px;
+  position: relative;
   background: var(--black-soft);
-  border: 2px solid var(--gray-dark);
-  clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
-  overflow: hidden;
+  border: 1px solid var(--gray-dark);
+  border-radius: 4px;
+  padding: 14px;
   cursor: pointer;
-  transition: all 0.2s;
+  text-align: left;
+  color: var(--white);
+  transition: all 0.15s;
+  font-family: inherit;
+  min-height: 180px;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
 }
@@ -471,9 +476,15 @@ button {
 .ss__card--selected { border-color: var(--cyan); box-shadow: 0 0 20px rgba(13,217,255,0.3); }
 
 .ss__card-portrait {
-  height: 100px;
-  background: var(--black);
   position: relative;
+  height: 100px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--black);
+  border: 1px solid var(--gray-dark);
+  border-radius: 3px;
+  margin-bottom: 10px;
   overflow: hidden;
 }
 .ss__card-portrait span {
@@ -488,12 +499,13 @@ button {
   color: var(--gray-dark);
 }
 .ss__card-name {
-  padding: 6px 8px 2px;
-  font-size: 0.8rem;
+  font-size: 15px;
   font-weight: 900;
   font-style: italic;
   text-transform: uppercase;
   color: var(--white);
+  padding: 0;
+  margin-bottom: 2px;
 }
 .ss__card-desc {
   padding: 0 8px 4px;
