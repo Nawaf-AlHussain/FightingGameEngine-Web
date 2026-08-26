@@ -623,8 +623,8 @@
         const text = new TextDecoder().decode(cfg);
         let patched = text.replace(/^(\s*GameWidth\s*=\s*)[0-9]+/mi, '$1' + w);
         patched = patched.replace(/^(\s*GameHeight\s*=\s*)[0-9]+/mi, '$1' + h);
-        // Keep KeepAspect=1 (engine does internal letterboxing, renders fewer pixels)
-        patched = patched.replace(/^(\s*KeepAspect\s*=\s*)[0-9]+/mi, '$1' + 1);
+        // Disable KeepAspect — CSS handles screen filling, no engine letterboxing
+        patched = patched.replace(/^(\s*KeepAspect\s*=\s*)[0-9]+/mi, '$1' + 0);
         if (patched !== text) contents.set('save/config.ini', new TextEncoder().encode(patched));
       }
     } catch (e) { /* leave the shipped size */ }
