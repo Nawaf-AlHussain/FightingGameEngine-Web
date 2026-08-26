@@ -150,22 +150,22 @@ button {
 /* Mode bar */
 .cs__mode-bar {
   display: flex;
-  gap: 0.5rem;
+  gap: 0.3rem;
   justify-content: center;
   flex-wrap: wrap;
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.25rem;
   z-index: 1;
 }
 .cs__mode-btn {
-  padding: 0.5rem 1.25rem;
-  font-size: 0.8rem;
+  padding: 0.25rem 0.7rem;
+  font-size: 0.65rem;
   font-weight: 700;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   background: transparent;
   color: var(--gray);
-  border: 2px solid var(--gray-dark);
-  clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
+  border: 1px solid var(--gray-dark);
+  clip-path: polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%);
   transition: all 0.15s;
 }
 .cs__mode-btn:hover { color: var(--white); border-color: var(--white); }
@@ -178,10 +178,10 @@ button {
 /* Difficulty bar */
 .cs__difficulty-bar {
   display: flex;
-  gap: 0.5rem;
+  gap: 0.3rem;
   align-items: center;
   justify-content: center;
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.25rem;
   z-index: 1;
 }
 .cs__difficulty-bar span {
@@ -213,20 +213,20 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 1.5rem;
-  margin-bottom: 1rem;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
   z-index: 1;
 }
 .cs__player-tag {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  gap: 0.25rem;
-  min-width: 180px;
-  padding: 0.5rem 1rem;
+  gap: 0.5rem;
+  min-width: 140px;
+  padding: 0.25rem 0.7rem;
   border: 2px solid var(--gray-dark);
   background: var(--black-soft);
-  clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
+  clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
   transition: all 0.2s;
 }
 .cs__player-tag--p1 { border-left: 4px solid var(--cyan); }
@@ -240,46 +240,53 @@ button {
   box-shadow: 0 0 20px rgba(217,35,35,0.3);
 }
 .cs__player-tag-label {
-  font-size: 0.7rem;
-  letter-spacing: 0.2em;
+  font-size: 0.6rem;
+  letter-spacing: 0.15em;
   color: var(--gray);
   font-weight: 600;
+  white-space: nowrap;
 }
 .cs__player-tag--p1 .cs__player-tag-label { color: var(--cyan); }
 .cs__player-tag--p2 .cs__player-tag-label { color: var(--red); }
 .cs__player-tag-name {
-  font-size: 1rem;
+  font-size: 0.75rem;
   font-weight: 700;
   color: var(--white);
   text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100px;
 }
 .cs__player-tag-status {
-  font-size: 0.65rem;
+  font-size: 0.55rem;
   color: var(--gray);
-  letter-spacing: 0.1em;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
 }
 
 .cs__vs {
-  font-size: 2rem;
+  font-size: 1.5rem;
   font-weight: 900;
   font-style: italic;
   color: var(--white);
   -webkit-text-stroke: 2px var(--black);
   paint-order: stroke fill;
-  text-shadow: 3px 3px 0 var(--red);
+  text-shadow: 2px 2px 0 var(--red);
 }
 
 /* Character grid */
 .cs__grid {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: 6px;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 4px;
   flex: 1;
   overflow-y: auto;
-  padding: 0.5rem;
+  padding: 0.25rem;
   z-index: 1;
-  max-height: 70vh;
+  max-height: 80vh;
 }
+@media (max-width: 1200px) { .cs__grid { grid-template-columns: repeat(6, 1fr); } }
 @media (max-width: 900px) { .cs__grid { grid-template-columns: repeat(4, 1fr); } }
 @media (max-width: 600px) { .cs__grid { grid-template-columns: repeat(3, 1fr); } }
 
@@ -304,7 +311,7 @@ button {
 .cs__card--greyed { opacity: 0.5; }
 
 .cs__card-portrait {
-  aspect-ratio: 3/3.5;
+  aspect-ratio: 3/3;
   background: var(--black);
   position: relative;
   overflow: hidden;
@@ -315,7 +322,7 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 2.5rem;
+  font-size: 1.5rem;
   font-weight: 900;
   font-style: italic;
   color: var(--gray-dark);
@@ -346,8 +353,8 @@ button {
 .cs__cursor--locked { background: var(--white) !important; color: var(--red) !important; }
 
 .cs__card-info {
-  padding: 4px 6px;
-  font-size: 0.65rem;
+  padding: 2px 4px;
+  font-size: 0.55rem;
   font-weight: 600;
   color: var(--gray);
   text-transform: uppercase;
