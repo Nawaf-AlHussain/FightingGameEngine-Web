@@ -9,7 +9,7 @@ import {
   injectCachedCharacter,
   injectCachedStage,
 } from '@/lib/character-downloader';
-import { useIsTouchDevice } from '@/lib/use-touch-device';
+import { useIsTouchDevice, getTouchDebugInfo } from '@/lib/use-touch-device';
 import RotateOverlay from '@/components/RotateOverlay';
 
 // TouchControls is dynamically loaded because it touches `window` (touch
@@ -448,10 +448,23 @@ function PlayPageInner() {
     return () => {
       cancelled = true;
     };
-  }, [searchParams, isTouch]);
+    // NOTE: isTouch is intentionally NOT in the deps array. The hook
+    // starts as false (SSR-safe) and flips to true on mount. If we
+    // included isTouch, this effect would re-fire when isTouch flips,
+    // cancelling the first bootEngine() mid-WASM-load and starting a
+    // second one (race condition: duplicate <script> tags, double
+    // fetch of ikemen.wasm, etc.). The touch UI is handled in render
+    // via the isTouch && engineRunning condition — no need to re-boot.
+  }, [searchParams]);
 
   return (
     <div className="min-h-screen bg-black flex flex-col items-center justify-center">
+      {/* Debug badge — touch detection diagnostic.
+          Shows the raw browser-reported values so we can see why touch
+          controls might not be appearing on a given device.
+          Remove this once touch controls are confirmed working. */}
+      <DebugBadge isTouch={isTouch} engineRunning={engineRunning} showExit={showExit} />
+
       <pre
         ref={bootRef}
         id="boot"
@@ -477,13 +490,13 @@ function PlayPageInner() {
       )}
 
       {/* Touch controls — rendered once engine is running, touch only.
-          Suspense fallback is null because TouchControls has no async
-          imports and should resolve instantly. */}
+          TouchControls' root <div> already has the `active` class so the
+          `.touch-controls.active { display: flex }` CSS rule applies. Do
+          NOT wrap it in another `.touch-controls` div — that would create
+          a nested element where the inner one defaults to display:none. */}
       {isTouch && engineRunning && (
         <Suspense fallback={null}>
-          <div className="touch-controls active">
-            <TouchControls />
-          </div>
+          <TouchControls />
         </Suspense>
       )}
     </div>
@@ -510,4 +523,57 @@ function loadScript(src: string): Promise<void> {
     script.onerror = () => reject(new Error('Failed to load: ' + src));
     document.head.appendChild(script);
   });
+}
+
+/**
+ * DebugBadge — small fixed overlay showing touch detection state.
+ *
+ * Renders at top-left corner with a semi-transparent black background.
+ * Shows:
+ *   - isTouch: the result of useIsTouchDevice() (true/false)
+ *   - engine: whether the WASM engine is running
+ *   - exit: whether the exit button is shown
+ *   - raw: the browser's raw pointer/touch media query values
+ *
+ * This helps diagnose why touch controls might not be appearing.
+ * Remove once touch controls are confirmed working on the target device.
+ */
+function DebugBadge({
+  isTouch,
+  engineRunning,
+  showExit,
+}: {
+  isTouch: boolean;
+  engineRunning: boolean;
+  showExit: boolean;
+}) {
+  const [info, setInfo] = useState<string>('');
+  useEffect(() => {
+    setInfo(getTouchDebugInfo());
+  }, []);
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        top: 4,
+        left: 4,
+        zIndex: 9999,
+        background: 'rgba(0,0,0,0.85)',
+        color: isTouch ? '#0dd9ff' : '#ffc83d',
+        fontFamily: 'ui-monospace, monospace',
+        fontSize: '9px',
+        padding: '4px 6px',
+        border: '1px solid rgba(255,255,255,0.2)',
+        borderRadius: '2px',
+        maxWidth: '90vw',
+        pointerEvents: 'none',
+        lineHeight: 1.4,
+        whiteSpace: 'pre-wrap',
+        wordBreak: 'break-all',
+      }}
+    >
+      <div>isTouch:{String(isTouch)} engine:{String(engineRunning)} exit:{String(showExit)}</div>
+      <div style={{ opacity: 0.7 }}>{info || '...'}</div>
+    </div>
+  );
 }
