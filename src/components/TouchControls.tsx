@@ -70,33 +70,91 @@ type ButtonId = keyof typeof KEY_MAP;
  * property. We use bubbles:true so it propagates to document (the engine
  * attaches its listener on document).
  *
+ * IMPORTANT: Some mobile browsers (notably older Chrome on Android) have
+ * a quirk where the KeyboardEvent constructor accepts a `code` option but
+ * the resulting event's `code` property reads as an empty string. This
+ * breaks the engine's lookup. To work around this, we:
+ *   1. Construct the event with the `code` option (works on most browsers).
+ *   2. Defensive: if the resulting event's code is empty, override it
+ *      via Object.defineProperty (forces the property to be the value we
+ *      want, bypassing any browser quirk).
+ *
  * We do NOT call preventDefault on the synthetic event — there's no
  * default action to cancel for a synthetic keydown.
  */
 function dispatchKeyEvent(type: 'keydown' | 'keyup', code: string) {
   if (typeof document === 'undefined') return;
+  // The physical character each `code` produces, for the engine's text
+  // input path (OnTextEntered). The engine only uses it when len(k) == 1
+  // (single char) — e.g., for menu navigation / IP entry. We set it to
+  // the actual character so menus work via touch, but it doesn't affect
+  // gameplay (which uses `code`, not `key`).
+  const keyChar = codeToKeyChar(code);
   try {
     const ev = new KeyboardEvent(type, {
       code: code,
-      key: code, // some engine code paths read ev.key for text input
+      key: keyChar,
       bubbles: true,
       cancelable: true,
       composed: true,
     });
+    // Mobile Chrome quirk: constructor may not set `code` properly.
+    // Verify and force-set if needed.
+    if (ev.code !== code) {
+      try {
+        Object.defineProperty(ev, 'code', {
+          value: code,
+          writable: false,
+          configurable: true,
+        });
+      } catch {
+        // If defineProperty fails too, the event is broken — skip dispatch.
+        return;
+      }
+    }
+    if (ev.key !== keyChar) {
+      try {
+        Object.defineProperty(ev, 'key', {
+          value: keyChar,
+          writable: false,
+          configurable: true,
+        });
+      } catch {
+        // Non-fatal — gameplay uses `code`, not `key`.
+      }
+    }
     document.dispatchEvent(ev);
   } catch {
     // Fallback: very old browsers might not support KeyboardEvent constructor
     // with options. Try the deprecated initKeyboardEvent path.
     try {
       const ev = document.createEvent('KeyboardEvent');
-      ev.initKeyboardEvent(type, true, true, window, code, 0, false, false, false, false);
+      ev.initKeyboardEvent(type, true, true, window, keyChar, 0, false, false, false, false);
       // initKeyboardEvent doesn't set `code` reliably — set it manually.
-      Object.defineProperty(ev, 'code', { value: code, writable: false });
+      Object.defineProperty(ev, 'code', { value: code, writable: false, configurable: true });
       document.dispatchEvent(ev);
     } catch {
       // Last resort — give up silently. Touch input won't work on this browser.
     }
   }
+}
+
+/**
+ * Map a KeyboardEvent.code to the character it produces (for the engine's
+ * OnTextEntered path — single-char text input for menus).
+ *
+ * - KeyA..KeyZ → 'a'..'z'
+ * - Digit0..Digit9 → '0'..'9'
+ * - Everything else → the code itself (length > 1, so OnTextEntered is skipped)
+ */
+function codeToKeyChar(code: string): string {
+  if (code.length === 4 && code.startsWith('Key')) {
+    return code[3].toLowerCase(); // KeyW → 'w'
+  }
+  if (code.length === 6 && code.startsWith('Digit')) {
+    return code[5]; // Digit8 → '8'
+  }
+  return code; // ArrowUp, Enter, etc. — length > 1, OnTextEntered skipped
 }
 
 export default function TouchControls() {
