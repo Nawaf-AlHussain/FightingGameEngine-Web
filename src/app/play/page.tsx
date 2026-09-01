@@ -504,6 +504,46 @@ function PlayPageInner() {
         </button>
       )}
 
+      {/* Reset config button — touch only.
+          Clears the persisted config.ini from localStorage so the engine
+          reverts to the shipped default key bindings. Useful if the user
+          has an old persisted config from a previous version with
+          different keys, which would cause touch controls to appear
+          "mis-mapped" (touch buttons dispatch based on the shipped
+          config, not the persisted one). After clicking, the page
+          reloads to pick up the change. */}
+      {isTouch && (
+        <button
+          type="button"
+          onClick={() => {
+            try {
+              localStorage.removeItem('ikemen-vfs12:save/config.ini');
+            } catch {}
+            window.location.reload();
+          }}
+          style={{
+            position: 'fixed',
+            top: 56,
+            right: 12,
+            zIndex: 200,
+            padding: '4px 8px',
+            fontSize: '0.6rem',
+            background: 'rgba(217,35,35,0.4)',
+            color: 'var(--white)',
+            border: '1px solid rgba(217,35,35,0.8)',
+            borderRadius: '4px',
+            cursor: 'pointer',
+            touchAction: 'manipulation',
+            WebkitTapHighlightColor: 'transparent',
+            fontFamily: 'ui-monospace, monospace',
+            letterSpacing: '0.05em',
+          }}
+          aria-label="Reset saved key bindings"
+        >
+          RESET KEYS
+        </button>
+      )}
+
       {/* Touch controls — rendered once engine is running, touch only.
           TouchControls' root <div> already has the `active` class so the
           `.touch-controls.active { display: flex }` CSS rule applies. Do
@@ -566,6 +606,10 @@ function DebugBadge({
   // Track synthetic key events dispatched by TouchControls, so we can
   // verify on-device that touch input is actually firing keydown events.
   const [lastKey, setLastKey] = useState<string>('');
+  // Show the persisted config.ini [Keys_P1] block so the user can see what
+  // the engine is actually using (vs. the shipped default).
+  const [persistedKeys, setPersistedKeys] = useState<string>('');
+
   useEffect(() => {
     setInfo(getTouchDebugInfo());
     // Listen for the synthetic keydown events TouchControls dispatches.
@@ -580,6 +624,29 @@ function DebugBadge({
     };
     document.addEventListener('keydown', onKey);
     document.addEventListener('keyup', onKey);
+    // Read the persisted config.ini from localStorage to see what key
+    // bindings the engine is actually using. If the user has an old
+    // persisted config from a previous version with different keys,
+    // touch controls will appear to be "mis-mapped" because they
+    // dispatch based on the shipped config, not the persisted one.
+    try {
+      const raw = localStorage.getItem('ikemen-vfs12:save/config.ini');
+      if (raw) {
+        const text = atob(raw);
+        // Extract [Keys_P1] section
+        const m = text.match(/\[Keys_P1\]([\s\S]*?)(?:\n\[|$)/);
+        if (m) {
+          const lines = m[1].trim().split('\n').map(l => l.trim()).filter(Boolean);
+          setPersistedKeys(lines.join(' | '));
+        } else {
+          setPersistedKeys('(no [Keys_P1] in persisted config)');
+        }
+      } else {
+        setPersistedKeys('(no persisted config — using shipped default)');
+      }
+    } catch {
+      setPersistedKeys('(could not read persisted config)');
+    }
     return () => {
       document.removeEventListener('keydown', onKey);
       document.removeEventListener('keyup', onKey);
@@ -599,7 +666,7 @@ function DebugBadge({
         padding: '4px 6px',
         border: '1px solid rgba(255,255,255,0.2)',
         borderRadius: '2px',
-        maxWidth: '90vw',
+        maxWidth: '95vw',
         pointerEvents: 'none',
         lineHeight: 1.4,
         whiteSpace: 'pre-wrap',
@@ -610,7 +677,15 @@ function DebugBadge({
       <div style={{ opacity: 0.85, color: '#2ecc71' }}>
         {lastKey ? `last synthetic: ${lastKey}` : 'no synthetic keys yet'}
       </div>
+      <div style={{ opacity: 0.85, color: '#ff9b3d' }}>
+        P1 keys: {persistedKeys || '...'}
+      </div>
       <div style={{ opacity: 0.7 }}>{info || '...'}</div>
+      <div style={{ opacity: 0.5, marginTop: 2, fontSize: '8px' }}>
+        If keys look wrong, open browser console and run:
+        localStorage.removeItem(&quot;ikemen-vfs12:save/config.ini&quot;)
+        then reload.
+      </div>
     </div>
   );
 }
