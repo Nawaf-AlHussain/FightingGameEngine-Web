@@ -128,7 +128,7 @@ export default function TouchControls() {
   );
 
   return (
-    <div className="touch-controls" aria-hidden="false">
+    <div className="touch-controls active" aria-hidden="false">
       {/* Start button — top center */}
       <button
         className="tc-start-btn"
