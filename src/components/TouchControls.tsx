@@ -10,12 +10,15 @@ import { useCallback, useRef } from 'react';
  *   - Right side: 6 action buttons in 2 rows of 3 (A B C / X Y Z)
  *   - Top center: Start button
  *
- * Feeds into the existing keyboard bridge (window.__ikemenKeyDown/Up)
- * by mapping touch events to the same key codes the engine expects
- * from config.ini:
- *   P1 movement: W (up), S (down), A (left), D (right)
- *   P1 actions:  8 (A), 9 (B), 0 (C), I (X), O (Y), P (Z)
- *   Start: U
+ * INPUT PATH (CRITICAL):
+ * The IKEMEN GO WASM engine listens for NATIVE 'keydown'/'keyup' DOM events
+ * on `document` (see system_js.go: addEventListener("keydown", ...)). It looks
+ * up `ev.code` in `jsCodeToKey` and calls OnKeyPressed/OnKeyReleased.
+ *
+ * The engine does NOT read window.__ikemenKeyDown (that was an older bridge
+ * that's no longer used). So to feed touch input, we dispatch SYNTHETIC
+ * KeyboardEvents on document. The engine's own listener picks them up
+ * exactly as if a physical key was pressed.
  *
  * Diagonal directions (UL/UR/DL/DR) press TWO cardinal keys at once
  * (e.g. UR = Up + Right). The engine natively interprets this as the
@@ -31,7 +34,7 @@ import { useCallback, useRef } from 'react';
  * A to punch).
  */
 
-// Key code mapping (matches config.ini P1 bindings).
+// Key code mapping (matches config.ini P1 bindings + jsCodeToKey in input_js.go).
 // Values are ARRAYS because diagonal buttons press 2 keys simultaneously.
 const KEY_MAP: Record<string, readonly string[]> = {
   // Cardinals
@@ -56,6 +59,46 @@ const KEY_MAP: Record<string, readonly string[]> = {
 
 type ButtonId = keyof typeof KEY_MAP;
 
+/**
+ * Dispatch a synthetic KeyboardEvent on document.
+ *
+ * The IKEMEN GO engine's listener (installed in system_js.go's newWindow)
+ * does:
+ *   ev.Get("code").String() → lookup in jsCodeToKey → OnKeyPressed/Released
+ *
+ * So we need to construct a real KeyboardEvent with the correct `code`
+ * property. We use bubbles:true so it propagates to document (the engine
+ * attaches its listener on document).
+ *
+ * We do NOT call preventDefault on the synthetic event — there's no
+ * default action to cancel for a synthetic keydown.
+ */
+function dispatchKeyEvent(type: 'keydown' | 'keyup', code: string) {
+  if (typeof document === 'undefined') return;
+  try {
+    const ev = new KeyboardEvent(type, {
+      code: code,
+      key: code, // some engine code paths read ev.key for text input
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+    });
+    document.dispatchEvent(ev);
+  } catch {
+    // Fallback: very old browsers might not support KeyboardEvent constructor
+    // with options. Try the deprecated initKeyboardEvent path.
+    try {
+      const ev = document.createEvent('KeyboardEvent');
+      ev.initKeyboardEvent(type, true, true, window, code, 0, false, false, false, false);
+      // initKeyboardEvent doesn't set `code` reliably — set it manually.
+      Object.defineProperty(ev, 'code', { value: code, writable: false });
+      document.dispatchEvent(ev);
+    } catch {
+      // Last resort — give up silently. Touch input won't work on this browser.
+    }
+  }
+}
+
 export default function TouchControls() {
   // Reference count per key code. A key is "held" while count > 0.
   // This prevents premature release when two buttons share a cardinal
@@ -63,29 +106,25 @@ export default function TouchControls() {
   const keyRefCount = useRef<Map<string, number>>(new Map());
 
   const pressKeys = useCallback((keys: readonly string[]) => {
-    const g = globalThis as any;
-    if (!g.__ikemenKeyDown) return;
     for (const code of keys) {
       const count = keyRefCount.current.get(code) ?? 0;
       keyRefCount.current.set(code, count + 1);
       if (count === 0) {
-        // First holder — fire keyDown
-        g.__ikemenKeyDown.push(code);
+        // First holder — dispatch keydown
+        dispatchKeyEvent('keydown', code);
       }
     }
   }, []);
 
   const releaseKeys = useCallback((keys: readonly string[]) => {
-    const g = globalThis as any;
-    if (!g.__ikemenKeyUp) return;
     for (const code of keys) {
       const count = keyRefCount.current.get(code) ?? 0;
       if (count === 0) continue; // not held — ignore
       const next = count - 1;
       if (next === 0) {
-        // Last holder released — fire keyUp
+        // Last holder released — dispatch keyup
         keyRefCount.current.delete(code);
-        g.__ikemenKeyUp.push(code);
+        dispatchKeyEvent('keyup', code);
       } else {
         keyRefCount.current.set(code, next);
       }

@@ -43,17 +43,32 @@ function PlayPageInner() {
   // Expose exit handler so the touch exit button can call it.
   const exitFightRef = useRef<(() => void) | null>(null);
   exitFightRef.current = () => {
-    // Send Escape key to engine (which is mapped to menu/pause) — if that
-    // doesn't work, hard-navigate back to /local.
+    // Send Escape key to engine via synthetic KeyboardEvent (the engine
+    // listens for native keydown/keyup on document, see system_js.go).
+    // This should trigger the pause menu / quit confirmation.
     try {
-      const g = globalThis as any;
-      if (g.__ikemenKeyDown) g.__ikemenKeyDown.push('Escape');
-      setTimeout(() => g.__ikemenKeyUp?.push('Escape'), 50);
+      const evDown = new KeyboardEvent('keydown', {
+        code: 'Escape',
+        key: 'Escape',
+        bubbles: true,
+        cancelable: true,
+      });
+      document.dispatchEvent(evDown);
+      setTimeout(() => {
+        const evUp = new KeyboardEvent('keyup', {
+          code: 'Escape',
+          key: 'Escape',
+          bubbles: true,
+          cancelable: true,
+        });
+        document.dispatchEvent(evUp);
+      }, 50);
     } catch {}
-    // Always go back to character select after a short delay
+    // Always go back to character select after a short delay (in case the
+    // engine's escape handler doesn't fire or doesn't quit the match)
     setTimeout(() => {
       window.location.href = '/local';
-    }, 200);
+    }, 500);
   };
 
   useEffect(() => {
@@ -548,8 +563,27 @@ function DebugBadge({
   showExit: boolean;
 }) {
   const [info, setInfo] = useState<string>('');
+  // Track synthetic key events dispatched by TouchControls, so we can
+  // verify on-device that touch input is actually firing keydown events.
+  const [lastKey, setLastKey] = useState<string>('');
   useEffect(() => {
     setInfo(getTouchDebugInfo());
+    // Listen for the synthetic keydown events TouchControls dispatches.
+    // This is independent of the engine's own listener — purely for the
+    // debug badge. Synthetic events have isTrusted=false (we filter to
+    // only count those, so real keyboard presses don't show here — those
+    // would mean the on-screen keyboard on a phone fired).
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.isTrusted) {
+        setLastKey(`${e.type}:${e.code}`);
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('keyup', onKey);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('keyup', onKey);
+    };
   }, []);
   return (
     <div
@@ -573,6 +607,9 @@ function DebugBadge({
       }}
     >
       <div>isTouch:{String(isTouch)} engine:{String(engineRunning)} exit:{String(showExit)}</div>
+      <div style={{ opacity: 0.85, color: '#2ecc71' }}>
+        {lastKey ? `last synthetic: ${lastKey}` : 'no synthetic keys yet'}
+      </div>
       <div style={{ opacity: 0.7 }}>{info || '...'}</div>
     </div>
   );
