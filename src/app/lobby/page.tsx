@@ -16,10 +16,17 @@ export default function LobbyPage() {
     navigate('/local');
   };
 
+  const handleSettings = () => {
+    navigate('/settings');
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
       handleStart();
+    } else if (e.key === 's' || e.key === 'S') {
+      e.preventDefault();
+      handleSettings();
     }
   };
 
@@ -68,6 +75,17 @@ export default function LobbyPage() {
         PRESS START
       </button>
 
+      {/* SETTINGS button — sits below PRESS START, smaller secondary style */}
+      <button
+        type="button"
+        className="lobby__settings-btn"
+        onClick={handleSettings}
+        style={{ zIndex: 1 }}
+        aria-label="Open settings"
+      >
+        ⚙ SETTINGS
+      </button>
+
       {/* Controls hint */}
       <div
         className="cs__controls-help"
@@ -79,7 +97,7 @@ export default function LobbyPage() {
       >
         <div>P1: <span>WASD</span> move · <span>U I O</span> punches · <span>J K L</span> kicks</div>
         <div style={{ marginTop: '0.25rem' }}>
-          Press <span>ENTER</span> or click START to begin
+          Press <span>ENTER</span> or click START to begin · <span>S</span> for settings
         </div>
       </div>
 
