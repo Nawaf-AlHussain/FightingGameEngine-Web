@@ -265,7 +265,7 @@ export interface SettingDef {
   /** Human-readable label. */
   label: string;
   /** Control type. */
-  type: 'toggle' | 'slider' | 'select' | 'number' | 'text';
+  type: 'toggle' | 'slider' | 'select' | 'number' | 'text' | 'keybind';
   /** For sliders: { min, max, step }. */
   min?: number;
   max?: number;
@@ -278,6 +278,10 @@ export interface SettingDef {
   hint?: string;
   /** Whether this setting is applicable to the web build (some aren't). */
   webApplicable?: boolean;
+  /** For keybind: which player this binding is for (1 or 2). Used for conflict checking. */
+  player?: 1 | 2;
+  /** For keybind: which action this binding is for (Up/Down/Left/Right/A/B/C/X/Y/Z/Start). */
+  action?: string;
 }
 
 /**
@@ -287,6 +291,138 @@ export interface SettingGroup {
   id: string;
   label: string;
   settings: SettingDef[];
+}
+
+// ---------------------------------------------------------------------------
+// Keyboard remapping support
+// ---------------------------------------------------------------------------
+//
+// The IKEMEN GO engine stores key bindings in config.ini [Keys_P1] and
+// [Keys_P2] sections. Each value is a string from KeyToStringLUT
+// (e.g., 'w' for the W key, '8' for the digit 8, 'UP' for Arrow Up,
+// 'COMMA' for the comma key).
+//
+// The browser fires KeyboardEvents with `code` property (e.g., 'KeyW',
+// 'Digit8', 'ArrowUp', 'Comma'). To bind a key via the UI, we capture
+// the next keydown event and convert event.code → the engine's INI
+// string format.
+//
+// The maps below are derived from input_js.go's jsCodeToKey and
+// KeyToStringLUT (cross-referenced with the actual engine source at
+// /tmp/ikemen-go-web/src/input_js.go).
+
+/**
+ * Map: KeyboardEvent.code → engine INI string (the format used in config.ini).
+ *
+ * Example: 'KeyW' → 'w' (so when user presses W, we save 'w' to config,
+ *          and the engine's StringToKeyLUT['w'] = keyW matches the key).
+ *
+ * Keys not in this map are not bindable via the UI (modifier keys like
+ * Shift/Ctrl/Alt, F-keys beyond F12, etc.).
+ */
+export const CODE_TO_INI_KEY: Record<string, string> = {
+  // Letters (KeyA → 'a', ..., KeyZ → 'z')
+  KeyA: 'a', KeyB: 'b', KeyC: 'c', KeyD: 'd', KeyE: 'e', KeyF: 'f',
+  KeyG: 'g', KeyH: 'h', KeyI: 'i', KeyJ: 'j', KeyK: 'k', KeyL: 'l',
+  KeyM: 'm', KeyN: 'n', KeyO: 'o', KeyP: 'p', KeyQ: 'q', KeyR: 'r',
+  KeyS: 's', KeyT: 't', KeyU: 'u', KeyV: 'v', KeyW: 'w', KeyX: 'x',
+  KeyY: 'y', KeyZ: 'z',
+  // Digits (Digit0 → '0', ..., Digit9 → '9')
+  Digit0: '0', Digit1: '1', Digit2: '2', Digit3: '3', Digit4: '4',
+  Digit5: '5', Digit6: '6', Digit7: '7', Digit8: '8', Digit9: '9',
+  // Arrows (ArrowUp → 'UP', etc.)
+  ArrowUp: 'UP', ArrowDown: 'DOWN', ArrowLeft: 'LEFT', ArrowRight: 'RIGHT',
+  // Punctuation (uses the engine's uppercase names)
+  Comma: 'COMMA', Period: 'PERIOD', Slash: 'SLASH', Semicolon: 'SEMICOLON',
+  Equal: 'EQUALS', Minus: 'MINUS', BracketLeft: 'LBRACKET',
+  BracketRight: 'RBRACKET', Backslash: 'BACKSLASH', Backquote: 'BACKQUOTE',
+  Quote: 'QUOTE',
+  // Special keys
+  Enter: 'RETURN', Escape: 'ESCAPE', Backspace: 'BACKSPACE',
+  Tab: 'TAB', Space: 'SPACE',
+  // Numpad
+  Numpad0: 'KP_0', Numpad1: 'KP_1', Numpad2: 'KP_2', Numpad3: 'KP_3',
+  Numpad4: 'KP_4', Numpad5: 'KP_5', Numpad6: 'KP_6', Numpad7: 'KP_7',
+  Numpad8: 'KP_8', Numpad9: 'KP_9',
+  NumpadDivide: 'KP_DIVIDE', NumpadMultiply: 'KP_MULTIPLY',
+  NumpadSubtract: 'KP_MINUS', NumpadAdd: 'KP_PLUS',
+  NumpadEnter: 'KP_ENTER', NumpadDecimal: 'KP_PERIOD',
+  NumpadEqual: 'KP_EQUALS',
+  // Function keys (F1-F12 — same name in both formats)
+  F1: 'F1', F2: 'F2', F3: 'F3', F4: 'F4', F5: 'F5', F6: 'F6',
+  F7: 'F7', F8: 'F8', F9: 'F9', F10: 'F10', F11: 'F11', F12: 'F12',
+  // Misc
+  PrintScreen: 'PRINTSCREEN', ScrollLock: 'SCROLLLOCK', Pause: 'PAUSE',
+  Insert: 'INSERT', Home: 'HOME', PageUp: 'PAGEUP',
+  Delete: 'DELETE', End: 'END', PageDown: 'PAGEDOWN',
+};
+
+/**
+ * Map: engine INI string → friendly display label for the UI.
+ *
+ * Example: 'w' → 'W' (display the uppercase letter),
+ *          'UP' → '↑' (Unicode arrow),
+ *          'COMMA' → ',' (the actual character),
+ *          'RETURN' → 'Enter' (friendly name).
+ *
+ * Falls back to the raw string if no entry exists.
+ */
+export const INI_KEY_TO_LABEL: Record<string, string> = {
+  // Letters
+  a: 'A', b: 'B', c: 'C', d: 'D', e: 'E', f: 'F', g: 'G', h: 'H',
+  i: 'I', j: 'J', k: 'K', l: 'L', m: 'M', n: 'N', o: 'O', p: 'P',
+  q: 'Q', r: 'R', s: 'S', t: 'T', u: 'U', v: 'V', w: 'W', x: 'X',
+  y: 'Y', z: 'Z',
+  // Digits
+  '0': '0', '1': '1', '2': '2', '3': '3', '4': '4',
+  '5': '5', '6': '6', '7': '7', '8': '8', '9': '9',
+  // Arrows
+  UP: '↑', DOWN: '↓', LEFT: '←', RIGHT: '→',
+  // Punctuation — show the actual character
+  COMMA: ',', PERIOD: '.', SLASH: '/', SEMICOLON: ';', EQUALS: '=',
+  MINUS: '-', LBRACKET: '[', RBRACKET: ']', BACKSLASH: '\\',
+  BACKQUOTE: '`', QUOTE: "'",
+  // Special
+  RETURN: 'Enter', ESCAPE: 'Esc', BACKSPACE: '⌫', TAB: 'Tab', SPACE: 'Space',
+  // Numpad
+  KP_0: 'Num 0', KP_1: 'Num 1', KP_2: 'Num 2', KP_3: 'Num 3',
+  KP_4: 'Num 4', KP_5: 'Num 5', KP_6: 'Num 6', KP_7: 'Num 7',
+  KP_8: 'Num 8', KP_9: 'Num 9',
+  KP_DIVIDE: 'Num /', KP_MULTIPLY: 'Num *', KP_MINUS: 'Num -',
+  KP_PLUS: 'Num +', KP_ENTER: 'Num Enter', KP_PERIOD: 'Num .',
+  KP_EQUALS: 'Num =',
+  // Function keys
+  F1: 'F1', F2: 'F2', F3: 'F3', F4: 'F4', F5: 'F5', F6: 'F6',
+  F7: 'F7', F8: 'F8', F9: 'F9', F10: 'F10', F11: 'F11', F12: 'F12',
+  // Misc
+  PRINTSCREEN: 'PrtSc', SCROLLLOCK: 'ScrLk', PAUSE: 'Pause',
+  INSERT: 'Insert', HOME: 'Home', PAGEUP: 'PgUp',
+  DELETE: 'Delete', END: 'End', PAGEDOWN: 'PgDn',
+};
+
+/**
+ * Get a friendly display label for an engine INI key string.
+ * Falls back to the raw string if no mapping exists.
+ */
+export function iniKeyToLabel(iniKey: string): string {
+  return INI_KEY_TO_LABEL[iniKey] ?? iniKey;
+}
+
+/**
+ * Convert a KeyboardEvent.code to the engine's INI string format.
+ * Returns null if the code is not bindable (e.g., modifier keys).
+ */
+export function codeToIniKey(code: string): string | null {
+  return CODE_TO_INI_KEY[code] ?? null;
+}
+
+/**
+ * Check if a key binding value is valid (i.e., the engine will recognize it).
+ * Used to detect stale/broken bindings in config.ini (e.g., 'Y = ,' which
+ * is the literal comma character that the engine doesn't recognize).
+ */
+export function isValidIniKey(iniKey: string): boolean {
+  return iniKey in INI_KEY_TO_LABEL;
 }
 
 /**
@@ -817,6 +953,47 @@ export const SETTINGS_SCHEMA: SettingGroup[] = [
         type: 'slider', min: 1, max: 1000, step: 1,
         hint: 'Run the game N times faster for testing.',
       },
+    ],
+  },
+
+  // --- Keys (keyboard remapping) -----------------------------------------
+  //
+  // Each entry maps one IKEMEN action (Up/Down/Left/Right/A/B/C/X/Y/Z/Start)
+  // for one player (1 or 2) to a KeyboardEvent.code. The UI captures the
+  // next keydown event when the user clicks the binding button.
+  //
+  // Bindings are stored in config.ini under [Keys_P1] / [Keys_P2] using
+  // the engine's INI string format (see CODE_TO_INI_KEY above).
+  {
+    id: 'keys',
+    label: 'KEYS',
+    settings: [
+      // P1 directions
+      { section: 'Keys_P1', key: 'Up',    label: 'P1 Up',    type: 'keybind', player: 1, action: 'Up',    hint: 'Jump / move up.' },
+      { section: 'Keys_P1', key: 'Down',  label: 'P1 Down',  type: 'keybind', player: 1, action: 'Down',  hint: 'Crouch / block low.' },
+      { section: 'Keys_P1', key: 'Left',  label: 'P1 Left',  type: 'keybind', player: 1, action: 'Left',  hint: 'Walk back / block.' },
+      { section: 'Keys_P1', key: 'Right', label: 'P1 Right', type: 'keybind', player: 1, action: 'Right', hint: 'Walk forward.' },
+      // P1 attacks
+      { section: 'Keys_P1', key: 'A', label: 'P1 A', type: 'keybind', player: 1, action: 'A', hint: 'Light punch.' },
+      { section: 'Keys_P1', key: 'B', label: 'P1 B', type: 'keybind', player: 1, action: 'B', hint: 'Medium punch.' },
+      { section: 'Keys_P1', key: 'C', label: 'P1 C', type: 'keybind', player: 1, action: 'C', hint: 'Heavy punch.' },
+      { section: 'Keys_P1', key: 'X', label: 'P1 X', type: 'keybind', player: 1, action: 'X', hint: 'Light kick.' },
+      { section: 'Keys_P1', key: 'Y', label: 'P1 Y', type: 'keybind', player: 1, action: 'Y', hint: 'Medium kick.' },
+      { section: 'Keys_P1', key: 'Z', label: 'P1 Z', type: 'keybind', player: 1, action: 'Z', hint: 'Heavy kick.' },
+      { section: 'Keys_P1', key: 'Start', label: 'P1 Start', type: 'keybind', player: 1, action: 'Start', hint: 'Start / pause / confirm.' },
+      // P2 directions
+      { section: 'Keys_P2', key: 'Up',    label: 'P2 Up',    type: 'keybind', player: 2, action: 'Up',    hint: 'Jump / move up.' },
+      { section: 'Keys_P2', key: 'Down',  label: 'P2 Down',  type: 'keybind', player: 2, action: 'Down',  hint: 'Crouch / block low.' },
+      { section: 'Keys_P2', key: 'Left',  label: 'P2 Left',  type: 'keybind', player: 2, action: 'Left',  hint: 'Walk back / block.' },
+      { section: 'Keys_P2', key: 'Right', label: 'P2 Right', type: 'keybind', player: 2, action: 'Right', hint: 'Walk forward.' },
+      // P2 attacks
+      { section: 'Keys_P2', key: 'A', label: 'P2 A', type: 'keybind', player: 2, action: 'A', hint: 'Light punch.' },
+      { section: 'Keys_P2', key: 'B', label: 'P2 B', type: 'keybind', player: 2, action: 'B', hint: 'Medium punch.' },
+      { section: 'Keys_P2', key: 'C', label: 'P2 C', type: 'keybind', player: 2, action: 'C', hint: 'Heavy punch.' },
+      { section: 'Keys_P2', key: 'X', label: 'P2 X', type: 'keybind', player: 2, action: 'X', hint: 'Light kick.' },
+      { section: 'Keys_P2', key: 'Y', label: 'P2 Y', type: 'keybind', player: 2, action: 'Y', hint: 'Medium kick.' },
+      { section: 'Keys_P2', key: 'Z', label: 'P2 Z', type: 'keybind', player: 2, action: 'Z', hint: 'Heavy kick.' },
+      { section: 'Keys_P2', key: 'Start', label: 'P2 Start', type: 'keybind', player: 2, action: 'Start', hint: 'Start / pause / confirm.' },
     ],
   },
 ];
