@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   loadConfig,
   saveConfig,
@@ -10,6 +10,9 @@ import {
   getString,
   set,
   SETTINGS_SCHEMA,
+  iniKeyToLabel,
+  codeToIniKey,
+  isValidIniKey,
   type ConfigData,
   type SettingDef,
   type SettingGroup,
@@ -162,6 +165,7 @@ export default function SettingsMenu({ onCancel }: SettingsMenuProps) {
             def={def}
             value={readValue(config, def)}
             onChange={v => updateSetting(def, v)}
+            config={config}
           />
         ))}
       </div>
@@ -238,10 +242,12 @@ function SettingRow({
   def,
   value,
   onChange,
+  config,
 }: {
   def: SettingDef;
   value: string;
   onChange: (v: string) => void;
+  config: ConfigData;
 }) {
   // Greyed-out for non-web-applicable settings
   if (def.webApplicable === false) {
@@ -300,6 +306,14 @@ function SettingRow({
         )}
         {def.type === 'text' && (
           <TextInput value={value} onChange={onChange} />
+        )}
+        {def.type === 'keybind' && (
+          <KeyBind
+            value={value}
+            onChange={onChange}
+            config={config}
+            def={def}
+          />
         )}
       </div>
     </div>
@@ -393,6 +407,137 @@ function TextInput({ value, onChange }: { value: string; onChange: (v: string) =
       value={value}
       onChange={e => onChange(e.target.value)}
     />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// KeyBind — keyboard key capture for remapping
+// ---------------------------------------------------------------------------
+//
+// When the user clicks the binding button, we enter "capture mode": the
+// button text changes to "PRESS A KEY…" and we attach a one-time keydown
+// listener on window. The next keypress is converted to the engine's INI
+// string format via codeToIniKey(). If the key is bindable, the binding
+// is updated. If the user presses Escape, capture is cancelled.
+//
+// Conflict detection: before saving, we check if the same INI key is
+// already used by another action for the SAME player. If yes, we show
+// an error and refuse the binding (you can't have P1 Up = w AND P1
+// Down = w — the engine would fire both at once).
+//
+// Cross-player conflicts are allowed (P1 Up = w and P2 Up = UP is fine).
+
+function KeyBind({
+  value,
+  onChange,
+  config,
+  def,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  config: ConfigData;
+  def: SettingDef;
+}) {
+  const [capturing, setCapturing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Refs so the keydown handler can read latest state without re-binding.
+  const onChangeRef = useRef(onChange);
+  const configRef = useRef(config);
+  const defRef = useRef(def);
+  useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
+  useEffect(() => { configRef.current = config; }, [config]);
+  useEffect(() => { defRef.current = def; }, [def]);
+
+  // Enter capture mode
+  const startCapture = useCallback(() => {
+    setError(null);
+    setCapturing(true);
+  }, []);
+
+  // Cancel capture (Escape or click elsewhere)
+  const cancelCapture = useCallback(() => {
+    setCapturing(false);
+    setError(null);
+  }, []);
+
+  // Attach a one-time keydown listener while capturing.
+  useEffect(() => {
+    if (!capturing) return;
+    const onKey = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      // ESC cancels the capture (doesn't bind Escape to the action)
+      if (e.code === 'Escape') {
+        setCapturing(false);
+        setError(null);
+        return;
+      }
+
+      // Convert the browser KeyboardEvent.code to the engine's INI string.
+      const iniKey = codeToIniKey(e.code);
+      if (!iniKey) {
+        setError(`Key "${e.code}" is not bindable. Try a letter, digit, arrow, or numpad key.`);
+        setCapturing(false);
+        return;
+      }
+
+      // Conflict check: scan the same player's [Keys_P*] section for any
+      // OTHER action (not the one we're editing) that already uses this key.
+      const d = defRef.current;
+      if (d.player && d.action) {
+        const sectionName = d.section; // e.g. 'Keys_P1'
+        const section = configRef.current.sections.get(sectionName);
+        if (section) {
+          for (const [k, v] of Object.entries(section)) {
+            if (k.startsWith('_comment_')) continue;
+            if (k === d.key) continue; // same action — OK
+            if (v === iniKey) {
+              setError(`Already bound to ${k}. Pick a different key.`);
+              setCapturing(false);
+              return;
+            }
+          }
+        }
+      }
+
+      // All clear — save the binding.
+      onChangeRef.current(iniKey);
+      setCapturing(false);
+      setError(null);
+    };
+    // Use capture phase so we intercept the key before any other handler
+    // (including the engine's own keydown listener).
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [capturing]);
+
+  // Render the binding button. When not capturing, show the current key
+  // label. When capturing, show "PRESS A KEY…" and highlight.
+  const isStale = !isValidIniKey(value);
+  const displayLabel = value ? iniKeyToLabel(value) : '—';
+
+  return (
+    <div className="settings__keybind">
+      <button
+        type="button"
+        className={`settings__keybind-btn${capturing ? ' settings__keybind-btn--capturing' : ''}${isStale ? ' settings__keybind-btn--stale' : ''}`}
+        onClick={capturing ? cancelCapture : startCapture}
+        aria-label={capturing ? 'Press a key, or Escape to cancel' : `Rebind ${def.label}`}
+      >
+        {capturing ? 'PRESS A KEY…' : displayLabel}
+      </button>
+      {isStale && value && (
+        <div className="settings__keybind-stale">
+          ⚠ Invalid binding "{value}". Click to rebind.
+        </div>
+      )}
+      {error && (
+        <div className="settings__keybind-error">
+          {error}
+        </div>
+      )}
+    </div>
   );
 }
 

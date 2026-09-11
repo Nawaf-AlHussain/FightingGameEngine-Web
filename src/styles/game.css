@@ -1375,6 +1375,61 @@ body.fighting {
   border-color: var(--cyan);
 }
 
+/* KeyBind — keyboard remapping button */
+.settings__keybind {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+.settings__keybind-btn {
+  padding: 0.5rem 1.2rem;
+  min-width: 110px;
+  font-size: 0.85rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  background: var(--black-soft);
+  color: var(--white);
+  border: 2px solid var(--gray-dark);
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  transition: all 0.15s;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.settings__keybind-btn:hover {
+  border-color: var(--cyan);
+  color: var(--cyan);
+}
+.settings__keybind-btn--capturing {
+  background: rgba(13,217,255,0.15);
+  color: var(--cyan);
+  border-color: var(--cyan);
+  animation: keybind-pulse 1s ease-in-out infinite;
+}
+@keyframes keybind-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(13,217,255,0.6); }
+  50%      { box-shadow: 0 0 0 6px rgba(13,217,255,0); }
+}
+.settings__keybind-btn--stale {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+.settings__keybind-stale,
+.settings__keybind-error {
+  font-size: 0.65rem;
+  color: var(--gold);
+  font-family: var(--font-mono);
+  text-align: right;
+  max-width: 200px;
+  line-height: 1.3;
+}
+.settings__keybind-error {
+  color: var(--red);
+}
+
 /* Footer */
 .settings__footer {
   display: flex;
