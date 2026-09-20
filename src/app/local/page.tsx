@@ -9,7 +9,7 @@ import StageSelect from '@/components/StageSelect';
 import RotateOverlay from '@/components/RotateOverlay';
 import { useWipeNavigation } from '@/components/WipeTransition';
 import { useIsTouchDevice } from '@/lib/use-touch-device';
-import { setConfigValue } from '@/lib/ikemen-config';
+import { loadConfig, set as setConfigKey, saveConfig } from '@/lib/ikemen-config';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -70,13 +70,18 @@ export default function LocalPlayPage() {
   // This makes the /local RES toggle a "quick set" shortcut that writes to
   // the same localStorage config the Settings UI writes to. No separate
   // URL param — Settings UI is the single source of truth.
-  const handleAspectChange = useCallback((newAspect: Aspect) => {
+  //
+  // IMPORTANT: we load the config ONCE, modify BOTH GameWidth and GameHeight,
+  // then save ONCE. Calling setConfigValue twice would race (two independent
+  // load→modify→save cycles where the second save overwrites the first).
+  const handleAspectChange = useCallback(async (newAspect: Aspect) => {
     setAspect(newAspect);
     const { w, h } = ASPECT_TO_RESOLUTION[newAspect];
-    // Fire and forget — if localStorage is unavailable, the engine falls
-    // back to shipped defaults (1280×720), which is acceptable.
-    setConfigValue('Video', 'GameWidth', String(w));
-    setConfigValue('Video', 'GameHeight', String(h));
+    const cfg = await loadConfig();
+    if (!cfg) return;
+    setConfigKey(cfg, 'Video', 'GameWidth', String(w));
+    setConfigKey(cfg, 'Video', 'GameHeight', String(h));
+    saveConfig(cfg);
   }, []);
 
   // ---- Character lock-in: save state, advance to stage select ----
