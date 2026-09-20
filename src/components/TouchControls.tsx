@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { loadP1KeyBindings } from '@/lib/ikemen-config';
 
 /**
  * TouchControls — on-screen controls for mobile devices.
@@ -15,10 +16,13 @@ import { useCallback, useRef } from 'react';
  * on `document` (see system_js.go: addEventListener("keydown", ...)). It looks
  * up `ev.code` in `jsCodeToKey` and calls OnKeyPressed/OnKeyReleased.
  *
- * The engine does NOT read window.__ikemenKeyDown (that was an older bridge
- * that's no longer used). So to feed touch input, we dispatch SYNTHETIC
- * KeyboardEvents on document. The engine's own listener picks them up
- * exactly as if a physical key was pressed.
+ * We dispatch SYNTHETIC KeyboardEvents on document. The engine's own listener
+ * picks them up exactly as if a physical key was pressed.
+ *
+ * KEY MAP IS NOT HARDCODED — it's loaded from the same localStorage
+ * config.ini that the Settings UI and the /local RES toggle write to.
+ * This means if the user rebinds P1 A=F in Settings, the touch "A"
+ * button dispatches KeyF (not the old Digit8). Single source of truth.
  *
  * Diagonal directions (UL/UR/DL/DR) press TWO cardinal keys at once
  * (e.g. UR = Up + Right). The engine natively interprets this as the
@@ -34,30 +38,51 @@ import { useCallback, useRef } from 'react';
  * A to punch).
  */
 
-// Key code mapping (matches config.ini P1 bindings + jsCodeToKey in input_js.go).
-// Values are ARRAYS because diagonal buttons press 2 keys simultaneously.
-const KEY_MAP: Record<string, readonly string[]> = {
-  // Cardinals
-  up:    ['KeyW'],
-  down:  ['KeyS'],
-  left:  ['KeyA'],
-  right: ['KeyD'],
-  // Diagonals — press both adjacent cardinals
-  upLeft:    ['KeyW', 'KeyA'],
-  upRight:   ['KeyW', 'KeyD'],
-  downLeft:  ['KeyS', 'KeyA'],
-  downRight: ['KeyS', 'KeyD'],
-  // Actions
-  A: ['Digit8'],
-  B: ['Digit9'],
-  C: ['Digit0'],
-  X: ['KeyI'],
-  Y: ['KeyO'],
-  Z: ['KeyP'],
-  Start: ['KeyU'],
-} as const;
+/**
+ * Build the KEY_MAP from the P1 bindings loaded from config.ini.
+ *
+ * Returns a map: buttonId → array of KeyboardEvent.code strings.
+ * Diagonals are built by combining the two adjacent cardinals.
+ *
+ * While loading (async), returns the default KEY_MAP so the controls
+ * are immediately usable (no flash of broken buttons).
+ */
+function buildKeyMap(bindings: Record<string, string>): Record<string, readonly string[]> {
+  const up = bindings.Up ?? 'KeyW';
+  const down = bindings.Down ?? 'KeyS';
+  const left = bindings.Left ?? 'KeyA';
+  const right = bindings.Right ?? 'KeyD';
+  return {
+    // Cardinals
+    up:    [up],
+    down:  [down],
+    left:  [left],
+    right: [right],
+    // Diagonals — press both adjacent cardinals
+    upLeft:    [up, left],
+    upRight:   [up, right],
+    downLeft:  [down, left],
+    downRight: [down, right],
+    // Actions
+    A: [bindings.A ?? 'Digit8'],
+    B: [bindings.B ?? 'Digit9'],
+    C: [bindings.C ?? 'Digit0'],
+    X: [bindings.X ?? 'KeyI'],
+    Y: [bindings.Y ?? 'KeyO'],
+    Z: [bindings.Z ?? 'KeyP'],
+    Start: [bindings.Start ?? 'KeyU'],
+  };
+}
 
-type ButtonId = keyof typeof KEY_MAP;
+// Default bindings used while the config is loading (matches shipped config.ini).
+const DEFAULT_BINDINGS: Record<string, string> = {
+  Up: 'KeyW', Down: 'KeyS', Left: 'KeyA', Right: 'KeyD',
+  A: 'Digit8', B: 'Digit9', C: 'Digit0',
+  X: 'KeyI', Y: 'KeyO', Z: 'KeyP',
+  Start: 'KeyU',
+};
+
+type ButtonId = 'upLeft' | 'up' | 'upRight' | 'left' | 'right' | 'downLeft' | 'down' | 'downRight' | 'A' | 'B' | 'C' | 'X' | 'Y' | 'Z' | 'Start';
 
 /**
  * Dispatch a synthetic KeyboardEvent on document.
@@ -158,6 +183,22 @@ function codeToKeyChar(code: string): string {
 }
 
 export default function TouchControls() {
+  // KEY_MAP is loaded from localStorage config.ini (the same source the
+  // Settings UI writes to). Starts with defaults so the controls are
+  // immediately usable; updates once the async load completes.
+  const [keyMap, setKeyMap] = useState<Record<string, readonly string[]>>(() =>
+    buildKeyMap(DEFAULT_BINDINGS),
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    loadP1KeyBindings().then(bindings => {
+      if (cancelled) return;
+      setKeyMap(buildKeyMap(bindings));
+    });
+    return () => { cancelled = true; };
+  }, []);
+
   // Reference count per key code. A key is "held" while count > 0.
   // This prevents premature release when two buttons share a cardinal
   // (e.g. UR and UL both reference Up).
@@ -192,13 +233,13 @@ export default function TouchControls() {
   // Touch handlers — use onTouchStart/End to avoid 300ms click delay
   const handleTouchStart = useCallback((e: React.TouchEvent, btnId: ButtonId) => {
     e.preventDefault();
-    pressKeys(KEY_MAP[btnId]);
-  }, [pressKeys]);
+    pressKeys(keyMap[btnId] ?? []);
+  }, [pressKeys, keyMap]);
 
   const handleTouchEnd = useCallback((e: React.TouchEvent, btnId: ButtonId) => {
     e.preventDefault();
-    releaseKeys(KEY_MAP[btnId]);
-  }, [releaseKeys]);
+    releaseKeys(keyMap[btnId] ?? []);
+  }, [releaseKeys, keyMap]);
 
   // Generic touch button factory
   const TouchBtn = ({

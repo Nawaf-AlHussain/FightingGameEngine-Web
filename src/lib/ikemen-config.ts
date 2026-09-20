@@ -192,6 +192,28 @@ export function saveConfig(data: ConfigData): void {
 }
 
 /**
+ * Set a single config value in the persisted localStorage config.
+ *
+ * This is a convenience helper that loads the current config (from
+ * localStorage or shipped default), modifies one key, and saves it
+ * back. Used by the /local RES toggle to write GameWidth/GameHeight
+ * to the same authoritative config that the Settings UI writes to.
+ *
+ * If the config can't be loaded (network error + no localStorage),
+ * this is a no-op.
+ */
+export async function setConfigValue(
+  section: string,
+  key: string,
+  value: string | number | boolean,
+): Promise<void> {
+  const cfg = await loadConfig();
+  if (!cfg) return;
+  set(cfg, section, key, value);
+  saveConfig(cfg);
+}
+
+/**
  * Clear the persisted config so the engine reverts to shipped defaults on
  * next boot. Useful for a "Reset to defaults" button.
  */
@@ -423,6 +445,70 @@ export function codeToIniKey(code: string): string | null {
  */
 export function isValidIniKey(iniKey: string): boolean {
   return iniKey in INI_KEY_TO_LABEL;
+}
+
+/**
+ * Reverse map: engine INI string → KeyboardEvent.code.
+ * Built from CODE_TO_INI_KEY by inverting it.
+ *
+ * Example: 'w' → 'KeyW', '8' → 'Digit8', 'UP' → 'ArrowUp'.
+ *
+ * Used by TouchControls to look up which KeyboardEvent.code to dispatch
+ * for a given configured key binding.
+ */
+export const INI_KEY_TO_CODE: Record<string, string> = (() => {
+  const result: Record<string, string> = {};
+  for (const [code, iniKey] of Object.entries(CODE_TO_INI_KEY)) {
+    result[iniKey] = code;
+  }
+  return result;
+})();
+
+/**
+ * Load P1 key bindings from the persisted config.
+ *
+ * Returns a map: action name ('Up', 'Down', 'Left', 'Right', 'A', 'B',
+ * 'C', 'X', 'Y', 'Z', 'Start') → KeyboardEvent.code (e.g., 'KeyW').
+ *
+ * If a binding is missing or invalid (stale), falls back to the default
+ * P1 layout (WASD + 8/9/0 for punches + I/O/P for kicks + U for Start).
+ *
+ * This is the single source of truth that both the physical keyboard
+ * (via the engine's own document.addEventListener) and TouchControls
+ * consume. No separate hardcoded KEY_MAP anywhere.
+ */
+export async function loadP1KeyBindings(): Promise<Record<string, string>> {
+  const DEFAULTS: Record<string, string> = {
+    Up: 'KeyW', Down: 'KeyS', Left: 'KeyA', Right: 'KeyD',
+    A: 'Digit8', B: 'Digit9', C: 'Digit0',
+    X: 'KeyI', Y: 'KeyO', Z: 'KeyP',
+    Start: 'KeyU',
+  };
+
+  const cfg = await loadConfig();
+  if (!cfg) return DEFAULTS;
+
+  const section = cfg.sections.get('Keys_P1');
+  if (!section) return DEFAULTS;
+
+  const result: Record<string, string> = {};
+  for (const action of Object.keys(DEFAULTS)) {
+    const iniKey = section[action];
+    if (iniKey && isValidIniKey(iniKey)) {
+      const code = INI_KEY_TO_CODE[iniKey];
+      if (code) {
+        result[action] = code;
+      } else {
+        // Valid INI key but no code mapping — shouldn't happen, but
+        // fall back to default for safety.
+        result[action] = DEFAULTS[action];
+      }
+    } else {
+      // Missing or stale binding — use default.
+      result[action] = DEFAULTS[action];
+    }
+  }
+  return result;
 }
 
 /**

@@ -592,78 +592,19 @@
     // visits override the shipped defaults.
     restorePersisted();
 
-    // Put the shipped theme back, the same way the netcode choice is applied
-    // below: config.ini is persisted whole, so a player's saved copy carries
-    // whichever Motif they first booted and would pin them to it forever - the
-    // site could change theme and nobody who had played before would see it.
-    // Their key bindings live in the same file, so the file has to be kept and
-    // only this line overridden.
-    try {
-      const cfg = contents.get('save/config.ini');
-      if (shippedMotif && cfg) {
-        const text = new TextDecoder().decode(cfg);
-        const patched = /^\s*Motif\s*=/mi.test(text)
-          ? text.replace(/^(\s*Motif\s*=\s*).+$/mi, '$1' + shippedMotif)
-          : '[Config]\nMotif = ' + shippedMotif + '\n' + text;
-        if (patched !== text) contents.set('save/config.ini', new TextEncoder().encode(patched));
-      }
-    } catch (e) { /* leave config as restored */ }
-
-    // Apply the boot-page picture choice.
-    // Sets canvas resolution (GameWidth/GameHeight). CSS stretches the canvas
-    // to fill the screen. KeepAspect=0 disables engine letterboxing so the
-    // game fills the canvas without black bars.
-    try {
-      let w = 1280, h = 720;
-      const a = globalThis.ikemenAspect;
-      if (a === '4:3') { w = 640; h = 480; }
-      else if (a && typeof a === 'object') { w = a.w | 0; h = a.h | 0; }
-      const cfg = contents.get('save/config.ini');
-      if (cfg) {
-        const text = new TextDecoder().decode(cfg);
-        let patched = text.replace(/^(\s*GameWidth\s*=\s*)[0-9]+/mi, '$1' + w);
-        patched = patched.replace(/^(\s*GameHeight\s*=\s*)[0-9]+/mi, '$1' + h);
-        // Disable KeepAspect — CSS handles screen filling, no engine letterboxing
-        patched = patched.replace(/^(\s*KeepAspect\s*=\s*)[0-9]+/mi, '$1' + 0);
-        if (patched !== text) contents.set('save/config.ini', new TextEncoder().encode(patched));
-      }
-    } catch (e) { /* leave the shipped size */ }
-
-    // Apply the boot-page netcode choice by patching RollbackNetcode in
-    // config.ini in place, AFTER restorePersisted so it beats any persisted
-    // config. Delay (=0) is the shipped default; Rollback (=1) is the opt-in
-    // experimental mode. webrtc.js separately refuses a match if the two
-    // players picked different modes.
-    try {
-      const nc = (globalThis.ikemenNetcode === 'rollback') ? 1 : 0;
-      const cfg = contents.get('save/config.ini');
-      if (cfg) {
-        const text = new TextDecoder().decode(cfg);
-        const patched = text.replace(/^(\s*RollbackNetcode\s*=\s*)[0-9]+/mi, '$1' + nc);
-        if (patched !== text) contents.set('save/config.ini', new TextEncoder().encode(patched));
-      }
-    } catch (e) { /* leave config as shipped */ }
-
-    // Re-stamp the debug font over any persisted config, same reasoning as the
-    // theme above. Ctrl+D is the only view that shows invalid-ANIMATION errors
-    // (they never reach the browser console), so it has to stay legible even
-    // for players carrying a config.ini from an older build.
-    try {
-      const cfg = contents.get('save/config.ini');
-      if (cfg && (shippedDebugFont || shippedDebugFontScale)) {
-        const text = new TextDecoder().decode(cfg);
-        let patched = text;
-        if (shippedDebugFont) {
-          patched = patched.replace(/^(\s*Font\s*=\s*).+$/mi, '$1' + shippedDebugFont);
-        }
-        if (shippedDebugFontScale) {
-          patched = /^\s*FontScale\s*=/mi.test(patched)
-            ? patched.replace(/^(\s*FontScale\s*=\s*).+$/mi, '$1' + shippedDebugFontScale)
-            : patched.replace(/^(\s*Font\s*=\s*.+)$/mi, '$1\nFontScale = ' + shippedDebugFontScale);
-        }
-        if (patched !== text) contents.set('save/config.ini', new TextEncoder().encode(patched));
-      }
-    } catch (e) { /* leave config as restored */ }
+    // --- Settings UI is authoritative for config.ini ---
+    //
+    // Previously, vfs.js overwrote GameWidth/GameHeight/KeepAspect/
+    // RollbackNetcode/Motif/debug-font AFTER restorePersisted(), which
+    // meant the Settings UI's values for those keys were silently
+    // discarded at boot. This created a coherence bug where changing
+    // resolution in Settings had no effect (the /local RES toggle's
+    // URL param won via globalThis.ikemenAspect).
+    //
+    // Now: Settings UI writes to localStorage, restorePersisted() loads
+    // it, and vfs.js does NOT overwrite. The /local RES toggle also
+    // writes to the same localStorage key (it's a quick-set shortcut,
+    // not a separate authority). One config source, one path.
 
     // Guarantee [Netplay] PlayerName EXISTS, without touching a name already
     // saved. gameOption() raises "Invalid argument" on a key the config never

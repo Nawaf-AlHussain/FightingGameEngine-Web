@@ -215,7 +215,9 @@ export default function CharacterSelect({
     // Defensive: verify against IndexedDB in case our cachedIds state is stale
     // (e.g., the character was cached in another browser tab). If it's already
     // there, mark as cached and skip the actual download.
-    isCharacterCached(charId)
+    // Pass the required file list so partial downloads (from a previous bug)
+    // are NOT marked as cached — isCharacterCached validates all files present.
+    isCharacterCached(charId, info.files)
       .then((alreadyCached) => {
         if (alreadyCached) {
           setDownloadStates(prev => ({

@@ -119,15 +119,16 @@ This matches the FightingGameEngine-Demo2 architecture pattern ("website UI + en
 
 1. User clicks FIGHT on `/local` → navigates to `/play?p1=kfm&p2=kfm&stage=...`
 2. `src/app/play/page.tsx` reads URL params and builds CLI arg array
-3. Installs keyboard bridge (`window.__ikemenKeyDown` / `__ikemenKeyUp` arrays)
+3. Installs keyboard `preventDefault` handler on `window` (stops browser shortcuts; engine listens for native keydown/keyup on `document` directly — no poll-based bridge)
 4. Pins `devicePixelRatio` to 1 (glfw-js requirement)
 5. Patches `window.fetch` so VFS requests redirect to `/api/ikemen-fs/file/...`
 6. Dynamically loads `/game/vfs.js` then `/game/wasm_exec.js`
 7. Initializes VFS with manifest and preload list
-8. Creates `Go` instance with `go.argv = ['ikemen', '-p1', p1, '-p2', p2, '-loadmotif', 'data/ikemen1/system.def', '-stage', stage, '-p2.ai', aiLevel]`
-9. Loads WASM via `instantiateStreaming`, calls `go.run()`
-10. Engine's `main.lua` detects CLI args → calls `main.f_commandLine()` → skips menus → fight starts
-11. After fight, `os.exit()` is caught → redirects to `/local`
+8. `vfs.js` calls `restorePersisted()` which loads `localStorage['ikemen-vfs12:save/config.ini']` (the Settings UI's authoritative config). VFS does NOT overwrite GameWidth/GameHeight/KeepAspect/RollbackNetcode/Motif — Settings UI is the single source of truth.
+9. Creates `Go` instance with `go.argv = ['ikemen', '-qp1', p1, '-qp2', p2, '-qstage', stage, '-qp2ai', aiLevel, ...]` (quick-match flags, bypasses laggy menu)
+10. Loads WASM via `instantiateStreaming`, calls `go.run()`
+11. Engine's `main.lua` detects CLI args → calls `main.f_quickMatch()` → skips menus → fight starts
+12. After fight, `os.exit()` is caught → redirects to `/local`
 
 ### How Menu Skipping Works (F-017, BREAKTHROUGH)
 
@@ -145,27 +146,27 @@ We pass these via `go.argv` in `wasm_exec.js`. **No WASM recompilation needed** 
 
 Supported flags: `-p1 <char>`, `-p2 <char>`, `-loadmotif <def>`, `-stage <def>`, `-p1.ai <1-8>`, `-p2.ai <1-8>`, `-r <rounds>`, `-time <seconds>`, `-tmode1 <mode>`, `-tmode2 <mode>`.
 
-### How Keyboard Input Works (Poll-Based Bridge)
+### How Keyboard Input Works (Native DOM Events)
 
-Go WASM's `syscall/js` event callback pipeline (`js.FuncOf` → `_makeFuncWrapper` → `_pendingEvent` → `_resume()`) **does not work** for keyboard events (F-011). The JS→Go callback direction is broken in WASM.
+The IKEMEN GO WASM engine listens for **native `keydown`/`keyup` DOM events** on `document` (via `system_js.go`'s `newWindow()` function, which calls `doc.Call("addEventListener", "keydown", keydown)`). The handler reads `ev.Get("code").String()`, looks it up in `jsCodeToKey` (maps `"KeyW"` → `keyW`, `"Digit8"` → `key8`, etc.), and calls `OnKeyPressed()`/`OnKeyReleased()`.
 
-**Workaround**: Poll-based bridge.
-1. JS captures `keydown`/`keyup` on `window` (capture phase)
-2. Pushes `e.code` values (e.g. `"KeyW"`, `"Digit1"`, `"ArrowUp"`) into `window.__ikemenKeyDown` / `window.__ikemenKeyUp` arrays
-3. Go's `pollEvents()` in `system_js.go` reads these arrays every frame
-4. Looks up `e.code` in `jsCodeToKey` map → gets internal Key enum → calls `OnKeyPressed()`
+**The old `__ikemenKeyDown`/`__ikemenKeyUp` poll-based bridge is dead code.** It was an earlier workaround for a Go WASM callback issue that turned out to be misdiagnosed. The engine never read those arrays — it uses native DOM events directly. The dead code has been removed from `play/page.tsx`.
 
-**Key naming convention** (F-016):
+**Touch input** dispatches synthetic `KeyboardEvent`s on `document` with the correct `code` property. The engine's own listener picks them up exactly like real keyboard events. TouchControls reads the P1 key bindings from `localStorage['ikemen-vfs12:save/config.ini']` (the same source the Settings UI writes to) — no separate hardcoded KEY_MAP.
+
+**Key naming convention** (config.ini [Keys_P1] / [Keys_P2]):
 - Letters: lowercase (`w`, `a`, `s`, `d`, `u`, `i`, `o`, `j`, `k`, `l`)
+- Digits: the digit itself (`0`-`9`)
 - Arrows: uppercase (`UP`, `DOWN`, `LEFT`, `RIGHT`)
+- Punctuation: uppercase names (`COMMA`, `PERIOD`, `SLASH`, etc.)
 - Numpad: `KP_` prefix (`KP_1`, `KP_7`)
-- Special: `RETURN`, `ESCAPE`, `SPACE`, `1`-`9` (digits)
+- Special: `RETURN`, `ESCAPE`, `SPACE`
 
 **Config.ini maps key names to commands** (see `public/game/ikemen-fs/file/save/config.ini`):
-- P1: WASD move, UIO punches, JKL kicks, 1 = Start
-- P2: Arrow keys move, Numpad 1-6 attacks, Numpad 7 = Start
+- P1: WASD move, 8/9/0 punches, I/O/P kicks, U = Start
+- P2: Arrow keys move, J/K/L punches, M/,/.  kicks, / = Start
 
-**Status**: Only the `1` key (Start) has been verified working through the full path. Fight inputs (WASD, UIO, JKL) are theoretically correct but **untested in actual combat** (the engine was stuck in menus during previous testing sessions).
+**Status**: All P1 keys verified working through the full path (physical keyboard + touch controls + key remapping via Settings UI).
 
 ### Critical Performance Settings
 
