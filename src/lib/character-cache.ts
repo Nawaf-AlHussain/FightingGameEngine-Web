@@ -72,9 +72,20 @@ export async function getCachedCharacter(id: string): Promise<CachedAsset | null
   }
 }
 
-export async function isCharacterCached(id: string): Promise<boolean> {
+export async function isCharacterCached(id: string, requiredFiles?: string[]): Promise<boolean> {
   const cached = await getCachedCharacter(id);
-  return cached !== null && Object.keys(cached.files).length > 0;
+  if (!cached) return false;
+  // If we know which files are required, validate ALL are present.
+  // This prevents partial downloads (from a previous bug) from being
+  // marked as cached. Without requiredFiles, fall back to checking
+  // that at least some files exist (backwards-compatible).
+  if (requiredFiles && requiredFiles.length > 0) {
+    for (const f of requiredFiles) {
+      if (!cached.files[f]) return false;
+    }
+    return true;
+  }
+  return Object.keys(cached.files).length > 0;
 }
 
 // --- Stage caching ---
@@ -111,9 +122,16 @@ export async function getCachedStage(id: string): Promise<CachedAsset | null> {
   }
 }
 
-export async function isStageCached(id: string): Promise<boolean> {
+export async function isStageCached(id: string, requiredFiles?: string[]): Promise<boolean> {
   const cached = await getCachedStage(id);
-  return cached !== null && Object.keys(cached.files).length > 0;
+  if (!cached) return false;
+  if (requiredFiles && requiredFiles.length > 0) {
+    for (const f of requiredFiles) {
+      if (!cached.files[f]) return false;
+    }
+    return true;
+  }
+  return Object.keys(cached.files).length > 0;
 }
 
 // --- Bulk status check (for UI) ---

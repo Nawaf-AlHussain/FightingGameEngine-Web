@@ -154,7 +154,8 @@ export default function StageSelect({ onSelect, onCancel }: StageSelectProps) {
     // Defensive: verify against IndexedDB in case our cachedIds state is stale
     // (e.g., the stage was cached in another browser tab). If it's already
     // there, mark as cached and skip the actual download.
-    isStageCached(stageId)
+    // Pass the required file list so partial downloads are NOT marked as cached.
+    isStageCached(stageId, info.files)
       .then((alreadyCached) => {
         if (alreadyCached) {
           setDownloadStates(prev => ({

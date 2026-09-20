@@ -106,6 +106,7 @@ export async function downloadCharacter(
   const files = char.files;
   let completed = 0;
   const total = files.length;
+  const failed: string[] = [];
 
   onProgress?.(0, `Downloading ${char.displayName}...`);
 
@@ -129,6 +130,7 @@ export async function downloadCharacter(
         const res = await fetch(url, { cache: 'force-cache' });
         if (!res.ok) {
           console.warn(`Failed to download ${filename}: ${res.status}`);
+          failed.push(filename);
           return;
         }
         const buf = new Uint8Array(await res.arrayBuffer());
@@ -138,14 +140,26 @@ export async function downloadCharacter(
           g.ikemenInjectFile(vpath, buf);
         } else {
           console.error('ikemenInjectFile not available — vfs.js not loaded?');
+          failed.push(filename);
+          return;
         }
 
         completed++;
         onProgress?.(Math.round((completed / total) * 100), `Downloaded ${filename}`);
       } catch (e) {
         console.warn(`Error downloading ${filename}:`, e);
+        failed.push(filename);
       }
     }));
+  }
+
+  // TRANSACTIONAL: if any files failed, throw so the caller knows the
+  // character is incomplete. Previously this function returned normally
+  // with a "ready" message even if files were missing.
+  if (failed.length > 0) {
+    throw new Error(
+      `Failed to download ${failed.length}/${total} file(s) for ${char.id}: ${failed.join(', ')}`
+    );
   }
 
   onProgress?.(100, `${char.displayName} ready`);
@@ -164,6 +178,7 @@ export async function downloadStage(
   const files = stage.files;
   let completed = 0;
   const total = files.length;
+  const failed: string[] = [];
 
   onProgress?.(0, `Downloading ${stage.displayName}...`);
 
@@ -181,20 +196,32 @@ export async function downloadStage(
       const res = await fetch(url, { cache: 'force-cache' });
       if (!res.ok) {
         console.warn(`Failed to download ${filename}: ${res.status}`);
+        failed.push(filename);
         return;
       }
       const buf = new Uint8Array(await res.arrayBuffer());
 
       if (g.ikemenInjectFile) {
         g.ikemenInjectFile(vpath, buf);
+      } else {
+        failed.push(filename);
+        return;
       }
 
       completed++;
       onProgress?.(Math.round((completed / total) * 100), `Downloaded ${filename}`);
     } catch (e) {
       console.warn(`Error downloading ${filename}:`, e);
+      failed.push(filename);
     }
   }));
+
+  // TRANSACTIONAL: throw if any files failed.
+  if (failed.length > 0) {
+    throw new Error(
+      `Failed to download ${failed.length}/${total} file(s) for stage ${stage.id}: ${failed.join(', ')}`
+    );
+  }
 
   onProgress?.(100, `${stage.displayName} ready`);
 }
@@ -231,7 +258,7 @@ export async function downloadCharacterToCache(
   onProgress?: (pct: number, msg: string) => void
 ): Promise<void> {
   // Check if already cached
-  if (await isCharacterCached(char.id)) {
+  if (await isCharacterCached(char.id, char.files)) {
     onProgress?.(100, `${char.displayName} cached`);
     return;
   }
@@ -239,6 +266,7 @@ export async function downloadCharacterToCache(
   const files = char.files;
   const total = files.length;
   let completed = 0;
+  const failed: string[] = [];
   const downloadedFiles: Record<string, Uint8Array> = {};
 
   onProgress?.(0, `Downloading ${char.displayName}...`);
@@ -252,6 +280,7 @@ export async function downloadCharacterToCache(
         const res = await fetch(url, { cache: 'force-cache' });
         if (!res.ok) {
           console.warn(`Failed to download ${filename}: ${res.status}`);
+          failed.push(filename);
           return;
         }
         downloadedFiles[filename] = new Uint8Array(await res.arrayBuffer());
@@ -259,11 +288,21 @@ export async function downloadCharacterToCache(
         onProgress?.(Math.round((completed / total) * 100), `Downloaded ${filename}`);
       } catch (e) {
         console.warn(`Error downloading ${filename}:`, e);
+        failed.push(filename);
       }
     }));
   }
 
-  // Store in IndexedDB
+  // TRANSACTIONAL: if any files failed, do NOT cache the partial download.
+  // Previously, partial downloads were cached and isCharacterCached returned
+  // true, causing the UI to mark broken characters as READY.
+  if (failed.length > 0) {
+    throw new Error(
+      `Failed to download ${failed.length}/${total} file(s) for ${char.id}: ${failed.join(', ')}`
+    );
+  }
+
+  // All files downloaded — safe to cache.
   await cacheCharacter(char.id, downloadedFiles);
   onProgress?.(100, `${char.displayName} ready`);
 }
@@ -275,7 +314,7 @@ export async function downloadStageToCache(
   stage: StageInfo,
   onProgress?: (pct: number, msg: string) => void
 ): Promise<void> {
-  if (await isStageCached(stage.id)) {
+  if (await isStageCached(stage.id, stage.files)) {
     onProgress?.(100, `${stage.displayName} cached`);
     return;
   }
@@ -283,6 +322,7 @@ export async function downloadStageToCache(
   const files = stage.files;
   const total = files.length;
   let completed = 0;
+  const failed: string[] = [];
   const downloadedFiles: Record<string, Uint8Array> = {};
 
   onProgress?.(0, `Downloading ${stage.displayName}...`);
@@ -293,6 +333,7 @@ export async function downloadStageToCache(
       const res = await fetch(url, { cache: 'force-cache' });
       if (!res.ok) {
         console.warn(`Failed to download ${filename}: ${res.status}`);
+        failed.push(filename);
         return;
       }
       downloadedFiles[filename] = new Uint8Array(await res.arrayBuffer());
@@ -300,8 +341,16 @@ export async function downloadStageToCache(
       onProgress?.(Math.round((completed / total) * 100), `Downloaded ${filename}`);
     } catch (e) {
       console.warn(`Error downloading ${filename}:`, e);
+      failed.push(filename);
     }
   }));
+
+  // TRANSACTIONAL: if any files failed, do NOT cache the partial download.
+  if (failed.length > 0) {
+    throw new Error(
+      `Failed to download ${failed.length}/${total} file(s) for stage ${stage.id}: ${failed.join(', ')}`
+    );
+  }
 
   await cacheStage(stage.id, downloadedFiles);
   onProgress?.(100, `${stage.displayName} ready`);

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import CharacterSelect, {
   type GameMode,
   type Difficulty,
@@ -9,6 +9,7 @@ import StageSelect from '@/components/StageSelect';
 import RotateOverlay from '@/components/RotateOverlay';
 import { useWipeNavigation } from '@/components/WipeTransition';
 import { useIsTouchDevice } from '@/lib/use-touch-device';
+import { setConfigValue } from '@/lib/ikemen-config';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -40,6 +41,19 @@ const DIFFICULTY_TO_AI: Record<Difficulty, number> = {
 };
 
 // ---------------------------------------------------------------------------
+// Resolution toggle: maps the 3-preset toggle to GameWidth/GameHeight.
+// These are written to localStorage config.ini (the authoritative source)
+// via setConfigValue, NOT passed as URL params. vfs.js picks them up via
+// restorePersisted() on next boot.
+// ---------------------------------------------------------------------------
+
+const ASPECT_TO_RESOLUTION: Record<Aspect, { w: number; h: number }> = {
+  'low':  { w: 320, h: 240 },  // 480p low — fastest
+  '4:3':  { w: 640, h: 480 },  // 4:3 standard
+  '16:9': { w: 1280, h: 720 }, // 16:9 HD
+};
+
+// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
@@ -51,6 +65,19 @@ export default function LocalPlayPage() {
   const [lockIn, setLockIn] = useState<LockInResult | null>(null);
   const [aspect, setAspect] = useState<Aspect>('4:3');
   const [fillMode, setFillMode] = useState<'fill' | 'fixed'>('fill');
+
+  // ---- When the RES toggle changes, write it to the authoritative config ----
+  // This makes the /local RES toggle a "quick set" shortcut that writes to
+  // the same localStorage config the Settings UI writes to. No separate
+  // URL param — Settings UI is the single source of truth.
+  const handleAspectChange = useCallback((newAspect: Aspect) => {
+    setAspect(newAspect);
+    const { w, h } = ASPECT_TO_RESOLUTION[newAspect];
+    // Fire and forget — if localStorage is unavailable, the engine falls
+    // back to shipped defaults (1280×720), which is acceptable.
+    setConfigValue('Video', 'GameWidth', String(w));
+    setConfigValue('Video', 'GameHeight', String(h));
+  }, []);
 
   // ---- Character lock-in: save state, advance to stage select ----
   const handleLockIn = useCallback(
@@ -68,6 +95,9 @@ export default function LocalPlayPage() {
   );
 
   // ---- Stage selected: build URL params and navigate to /play ----
+  // NOTE: 'aspect' is NOT passed as a URL param anymore — the RES toggle
+  // wrote it to localStorage config, which vfs.js reads on boot. Only
+  // 'fill' (CSS-only display mode) is passed as a URL param.
   const handleStageSelect = useCallback(
     (stageId: string) => {
       if (!lockIn) return;
@@ -76,7 +106,6 @@ export default function LocalPlayPage() {
       params.set('p1', lockIn.p1Id);
       params.set('p2', lockIn.p2Id);
       params.set('stage', stageId);
-      params.set('aspect', aspect);
       params.set('fill', fillMode);
 
       switch (lockIn.mode) {
@@ -108,7 +137,7 @@ export default function LocalPlayPage() {
 
       navigate(`/play?${params.toString()}`);
     },
-    [lockIn, aspect, fillMode, navigate]
+    [lockIn, fillMode, navigate]
   );
 
   // ---- Cancel handlers ----
@@ -120,7 +149,7 @@ export default function LocalPlayPage() {
     setScreen('select');
   }, []);
 
-  // ---- Aspect ratio toggle (preserved from previous design) ----
+  // ---- Aspect ratio toggle (writes to localStorage, NOT URL) ----
   const aspectButtons: { id: Aspect; label: string; hint: string }[] = [
     { id: 'low', label: '480p', hint: '320×240 · fastest' },
     { id: '4:3', label: '4:3', hint: '640×480 · balanced' },
@@ -160,7 +189,7 @@ export default function LocalPlayPage() {
         <button
           key={r.id}
           type="button"
-          onClick={() => setAspect(r.id)}
+          onClick={() => handleAspectChange(r.id)}
           title={r.hint}
           className={`cs__diff-btn${aspect === r.id ? ' cs__diff-btn--active' : ''}`}
           style={{ cursor: 'pointer' }}

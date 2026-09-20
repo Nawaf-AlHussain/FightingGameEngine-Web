@@ -104,32 +104,26 @@ function PlayPageInner() {
         const p1ai = searchParams.get('p1ai') || '0'; // 0 = human, >0 = AI level
         const training = searchParams.get('training') || '0';
         const time = searchParams.get('time') || '99';
-        const aspectParam = searchParams.get('aspect') || '4:3';
-        const fillMode = searchParams.get('fill') || 'fill'; // 'fill' or 'fixed'
-
-        // Map aspect param to resolution for vfs.js
-        // 'low' = 320×240 (fastest), '4:3' = 640×480, '16:9' = 1280×720
-        let ikemenAspect: any;
-        if (aspectParam === '16:9') ikemenAspect = '16:9';
-        else if (aspectParam === 'low') ikemenAspect = { w: 320, h: 240 };
-        else ikemenAspect = '4:3'; // default
+        // NOTE: 'aspect' URL param is no longer used. Resolution is controlled
+        // by the Settings UI (or /local RES toggle) via localStorage config.ini,
+        // which vfs.js reads on boot. This is the single source of truth.
+        const fillMode = searchParams.get('fill') || 'fill'; // 'fill' or 'fixed' (CSS only)
 
         log(`Match: P1=${p1} vs P2=${p2}${p2ai ? ` (CPU lv${p2ai})` : ''}`);
         log(`Stage: ${stage}`);
-        log(`Aspect: ${aspectParam} → ${typeof ikemenAspect === 'object' ? `${ikemenAspect.w}×${ikemenAspect.h}` : ikemenAspect}`);
 
-        // --- 0. Install keyboard bridge BEFORE anything else ---
-        const g = globalThis as any;
-        g.__ikemenKeyDown = [];
-        g.__ikemenKeyUp = [];
-
+        // --- 0. Install keyboard preventDefault handler ---
+        // The engine listens for native keydown/keyup on document (via
+        // system_js.go's addEventListener). We intercept at the window
+        // level (capture phase) ONLY to call preventDefault on game keys
+        // so the browser doesn't fire shortcuts (Ctrl+W, F5, backspace
+        // navigation, etc.). We do NOT push to any array — the old
+        // __ikemenKeyDown/__ikemenKeyUp poll-based bridge was dead code
+        // (the engine never read it).
         const heldKeys = new Set<string>();
 
         onKeyDown = (e: KeyboardEvent) => {
-          if (!heldKeys.has(e.code)) {
-            heldKeys.add(e.code);
-            g.__ikemenKeyDown.push(e.code);
-          }
+          heldKeys.add(e.code);
           if (
             e.code.startsWith('Arrow') ||
             e.code.startsWith('Key') ||
@@ -148,17 +142,15 @@ function PlayPageInner() {
         };
 
         onKeyUp = (e: KeyboardEvent) => {
-          if (heldKeys.has(e.code)) {
-            heldKeys.delete(e.code);
-            g.__ikemenKeyUp.push(e.code);
-          }
+          heldKeys.delete(e.code);
         };
 
         window.addEventListener('keydown', onKeyDown, true);
         window.addEventListener('keyup', onKeyUp, true);
-        log('Keyboard bridge installed.');
+        log('Keyboard preventDefault installed.');
 
         // --- 1. Pin devicePixelRatio to 1 (glfw-js expects this) ---
+        const g = globalThis as any;
         Object.defineProperty(window, 'devicePixelRatio', {
           value: 1, writable: false, configurable: true,
         });
@@ -213,10 +205,13 @@ function PlayPageInner() {
           }
         }
 
-        // --- 6. Set aspect ratio for VFS config patching ---
-        // Lower resolutions render fewer pixels → faster gameplay.
-        // 'low' (320×240) is 16x fewer pixels than 16:9 (1280×720).
-        (g as any).ikemenAspect = ikemenAspect;
+        // --- 6. Resolution is controlled by Settings UI / localStorage ---
+        // Previously, /play set globalThis.ikemenAspect here, and vfs.js
+        // used it to overwrite GameWidth/GameHeight in config.ini. Now that
+        // Settings UI is authoritative (vfs.js no longer overwrites), we
+        // don't set ikemenAspect at all. The engine boots with whatever
+        // GameWidth/GameHeight is in localStorage config.ini (set by the
+        // Settings UI or the /local RES toggle).
 
         // --- 7. PARALLEL LOAD: VFS (.pak) + WASM simultaneously ---
         // Both downloads start at the same time instead of sequentially.

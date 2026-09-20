@@ -47,9 +47,9 @@
 
 ### Remaining (minor)
 - [ ] Disable native pause menu (EscOpensMenu=0 in config.ini)
-- [ ] Add Escape key to quit fight (navigate back to /local)
-- [ ] Clone the Persona 5 UI from FightingGameEngine-Demo
-- [ ] Touch controls for mobile
+- [x] Add Escape key to quit fight (navigate back to /local) — done via touch exit button + synthetic Escape keydown
+- [x] Clone the Persona 5 UI from FightingGameEngine-Demo — done (lobby, character select, stage select, wipe transition)
+- [x] Touch controls for mobile — done (8-direction D-pad, 6 action buttons, Start, capture flow, reads from config.ini)
 
 ---
 
@@ -63,21 +63,23 @@
 - [x] Browser caching of CDN files (force-cache)
 
 ### Remaining (minor)
-- [ ] Character download progress bar in UI (currently only in boot log)
-- [ ] IndexedDB caching of downloaded characters (for offline repeat play)
+- [x] Character download progress bar in UI — done (per-card progress in CharacterSelect)
+- [x] IndexedDB caching of downloaded characters — done (character-cache.ts + character-downloader.ts, transactional)
 - [ ] Fix case-sensitivity issues in Assets repo (F-006)
 
 ---
 
-## Phase 3 — UI Polish (NOT STARTED)
+## Phase 3 — UI Polish (MOSTLY COMPLETE)
 
-- [ ] Title/lobby screen (from Demo repo design)
-- [ ] Wipe transition between screens
+- [x] Title/lobby screen (from Demo repo design)
+- [x] Wipe transition between screens
 - [ ] Fight HUD (lifebars, timer, round indicator)
 - [ ] Character portraits on select screen
 - [ ] Move list display
 - [ ] Sound effects for UI
-- [ ] Settings/options screen
+- [x] Settings/options screen — done (9-tab React settings menu at /settings, all IKEMEN GO config options, keyboard remapping with capture flow)
+- [x] Mobile responsive UI — done (tap-to-lock character select, touch controls, rotate overlay, mobile-responsive CSS)
+- [x] Keyboard remapping — done (KEYS tab in settings, capture flow, conflict detection, stale binding detection)
 
 ---
 
@@ -173,20 +175,16 @@ GOEXPERIMENT=arenas GOWASM=satconv,signext GOOS=js GOARCH=wasm CGO_ENABLED=0 \
 
 ---
 
-## Phase 3 — UI Polish
+## Phase 3 — UI Polish (DONE — see top of file for completed items)
 
-- [ ] Title/lobby screen (from Demo repo design)
-- [ ] Wipe transition between screens
+The items below were the original Phase 3 plan. Most are now complete — see the "Phase 3 — UI Polish (MOSTLY COMPLETE)" section above for the current status. Remaining:
+
 - [ ] Fight HUD (lifebars, timer, round indicator, names)
   - Note: IKEMEN GO renders these natively, so may just need CSS overlay
 - [ ] Character portraits on select screen
   - Extract from SFF or use pre-rendered images
 - [ ] Move list display
 - [ ] Sound effects for UI (from Demo repo's `useSoundEffects`)
-- [ ] Settings/options screen
-  - Resolution (4:3 vs 16:9)
-  - Audio volume
-  - Key bindings
 
 ---
 
