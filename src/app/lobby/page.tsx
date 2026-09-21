@@ -1,34 +1,57 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useWipeNavigation } from '@/components/WipeTransition';
+import { GameButton } from '@/components/ui';
+
+/**
+ * Lobby / Title Screen
+ *
+ * The main entry point for the game. Shows the title, a menu of real
+ * destinations, and contextual hints.
+ *
+ * Menu items:
+ * - LOCAL PLAY → /local (character select → stage select → fight)
+ * - SETTINGS → /settings (engine config, key remapping)
+ * - ABOUT → /about (project info)
+ *
+ * Keyboard:
+ * - Enter / Space → LOCAL PLAY
+ * - S → SETTINGS
+ * - A → ABOUT
+ */
 
 export default function LobbyPage() {
   const { navigate } = useWipeNavigation();
   const [glow, setGlow] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState(0);
+
+  const menuItems = [
+    { label: 'LOCAL PLAY', action: () => navigate('/local'), key: 'Enter' },
+    { label: 'SETTINGS', action: () => navigate('/settings'), key: 'S' },
+    { label: 'ABOUT', action: () => navigate('/about'), key: 'A' },
+  ];
 
   useEffect(() => {
     const interval = setInterval(() => setGlow(g => !g), 2000);
     return () => clearInterval(interval);
   }, []);
 
-  const handleStart = () => {
-    navigate('/local');
-  };
-
-  const handleSettings = () => {
-    navigate('/settings');
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
-      handleStart();
+      menuItems[selectedIndex].action();
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+      e.preventDefault();
+      setSelectedIndex(i => (i + 1) % menuItems.length);
+    } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+      e.preventDefault();
+      setSelectedIndex(i => (i - 1 + menuItems.length) % menuItems.length);
     } else if (e.key === 's' || e.key === 'S') {
       e.preventDefault();
-      handleSettings();
+      navigate('/settings');
     }
-  };
+  }, [selectedIndex, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <main
@@ -65,26 +88,24 @@ export default function LobbyPage() {
         <div className="lobby__title-sub">ENGINE · WASM · 60FPS</div>
       </div>
 
-      {/* PRESS START button (angular clip-path from CSS) */}
-      <button
-        type="button"
-        className="lobby__start-btn"
-        onClick={handleStart}
-        style={{ zIndex: 1 }}
-      >
-        PRESS START
-      </button>
-
-      {/* SETTINGS button — sits below PRESS START, smaller secondary style */}
-      <button
-        type="button"
-        className="lobby__settings-btn"
-        onClick={handleSettings}
-        style={{ zIndex: 1 }}
-        aria-label="Open settings"
-      >
-        ⚙ SETTINGS
-      </button>
+      {/* Menu */}
+      <div className="lobby__menu" style={{ zIndex: 1 }}>
+        {menuItems.map((item, i) => (
+          <button
+            key={item.label}
+            type="button"
+            className={`lobby__menu-item${selectedIndex === i ? ' lobby__menu-item--selected' : ''}`}
+            onClick={item.action}
+            onMouseEnter={() => setSelectedIndex(i)}
+            aria-label={item.label}
+          >
+            <span className="lobby__menu-item-arrow">
+              {selectedIndex === i ? '▶' : ' '}
+            </span>
+            <span className="lobby__menu-item-label">{item.label}</span>
+          </button>
+        ))}
+      </div>
 
       {/* Controls hint */}
       <div
@@ -95,11 +116,13 @@ export default function LobbyPage() {
           zIndex: 1,
         }}
       >
-        <div>P1: <span>WASD</span> move · <span>U I O</span> punches · <span>J K L</span> kicks</div>
-        <div style={{ marginTop: '0.25rem' }}>
-          Press <span>ENTER</span> or click START to begin · <span>S</span> for settings
+        <div>
+          <span>↑↓</span> navigate · <span>ENTER</span> select · <span>S</span> settings
         </div>
       </div>
+
+      {/* Version */}
+      <div className="lobby__version">v1.0 WEB</div>
 
       {/* Footer credit */}
       <div className="footer-credit">Made by Nawaf Al Hussain</div>
