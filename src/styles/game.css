@@ -1590,3 +1590,278 @@ body.fighting {
   .settings__title-main { font-size: 1.25rem; }
   .settings__row-name { font-size: 0.75rem; }
 }
+
+/* ========================================
+   PROGRESS SCREEN (between fights)
+   ======================================== */
+.progress {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  padding: 2rem;
+}
+.progress__bg-grid {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  opacity: 0.4;
+  pointer-events: none;
+}
+.progress__loading {
+  font-size: 1rem;
+  letter-spacing: 0.2em;
+  color: var(--gray);
+}
+.progress__content {
+  text-align: center;
+  z-index: 1;
+  max-width: 500px;
+}
+.progress__mode {
+  font-size: 0.8rem;
+  letter-spacing: 0.4em;
+  color: var(--cyan);
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+}
+.progress__title {
+  font-size: clamp(2.5rem, 6vw, 4rem);
+  font-weight: 900;
+  font-style: italic;
+  text-transform: uppercase;
+  color: var(--white);
+  -webkit-text-stroke: 2px var(--black);
+  paint-order: stroke fill;
+  text-shadow: 4px 4px 0 var(--red);
+  margin-bottom: 0.5rem;
+  animation: progressTitleIn 0.5s ease-out;
+}
+@keyframes progressTitleIn {
+  from { opacity: 0; transform: scale(0.5); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.progress__subtitle {
+  font-size: 1rem;
+  letter-spacing: 0.3em;
+  color: var(--gray);
+  margin-bottom: 2rem;
+}
+.progress__stats {
+  display: flex;
+  justify-content: center;
+  gap: 2rem;
+  margin-bottom: 2rem;
+}
+.progress__stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+}
+.progress__stat-label {
+  font-size: 0.65rem;
+  letter-spacing: 0.2em;
+  color: var(--gray);
+  font-weight: 600;
+}
+.progress__stat-value {
+  font-size: 2rem;
+  font-weight: 900;
+  color: var(--white);
+  font-family: var(--font-mono);
+}
+.progress__next {
+  background: rgba(26,26,26,0.6);
+  border: 1px solid var(--gray-dark);
+  padding: 1rem 2rem;
+  margin-bottom: 1.5rem;
+  clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
+}
+.progress__next-label {
+  font-size: 0.65rem;
+  letter-spacing: 0.2em;
+  color: var(--gray);
+  margin-bottom: 0.25rem;
+}
+.progress__next-name {
+  font-size: 1.5rem;
+  font-weight: 900;
+  color: var(--cyan);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+.progress__countdown {
+  font-size: 0.85rem;
+  color: var(--gold);
+  letter-spacing: 0.15em;
+  margin-bottom: 1.5rem;
+  font-family: var(--font-mono);
+}
+.progress__buttons {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+}
+.progress__btn {
+  padding: 0.7rem 2rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  border: none;
+  clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
+  cursor: pointer;
+  font-family: var(--font-display);
+  transition: all 0.15s;
+}
+.progress__btn--quit {
+  background: transparent;
+  color: var(--gray);
+  border: 1px solid var(--gray-dark);
+}
+.progress__btn--quit:hover {
+  color: var(--white);
+  border-color: var(--white);
+}
+.progress__btn--next {
+  background: var(--red);
+  color: var(--white);
+  box-shadow: 4px 4px 0 var(--black-soft);
+}
+.progress__btn--next:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0 var(--black-soft);
+}
+
+/* ========================================
+   RESULTS SCREEN (victory/defeat)
+   ======================================== */
+.results {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  padding: 2rem;
+}
+.results__bg-grid {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  opacity: 0.4;
+  pointer-events: none;
+}
+.results__content {
+  text-align: center;
+  z-index: 1;
+  max-width: 500px;
+}
+.results__mode {
+  font-size: 0.8rem;
+  letter-spacing: 0.4em;
+  color: var(--cyan);
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+}
+.results__title {
+  font-size: clamp(3rem, 8vw, 5rem);
+  font-weight: 900;
+  font-style: italic;
+  text-transform: uppercase;
+  -webkit-text-stroke: 2px var(--black);
+  paint-order: stroke fill;
+  margin-bottom: 2rem;
+  animation: resultsTitleIn 0.6s ease-out;
+}
+@keyframes resultsTitleIn {
+  from { opacity: 0; transform: scale(0.3) rotate(-5deg); }
+  to   { opacity: 1; transform: scale(1) rotate(0); }
+}
+.results__title--win {
+  color: var(--white);
+  text-shadow: 4px 4px 0 var(--red);
+}
+.results__title--lose {
+  color: var(--red);
+  text-shadow: 4px 4px 0 var(--black);
+}
+.results__stats {
+  display: flex;
+  justify-content: center;
+  gap: 2rem;
+  margin-bottom: 2rem;
+}
+.results__stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+}
+.results__stat-label {
+  font-size: 0.65rem;
+  letter-spacing: 0.2em;
+  color: var(--gray);
+  font-weight: 600;
+}
+.results__stat-value {
+  font-size: 2.5rem;
+  font-weight: 900;
+  color: var(--white);
+  font-family: var(--font-mono);
+}
+.results__buttons {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.results__btn {
+  padding: 0.8rem 2rem;
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  border: none;
+  clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
+  cursor: pointer;
+  font-family: var(--font-display);
+  transition: all 0.15s;
+}
+.results__btn--again {
+  background: var(--red);
+  color: var(--white);
+  box-shadow: 4px 4px 0 var(--black-soft);
+}
+.results__btn--again:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0 var(--black-soft);
+}
+.results__btn--lobby {
+  background: transparent;
+  color: var(--gray);
+  border: 1px solid var(--gray-dark);
+}
+.results__btn--lobby:hover {
+  color: var(--white);
+  border-color: var(--white);
+}
+
+/* Mobile responsive for progress + results */
+@media (max-width: 768px) {
+  .progress__stats, .results__stats {
+    gap: 1rem;
+  }
+  .progress__stat-value, .results__stat-value {
+    font-size: 1.5rem;
+  }
+  .progress__buttons, .results__buttons {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .progress__btn, .results__btn {
+    width: 100%;
+    padding: 0.8rem 1.5rem;
+  }
+}
