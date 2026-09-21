@@ -164,18 +164,38 @@ function PlayPageInner() {
           document.head.appendChild(style);
           document.body.classList.add('fighting');
 
-          const observer = new MutationObserver(() => { fitCanvasToViewport(); });
-          observer.observe(document.body, { childList: true, subtree: true });
+          // Do not observe the whole document while the engine is running.
+          // IKEMEN/wasm and the touch overlay can mutate the DOM frequently;
+          // a subtree MutationObserver would turn unrelated DOM changes into
+          // canvas layout work. The canvas is created during engine startup,
+          // so wait for it with a short rAF bootstrap loop, then only react to
+          // actual viewport changes.
+          let rafId = 0;
+          let resizeQueued = false;
 
-          const onResize = () => fitCanvasToViewport();
+          const fitOnNextFrame = () => {
+            if (resizeQueued) return;
+            resizeQueued = true;
+            rafId = requestAnimationFrame(() => {
+              resizeQueued = false;
+              fitCanvasToViewport();
+            });
+          };
+
+          const waitForCanvas = () => {
+            if (fitCanvasToViewport()) return;
+            rafId = requestAnimationFrame(waitForCanvas);
+          };
+
+          const onResize = () => fitOnNextFrame();
           window.addEventListener('resize', onResize);
           window.visualViewport?.addEventListener('resize', onResize);
           window.visualViewport?.addEventListener('scroll', onResize);
 
-          fitCanvasToViewport();
+          waitForCanvas();
 
           return () => {
-            observer.disconnect();
+            if (rafId) cancelAnimationFrame(rafId);
             window.removeEventListener('resize', onResize);
             window.visualViewport?.removeEventListener('resize', onResize);
             window.visualViewport?.removeEventListener('scroll', onResize);
