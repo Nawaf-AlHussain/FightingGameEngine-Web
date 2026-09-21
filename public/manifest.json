@@ -1,0 +1,12 @@
+{
+  "name": "Fighting Game Engine",
+  "short_name": "Fighting Game Engine",
+  "description": "Browser-based MUGEN fighting game powered by IKEMEN GO.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "landscape",
+  "background_color": "#000000",
+  "theme_color": "#000000"
+}
