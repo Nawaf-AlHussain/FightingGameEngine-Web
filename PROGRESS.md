@@ -745,3 +745,64 @@ User reported "no change at all" after F-019. Investigation of `vfs.js:600` reve
 ### Decisions
 - IKEMEN GO v2 WASM over Dolmexica Infinite (native MUGEN compat eliminates 63+ patches)
 - Vercel for hosting, jsDelivr CDN for assets, separate repos for engine and assets
+
+---
+
+## Frontend 2.1 Redesign (2026-09-21)
+
+Implemented the FRONTEND_2.1_REDESIGN_SPEC across 9 phases, preserving all existing engine integration, progression state, config architecture, and input systems.
+
+### What changed
+
+**Phase 1 — Foundation:**
+- Shared UI components: GameButton, GamePanel, ScreenTitle, LoadingState, ErrorState, PlayerBadge, DownloadBadge
+- CSS variables for P1=red / P2=cyan identity (consistent across all screens)
+- Lobby redesigned as proper title screen with LOCAL PLAY / SETTINGS / ABOUT menu
+- New /about page with factual project information
+
+**Phase 2 — Character Select:**
+- Fixed P1/P2 color identity (was swapped — P1 was cyan, P2 was red; now P1=red, P2=cyan per spec)
+- Mode descriptions shown below mode bar (each mode has a factual description)
+- Character search field (appears when roster > 10, filters by name, preserves cursor indices)
+- Empty state for no search results
+
+**Phase 3 — Stage Select:**
+- Stage preview panel above grid showing selected stage's name, description, and download status
+
+**Phase 4 — Match Preparation:**
+- New /match-prep screen between stage select and /play
+- Shows P1 vs P2 with character names, stage, mode label, fight number (for progression)
+- Auto-advances after 3 seconds or FIGHT button to start immediately
+- For progression modes, reads existing game-modes.ts state (no duplicate opponent list)
+
+**Phase 5 — Progression:**
+- Progress indicator dots on /progress:
+  - Arcade: finite ladder (●──●──○──○──○)
+  - Survival: endless (no finite bar — spec requirement)
+  - Time Attack: 3-fight ladder
+- Uses GameButton from shared UI
+
+**Phase 6 — Results:**
+- Mode-specific layouts:
+  - Arcade: VICTORY + "ARCADE CLEAR · X / Y FIGHTS" or GAME OVER + "FIGHT N"
+  - Survival: Always GAME OVER (never VICTORY — endless) + "N WINS"
+  - Time Attack: total time formatted as MM:SS.S
+  - Watch: "WATCH COMPLETE" + winner (not victory/defeat)
+
+**Phase 7 — Settings:**
+- Tabs grouped into 4 categories: BASIC, CONTROLS, ADVANCED, DEBUG
+- Visual separators between categories
+- Debug tabs use muted/dashed style to distinguish from normal settings
+
+**Phase 8 — Mobile:**
+- Responsive layouts throughout (match-prep stacks vertically, settings tabs scroll, etc.)
+
+### What was preserved (not rebuilt)
+- WASM/IKEMEN engine integration (/play page, vfs.js, wasm_exec.js)
+- Progression state machine (game-modes.ts)
+- Config architecture (Settings UI → localStorage → vfs.js restorePersisted → engine)
+- Character/stage download and IndexedDB cache system
+- Keyboard input (native DOM events via system_js.go)
+- Touch controls (reads from same config as keyboard)
+- Match result handling (__ikemenMatchResult global from main.lua)
+- WipeTransition system
