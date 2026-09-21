@@ -10,6 +10,8 @@ import RotateOverlay from '@/components/RotateOverlay';
 import { useWipeNavigation } from '@/components/WipeTransition';
 import { useIsTouchDevice } from '@/lib/use-touch-device';
 import { loadConfig, set as setConfigKey, saveConfig } from '@/lib/ikemen-config';
+import { startMode, type ProgressionMode } from '@/lib/game-modes';
+import { getCharacters } from '@/lib/character-downloader';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -99,19 +101,59 @@ export default function LocalPlayPage() {
     []
   );
 
-  // ---- Stage selected: build URL params and navigate to /play ----
-  // NOTE: 'aspect' is NOT passed as a URL param anymore — the RES toggle
-  // wrote it to localStorage config, which vfs.js reads on boot. Only
-  // 'fill' (CSS-only display mode) is passed as a URL param.
+  // ---- Stage selected: start the fight (or mode session) ----
+  // For progression modes (arcade/survival/time-attack/watch), we:
+  //   1. Fetch the roster to generate opponents
+  //   2. Call startMode() to initialize the sessionStorage state
+  //   3. Navigate to /play with the first opponent
+  // For single-fight modes (vs-ai/vs-player/training), we just navigate
+  // to /play with the selected P2 character.
   const handleStageSelect = useCallback(
-    (stageId: string) => {
+    async (stageId: string) => {
       if (!lockIn) return;
 
+      const fillParam = fillMode;
+      const isProgressionMode = ['arcade', 'survival', 'time-attack', 'watch'].includes(lockIn.mode);
+
+      if (isProgressionMode) {
+        // Fetch roster to generate opponent ladder
+        let rosterCharIds: string[] = ['kfm'];
+        try {
+          const chars = await getCharacters();
+          rosterCharIds = chars.map(c => c.id);
+        } catch {
+          // Fallback to kfm only
+        }
+
+        const progressionMode = lockIn.mode as ProgressionMode;
+        const aiLevel = lockIn.mode === 'watch' ? 8 : DIFFICULTY_TO_AI[lockIn.difficulty];
+        const state = startMode(progressionMode, lockIn.p1Id, rosterCharIds, aiLevel);
+
+        // Build URL for the first fight
+        const params = new URLSearchParams();
+        params.set('p1', state.playerChar);
+        params.set('p2', state.opponents[0]);
+        params.set('stage', stageId);
+        params.set('p2ai', String(state.difficulty));
+        params.set('qmode', progressionMode);
+        params.set('fill', fillParam);
+        if (progressionMode === 'time-attack') {
+          params.set('time', '60');
+        }
+        if (progressionMode === 'watch') {
+          params.set('p1ai', '8');
+        }
+
+        navigate(`/play?${params.toString()}`);
+        return;
+      }
+
+      // Single-fight modes: vs-ai, vs-player, training
       const params = new URLSearchParams();
       params.set('p1', lockIn.p1Id);
       params.set('p2', lockIn.p2Id);
       params.set('stage', stageId);
-      params.set('fill', fillMode);
+      params.set('fill', fillParam);
 
       switch (lockIn.mode) {
         case 'vs-ai':
@@ -123,20 +165,6 @@ export default function LocalPlayPage() {
         case 'training':
           params.set('training', '1');
           params.set('p2ai', '0');
-          break;
-        case 'arcade':
-          params.set('p2ai', '5');
-          break;
-        case 'survival':
-          params.set('p2ai', '5');
-          break;
-        case 'time-attack':
-          params.set('p2ai', '5');
-          params.set('time', '60');
-          break;
-        case 'watch':
-          params.set('p1ai', '8');
-          params.set('p2ai', '8');
           break;
       }
 
