@@ -329,6 +329,32 @@ export default function StageSelect({ onSelect, onCancel }: StageSelectProps) {
         </div>
       </div>
 
+      {/* Selected stage preview panel */}
+      {selectedStage && !loading && (
+        <div className="ss__preview">
+          <div className="ss__preview-portrait">
+            <span>{selectedStage.displayName.charAt(0).toUpperCase()}</span>
+          </div>
+          <div className="ss__preview-info">
+            <div className="ss__preview-name">{selectedStage.displayName}</div>
+            {selectedStage.description && (
+              <div className="ss__preview-desc">{selectedStage.description}</div>
+            )}
+            <div className="ss__preview-status">
+              {selectedStage.bundled ? (
+                <span style={{ color: 'var(--green)' }}>✓ READY · BUNDLED</span>
+              ) : selectedReady ? (
+                <span style={{ color: 'var(--green)' }}>✓ READY</span>
+              ) : selectionStatus ? (
+                <span style={{ color: 'var(--gold)' }}>{selectionStatus}</span>
+              ) : (
+                <span style={{ color: 'var(--gray)' }}>—</span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Stage grid */}
       <div className="ss__grid" role="grid" aria-label="Stage list">
         {loading && (
