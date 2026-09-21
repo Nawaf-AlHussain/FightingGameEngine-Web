@@ -144,7 +144,7 @@ export default function LocalPlayPage() {
           params.set('p1ai', '8');
         }
 
-        navigate(`/play?${params.toString()}`);
+        navigate(`/match-prep?${params.toString()}`);
         return;
       }
 
@@ -168,7 +168,7 @@ export default function LocalPlayPage() {
           break;
       }
 
-      navigate(`/play?${params.toString()}`);
+      navigate(`/match-prep?${params.toString()}`);
     },
     [lockIn, fillMode, navigate]
   );
