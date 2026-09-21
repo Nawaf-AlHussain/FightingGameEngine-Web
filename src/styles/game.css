@@ -1577,7 +1577,7 @@ body.fighting {
   margin-top: 0.25rem;
 }
 
-/* Tabs */
+/* Tabs — grouped by category */
 .settings__tabs {
   display: flex;
   gap: 4px;
@@ -1585,6 +1585,26 @@ body.fighting {
   justify-content: center;
   margin-bottom: 0.75rem;
   z-index: 1;
+}
+.settings__tab-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.settings__tab-group + .settings__tab-group::before {
+  content: '';
+  width: 1px;
+  height: 20px;
+  background: var(--gray-dark);
+  margin: 0 6px;
+}
+.settings__tab-category {
+  font-size: 0.55rem;
+  letter-spacing: 0.2em;
+  color: var(--gray-dark);
+  font-weight: 600;
+  margin-right: 4px;
+  text-transform: uppercase;
 }
 .settings__tab {
   padding: 0.4rem 0.85rem;
@@ -1608,6 +1628,21 @@ body.fighting {
   background: var(--red);
   color: var(--white);
   border-color: var(--red);
+}
+.settings__tab--debug {
+  color: var(--gray-dark);
+  border-color: var(--gray-dark);
+  border-style: dashed;
+}
+.settings__tab--debug:hover {
+  color: var(--gray);
+  border-color: var(--gray);
+}
+.settings__tab--debug.settings__tab--active {
+  background: var(--gray-dark);
+  color: var(--white);
+  border-color: var(--gray-dark);
+  border-style: solid;
 }
 
 /* Body */
@@ -2118,6 +2153,35 @@ body.fighting {
   text-transform: uppercase;
   letter-spacing: 0.1em;
 }
+/* Progress dots indicator */
+.progress__dots {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  margin-bottom: 1.5rem;
+  font-size: 1.2rem;
+  font-family: var(--font-mono);
+}
+.progress__dot-group {
+  display: inline-flex;
+  align-items: center;
+}
+.progress__dot {
+  display: inline-block;
+  transition: color 0.2s;
+}
+.progress__dot--done { color: var(--green); }
+.progress__dot--current { color: var(--gold); animation: dotPulse 1s ease-in-out infinite; }
+@keyframes dotPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.2); }
+}
+.progress__dot-line {
+  color: var(--gray-dark);
+  margin: 0 2px;
+}
+
 .progress__countdown {
   font-size: 0.85rem;
   color: var(--gold);
@@ -2212,6 +2276,15 @@ body.fighting {
 .results__title--lose {
   color: var(--red);
   text-shadow: 4px 4px 0 var(--black);
+}
+.results__subtitle {
+  font-size: 0.9rem;
+  letter-spacing: 0.2em;
+  color: var(--gray);
+  font-weight: 600;
+  text-transform: uppercase;
+  margin-top: -1rem;
+  margin-bottom: 2rem;
 }
 .results__stats {
   display: flex;

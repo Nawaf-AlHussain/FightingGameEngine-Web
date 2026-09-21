@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { useWipeNavigation } from '@/components/WipeTransition';
+import { GameButton } from '@/components/ui';
 import { getCurrentModeState, buildNextFightUrl, clearModeState, type ModeState } from '@/lib/game-modes';
 
 /**
@@ -11,6 +12,12 @@ import { getCurrentModeState, buildNextFightUrl, clearModeState, type ModeState 
  * auto-navigates to /play with the next opponent after a few seconds.
  * The user can also click "NEXT FIGHT" to advance immediately, or "QUIT"
  * to abandon the run and return to character select.
+ *
+ * Progress indicators (Section 23):
+ * - Arcade: dot ladder (●──●──○──○──○) showing completed fights
+ * - Survival: endless dots (no finite bar — spec: "Do not fabricate a
+ *   finite progress bar for Survival")
+ * - Time Attack: fight X of 3 + elapsed time
  */
 export default function ProgressPage() {
   const { navigate } = useWipeNavigation();
@@ -21,18 +28,15 @@ export default function ProgressPage() {
   useEffect(() => {
     const s = getCurrentModeState();
     if (!s) {
-      // No mode state — go back to select
       navigate('/local');
       return;
     }
     setState(s);
   }, [navigate]);
 
-  // Auto-advance countdown
   useEffect(() => {
     if (!state) return;
     if (countdown <= 0) {
-      // Navigate to next fight
       if (!navigatedRef.current) {
         navigatedRef.current = true;
         const url = buildNextFightUrl(state, 'stages/stage0-720.def');
@@ -72,9 +76,65 @@ export default function ProgressPage() {
   }[state.mode] || state.mode.toUpperCase();
 
   const isSurvival = state.mode === 'survival';
+  const isArcade = state.mode === 'arcade';
+  const isTimeAttack = state.mode === 'time-attack';
   const fightLabel = isSurvival
     ? `FIGHT ${state.fightNumber}`
     : `FIGHT ${state.fightNumber} OF ${state.totalFights}`;
+
+  // Progress indicator dots
+  const renderProgressDots = () => {
+    if (isArcade) {
+      // Finite ladder: ●──●──○──○──○
+      return (
+        <div className="progress__dots">
+          {Array.from({ length: state.totalFights }, (_, i) => (
+            <span key={i} className={`progress__dot${i < state.wins ? ' progress__dot--done' : ''}${i === state.fightNumber - 1 ? ' progress__dot--current' : ''}`}>
+              {i < state.wins ? '●' : i === state.fightNumber - 1 ? '◉' : '○'}
+            </span>
+          )).map((dot, i, arr) => (
+            <span key={i} className="progress__dot-group">
+              {dot}
+              {i < arr.length - 1 && <span className="progress__dot-line">─</span>}
+            </span>
+          ))}
+        </div>
+      );
+    }
+    if (isSurvival) {
+      // Endless: show last 8 wins as dots, no finite bar
+      const recentWins = Math.min(state.wins, 8);
+      return (
+        <div className="progress__dots">
+          {Array.from({ length: recentWins }, (_, i) => (
+            <span key={i} className="progress__dot-group">
+              <span className="progress__dot progress__dot--done">●</span>
+              {i < recentWins - 1 && <span className="progress__dot-line">─</span>}
+            </span>
+          ))}
+          <span className="progress__dot-group">
+            <span className="progress__dot progress__dot--current">◉</span>
+          </span>
+        </div>
+      );
+    }
+    if (isTimeAttack) {
+      // 3-fight ladder
+      return (
+        <div className="progress__dots">
+          {Array.from({ length: state.totalFights }, (_, i) => (
+            <span key={i} className="progress__dot-group">
+              <span className={`progress__dot${i < state.wins ? ' progress__dot--done' : ''}${i === state.fightNumber - 1 ? ' progress__dot--current' : ''}`}>
+                {i < state.wins ? '●' : i === state.fightNumber - 1 ? '◉' : '○'}
+              </span>
+              {i < state.totalFights - 1 && <span className="progress__dot-line">─</span>}
+            </span>
+          ))}
+        </div>
+      );
+    }
+    return null;
+  };
 
   return (
     <main className="progress bg-grid">
@@ -85,6 +145,9 @@ export default function ProgressPage() {
 
         <h1 className="progress__title">VICTORY!</h1>
         <div className="progress__subtitle">{fightLabel}</div>
+
+        {/* Progress indicator */}
+        {renderProgressDots()}
 
         <div className="progress__stats">
           <div className="progress__stat">
@@ -97,7 +160,7 @@ export default function ProgressPage() {
               <span className="progress__stat-value">{state.losses}</span>
             </div>
           )}
-          {state.mode === 'time-attack' && (
+          {isTimeAttack && (
             <div className="progress__stat">
               <span className="progress__stat-label">TIME</span>
               <span className="progress__stat-value">{state.totalTime.toFixed(1)}s</span>
@@ -117,12 +180,12 @@ export default function ProgressPage() {
         </div>
 
         <div className="progress__buttons">
-          <button type="button" className="progress__btn progress__btn--quit" onClick={handleQuit}>
+          <GameButton variant="danger" onClick={handleQuit}>
             QUIT
-          </button>
-          <button type="button" className="progress__btn progress__btn--next" onClick={handleNext}>
+          </GameButton>
+          <GameButton variant="primary" onClick={handleNext}>
             NEXT FIGHT ►
-          </button>
+          </GameButton>
         </div>
       </div>
     </main>
