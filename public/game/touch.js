@@ -77,8 +77,8 @@
       const raw = localStorage.getItem("ikemen-vfs12:save/config.ini");
       if (!raw) return bindings;
       const text = atob(raw);
-      // Extract [Keys_P1] section
-      const m = text.match(/\[Keys_P1\]([\s\S]*?)(?:\n\[|$)/);
+      // Extract [Keys_P1] section (case-insensitive section name match)
+      const m = text.match(/\[Keys_P1\]([\s\S]*?)(?:\n\[|$)/i);
       if (!m) return bindings;
       const lines = m[1].trim().split("\n");
       for (const line of lines) {
@@ -86,8 +86,12 @@
         if (eq === -1) continue;
         const key = line.slice(0, eq).trim();
         const val = line.slice(eq + 1).trim();
-        if (bindings.hasOwnProperty(key) && INI_KEY_TO_CODE[val]) {
-          bindings[key] = INI_KEY_TO_CODE[val];
+        // Match case-insensitively against the binding names
+        // (shipped config uses 'Up'/'A', some persisted configs use 'up'/'a')
+        for (const action of Object.keys(bindings)) {
+          if (key.toLowerCase() === action.toLowerCase() && INI_KEY_TO_CODE[val]) {
+            bindings[action] = INI_KEY_TO_CODE[val];
+          }
         }
       }
     } catch { /* localStorage unavailable or parse error — use defaults */ }
