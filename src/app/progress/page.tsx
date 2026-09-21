@@ -39,7 +39,7 @@ export default function ProgressPage() {
     if (countdown <= 0) {
       if (!navigatedRef.current) {
         navigatedRef.current = true;
-        const url = buildNextFightUrl(state, 'stages/stage0-720.def');
+        const url = buildNextFightUrl(state, state.stageId || 'stages/stage0-720.def');
         navigate(url);
       }
       return;
@@ -56,7 +56,7 @@ export default function ProgressPage() {
   const handleNext = () => {
     if (!state || navigatedRef.current) return;
     navigatedRef.current = true;
-    const url = buildNextFightUrl(state, 'stages/stage0-720.def');
+    const url = buildNextFightUrl(state, state.stageId || 'stages/stage0-720.def');
     navigate(url);
   };
 
