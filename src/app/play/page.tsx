@@ -125,7 +125,66 @@ function PlayPageInner() {
         // NOTE: 'aspect' URL param is no longer used. Resolution is controlled
         // by the Settings UI (or /local RES toggle) via localStorage config.ini,
         // which vfs.js reads on boot. This is the single source of truth.
-        const fillMode = searchParams.get('fill') || 'fill'; // 'fill' or 'fixed' (CSS only)
+        // The game canvas is always displayed with its intrinsic aspect ratio.
+        // It is fitted to the largest size that can fully fit inside the viewport;
+        // the engine's internal resolution is never changed by this display logic.
+        const fitCanvasToViewport = () => {
+          const canvas = document.querySelector('canvas#ikemen-canvas') as HTMLCanvasElement | null;
+          if (!canvas || canvas.width <= 0 || canvas.height <= 0) return false;
+
+          const viewport = window.visualViewport;
+          const viewportWidth = viewport?.width || window.innerWidth;
+          const viewportHeight = viewport?.height || window.innerHeight;
+          const aspect = canvas.width / canvas.height;
+
+          // Maximum aspect-ratio-preserving size that fits entirely in the
+          // current viewport. Wide viewports get pillarboxing on the sides;
+          // tall/narrow viewports get the equivalent top/bottom letterbox.
+          const displayWidth = Math.min(viewportWidth, viewportHeight * aspect);
+          const displayHeight = displayWidth / aspect;
+
+          canvas.style.setProperty('width', displayWidth + 'px', 'important');
+          canvas.style.setProperty('height', displayHeight + 'px', 'important');
+          canvas.style.setProperty('left', '50%', 'important');
+          canvas.style.setProperty('top', '50%', 'important');
+          canvas.style.setProperty('transform', 'translate(-50%, -50%)', 'important');
+          canvas.style.setProperty('position', 'fixed', 'important');
+          canvas.style.setProperty('max-width', 'none', 'important');
+          canvas.style.setProperty('max-height', 'none', 'important');
+          return true;
+        };
+
+        const installCanvasFit = () => {
+          const style = document.createElement('style');
+          style.id = 'ikemen-canvas-fit';
+          style.textContent = [
+            'html, body { overflow: hidden !important; }',
+            'canvas#ikemen-canvas { display: block !important; object-fit: contain !important; margin: 0 !important; }',
+          ].join('\\n');
+          document.head.appendChild(style);
+          document.body.classList.add('fighting');
+
+          const observer = new MutationObserver(() => { fitCanvasToViewport(); });
+          observer.observe(document.body, { childList: true, subtree: true });
+
+          const onResize = () => fitCanvasToViewport();
+          window.addEventListener('resize', onResize);
+          window.visualViewport?.addEventListener('resize', onResize);
+          window.visualViewport?.addEventListener('scroll', onResize);
+
+          fitCanvasToViewport();
+
+          return () => {
+            observer.disconnect();
+            window.removeEventListener('resize', onResize);
+            window.visualViewport?.removeEventListener('resize', onResize);
+            window.visualViewport?.removeEventListener('scroll', onResize);
+            document.getElementById('ikemen-canvas-fit')?.remove();
+            document.body.classList.remove('fighting');
+          };
+        };
+
+        const cleanupCanvasFit = installCanvasFit();
         const qmode = searchParams.get('qmode') || 'quickvs'; // progression mode
 
         log(`Match: P1=${p1} vs P2=${p2}${p2ai ? ` (CPU lv${p2ai})` : ''}`);
@@ -397,25 +456,9 @@ function PlayPageInner() {
         // --- 9. Build go.argv with the resolved character/stage paths ---
         log('Engine starting... (quick match, bypassing menu)');
 
-        // Apply fill mode CSS to the canvas
-        // 'fill' = stretch to fill screen (current behavior)
-        // 'fixed' = lock to 16:9, centered, no stretching on ultrawide
-        if (fillMode === 'fixed') {
-          const style = document.createElement('style');
-          style.id = 'ikemen-fill-mode';
-          style.textContent = `
-            canvas#ikemen-canvas {
-              width: 100vw !important;
-              height: auto !important;
-              max-height: 100vh !important;
-              aspect-ratio: 16 / 10 !important;
-              top: 50% !important;
-              left: 50% !important;
-              transform: translate(-50%, -50%) !important;
-            }
-          `;
-          document.head.appendChild(style);
-        }
+        // Install the display-only canvas fitter before starting the engine.
+        // It waits for the engine-created canvas, then keeps it at the maximum
+        // aspect-ratio-preserving size during browser/mobile viewport changes.
         go.argv = [
           'ikemen',
           '-qp1', p1Path,
@@ -460,6 +503,7 @@ function PlayPageInner() {
           setTimeout(() => setShowExit(true), 1500);
         }
         await go.run(result.instance);
+        cleanupCanvasFit();
 
         // Engine exited — fight is over. Read the match result and decide
         // what to do next based on the game mode.
