@@ -52,6 +52,8 @@ export interface ModeState {
   difficulty: number;
   /** Timestamp when the current fight started (ms). */
   fightStartTime: number;
+  /** The stage selected by the user (persists across all progression fights). */
+  stageId: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -109,6 +111,7 @@ export function startMode(
   playerChar: string,
   rosterCharIds: string[],
   difficulty: number = 5,
+  stageId: string = 'stages/stage0-720.def',
 ): ModeState {
   // Filter out the player's character from possible opponents
   const possibleOpponents = rosterCharIds.filter(id => id !== playerChar);
@@ -155,6 +158,7 @@ export function startMode(
     opponents,
     difficulty,
     fightStartTime: Date.now(),
+    stageId,
   };
   saveState(state);
   return state;
@@ -217,8 +221,17 @@ export function readFightResult(): FightResult | null {
 }
 
 /**
- * Clear the match result global so it doesn't leak into the next fight.
+ * Update the fight start time to NOW. Called from /play right before
+ * go.run() starts the engine, so the fight duration is measured from
+ * the actual fight start (not from when startMode was called on /local,
+ * which includes stage select + match-prep + engine boot time).
  */
+export function markFightStart(): void {
+  const state = loadState();
+  if (!state) return;
+  state.fightStartTime = Date.now();
+  saveState(state);
+}
 export function clearFightResult(): void {
   try {
     delete (globalThis as any).__ikemenMatchResult;

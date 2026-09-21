@@ -9,9 +9,9 @@ import {
   injectCachedCharacter,
   injectCachedStage,
 } from '@/lib/character-downloader';
-import { useIsTouchDevice, getTouchDebugInfo } from '@/lib/use-touch-device';
+import { useIsTouchDevice } from '@/lib/use-touch-device';
 import RotateOverlay from '@/components/RotateOverlay';
-import { readFightResult, clearFightResult, processFightResult, getCurrentModeState } from '@/lib/game-modes';
+import { readFightResult, clearFightResult, processFightResult, getCurrentModeState, markFightStart } from '@/lib/game-modes';
 
 // TouchControls is dynamically loaded because it touches `window` (touch
 // event detection) and must only render client-side.
@@ -434,6 +434,10 @@ function PlayPageInner() {
 
         // --- 11. Run the engine ---
         setEngineRunning(true);
+        // Mark fight start time for Time Attack duration tracking.
+        // Must be called right before go.run() so it measures the actual
+        // fight duration, not the engine boot time.
+        markFightStart();
         // Show floating exit button on touch devices after engine starts.
         if (isTouch) {
           setTimeout(() => setShowExit(true), 1500);
@@ -507,12 +511,6 @@ function PlayPageInner() {
 
   return (
     <div className="min-h-screen bg-black flex flex-col items-center justify-center">
-      {/* Debug badge — touch detection diagnostic.
-          Shows the raw browser-reported values so we can see why touch
-          controls might not be appearing on a given device.
-          Remove this once touch controls are confirmed working. */}
-      <DebugBadge isTouch={isTouch} engineRunning={engineRunning} showExit={showExit} />
-
       <pre
         ref={bootRef}
         id="boot"
@@ -534,46 +532,6 @@ function PlayPageInner() {
           aria-label="Exit fight"
         >
           ✕
-        </button>
-      )}
-
-      {/* Reset config button — touch only.
-          Clears the persisted config.ini from localStorage so the engine
-          reverts to the shipped default key bindings. Useful if the user
-          has an old persisted config from a previous version with
-          different keys, which would cause touch controls to appear
-          "mis-mapped" (touch buttons dispatch based on the shipped
-          config, not the persisted one). After clicking, the page
-          reloads to pick up the change. */}
-      {isTouch && (
-        <button
-          type="button"
-          onClick={() => {
-            try {
-              localStorage.removeItem('ikemen-vfs12:save/config.ini');
-            } catch {}
-            window.location.reload();
-          }}
-          style={{
-            position: 'fixed',
-            top: 56,
-            right: 12,
-            zIndex: 200,
-            padding: '4px 8px',
-            fontSize: '0.6rem',
-            background: 'rgba(217,35,35,0.4)',
-            color: 'var(--white)',
-            border: '1px solid rgba(217,35,35,0.8)',
-            borderRadius: '4px',
-            cursor: 'pointer',
-            touchAction: 'manipulation',
-            WebkitTapHighlightColor: 'transparent',
-            fontFamily: 'ui-monospace, monospace',
-            letterSpacing: '0.05em',
-          }}
-          aria-label="Reset saved key bindings"
-        >
-          RESET KEYS
         </button>
       )}
 
@@ -613,112 +571,5 @@ function loadScript(src: string): Promise<void> {
   });
 }
 
-/**
- * DebugBadge — small fixed overlay showing touch detection state.
- *
- * Renders at top-left corner with a semi-transparent black background.
- * Shows:
- *   - isTouch: the result of useIsTouchDevice() (true/false)
- *   - engine: whether the WASM engine is running
- *   - exit: whether the exit button is shown
- *   - raw: the browser's raw pointer/touch media query values
- *
- * This helps diagnose why touch controls might not be appearing.
- * Remove once touch controls are confirmed working on the target device.
- */
-function DebugBadge({
-  isTouch,
-  engineRunning,
-  showExit,
-}: {
-  isTouch: boolean;
-  engineRunning: boolean;
-  showExit: boolean;
-}) {
-  const [info, setInfo] = useState<string>('');
-  // Track synthetic key events dispatched by TouchControls, so we can
-  // verify on-device that touch input is actually firing keydown events.
-  const [lastKey, setLastKey] = useState<string>('');
-  // Show the persisted config.ini [Keys_P1] block so the user can see what
-  // the engine is actually using (vs. the shipped default).
-  const [persistedKeys, setPersistedKeys] = useState<string>('');
-
-  useEffect(() => {
-    setInfo(getTouchDebugInfo());
-    // Listen for the synthetic keydown events TouchControls dispatches.
-    // This is independent of the engine's own listener — purely for the
-    // debug badge. Synthetic events have isTrusted=false (we filter to
-    // only count those, so real keyboard presses don't show here — those
-    // would mean the on-screen keyboard on a phone fired).
-    const onKey = (e: KeyboardEvent) => {
-      if (!e.isTrusted) {
-        setLastKey(`${e.type}:${e.code}`);
-      }
-    };
-    document.addEventListener('keydown', onKey);
-    document.addEventListener('keyup', onKey);
-    // Read the persisted config.ini from localStorage to see what key
-    // bindings the engine is actually using. If the user has an old
-    // persisted config from a previous version with different keys,
-    // touch controls will appear to be "mis-mapped" because they
-    // dispatch based on the shipped config, not the persisted one.
-    try {
-      const raw = localStorage.getItem('ikemen-vfs12:save/config.ini');
-      if (raw) {
-        const text = atob(raw);
-        // Extract [Keys_P1] section
-        const m = text.match(/\[Keys_P1\]([\s\S]*?)(?:\n\[|$)/);
-        if (m) {
-          const lines = m[1].trim().split('\n').map(l => l.trim()).filter(Boolean);
-          setPersistedKeys(lines.join(' | '));
-        } else {
-          setPersistedKeys('(no [Keys_P1] in persisted config)');
-        }
-      } else {
-        setPersistedKeys('(no persisted config — using shipped default)');
-      }
-    } catch {
-      setPersistedKeys('(could not read persisted config)');
-    }
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      document.removeEventListener('keyup', onKey);
-    };
-  }, []);
-  return (
-    <div
-      style={{
-        position: 'fixed',
-        top: 4,
-        left: 4,
-        zIndex: 9999,
-        background: 'rgba(0,0,0,0.85)',
-        color: isTouch ? '#0dd9ff' : '#ffc83d',
-        fontFamily: 'ui-monospace, monospace',
-        fontSize: '9px',
-        padding: '4px 6px',
-        border: '1px solid rgba(255,255,255,0.2)',
-        borderRadius: '2px',
-        maxWidth: '95vw',
-        pointerEvents: 'none',
-        lineHeight: 1.4,
-        whiteSpace: 'pre-wrap',
-        wordBreak: 'break-all',
-      }}
-    >
-      <div>isTouch:{String(isTouch)} engine:{String(engineRunning)} exit:{String(showExit)}</div>
-      <div style={{ opacity: 0.85, color: '#2ecc71' }}>
-        {lastKey ? `last synthetic: ${lastKey}` : 'no synthetic keys yet'}
-      </div>
-      <div style={{ opacity: 0.85, color: '#ff9b3d' }}>
-        P1 keys: {persistedKeys || '...'}
-      </div>
-      <div style={{ opacity: 0.7 }}>{info || '...'}</div>
-      <div style={{ opacity: 0.5, marginTop: 2, fontSize: '8px' }}>
-        If keys look wrong, open browser console and run:
-        localStorage.removeItem(&quot;ikemen-vfs12:save/config.ini&quot;)
-        then reload.
-      </div>
-    </div>
-  );
-}
+// (DebugBadge component removed — was a development tool for touch
+// control debugging, not needed in production per spec Section 50.)

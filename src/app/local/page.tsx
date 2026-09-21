@@ -127,7 +127,7 @@ export default function LocalPlayPage() {
 
         const progressionMode = lockIn.mode as ProgressionMode;
         const aiLevel = lockIn.mode === 'watch' ? 8 : DIFFICULTY_TO_AI[lockIn.difficulty];
-        const state = startMode(progressionMode, lockIn.p1Id, rosterCharIds, aiLevel);
+        const state = startMode(progressionMode, lockIn.p1Id, rosterCharIds, aiLevel, stageId);
 
         // Build URL for the first fight
         const params = new URLSearchParams();
