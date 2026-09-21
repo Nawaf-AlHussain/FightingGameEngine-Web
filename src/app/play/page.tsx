@@ -160,7 +160,7 @@ function PlayPageInner() {
           style.textContent = [
             'html, body { overflow: hidden !important; }',
             'canvas#ikemen-canvas { display: block !important; object-fit: contain !important; margin: 0 !important; }',
-          ].join('\\n');
+          ].join('\n');
           document.head.appendChild(style);
           document.body.classList.add('fighting');
 
