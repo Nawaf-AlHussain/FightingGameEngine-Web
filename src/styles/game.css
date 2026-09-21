@@ -827,6 +827,60 @@ button {
   color: var(--cyan);
   font-weight: 700;
 }
+
+/* Stage preview panel */
+.ss__preview {
+  display: flex;
+  gap: 1rem;
+  padding: 0.75rem;
+  margin-bottom: 0.75rem;
+  background: rgba(26,26,26,0.6);
+  border: 2px solid var(--cyan);
+  clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+  z-index: 1;
+  max-width: 600px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.ss__preview-portrait {
+  width: 80px;
+  height: 60px;
+  background: var(--black);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  font-weight: 900;
+  font-style: italic;
+  color: var(--gray-dark);
+  flex-shrink: 0;
+  border: 1px solid var(--gray-dark);
+}
+.ss__preview-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.2rem;
+}
+.ss__preview-name {
+  font-size: 1rem;
+  font-weight: 900;
+  font-style: italic;
+  text-transform: uppercase;
+  color: var(--white);
+}
+.ss__preview-desc {
+  font-size: 0.7rem;
+  color: var(--gray);
+}
+.ss__preview-status {
+  font-size: 0.65rem;
+  letter-spacing: 0.1em;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
 .ss__grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
