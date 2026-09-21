@@ -71,8 +71,17 @@
   };
 
   // ---- Load P1 key bindings from localStorage config.ini ----
+  // CRITICAL: Must use FIRST-MATCH-WINS to match the go-ini library's
+  // behavior with AllowShadows=true. The engine's Go INI parser treats
+  // key names case-insensitively and, when duplicate keys exist (e.g.,
+  // "up = UP" from an engine write and "Up = w" from a Settings UI
+  // write), the FIRST value wins. If touch.js used last-match-wins
+  // (as a simple loop-overwrite would), it would disagree with the
+  // engine on which code to use for each action, causing touch inputs
+  // to dispatch the wrong keys.
   function loadBindings() {
     const bindings = Object.assign({}, DEFAULT_BINDINGS);
+    const seen = new Set(); // track which actions we've already bound (first-match-wins)
     try {
       const raw = localStorage.getItem("ikemen-vfs12:save/config.ini");
       if (!raw) return bindings;
@@ -86,11 +95,13 @@
         if (eq === -1) continue;
         const key = line.slice(0, eq).trim();
         const val = line.slice(eq + 1).trim();
-        // Match case-insensitively against the binding names
-        // (shipped config uses 'Up'/'A', some persisted configs use 'up'/'a')
+        // Match case-insensitively against the binding names.
+        // FIRST match wins (matches go-ini's AllowShadows behavior).
         for (const action of Object.keys(bindings)) {
+          if (seen.has(action)) continue; // already bound — skip
           if (key.toLowerCase() === action.toLowerCase() && INI_KEY_TO_CODE[val]) {
             bindings[action] = INI_KEY_TO_CODE[val];
+            seen.add(action);
           }
         }
       }
@@ -126,36 +137,15 @@
       if (ev.code !== code) {
         try {
           Object.defineProperty(ev, "code", { value: code, writable: false, configurable: true });
-        } catch { /* if defineProperty fails, dispatch anyway — some engines read key */ }
+        } catch { /* if defineProperty fails, dispatch anyway */ }
       }
-      if (ev.key !== keyChar) {
-        try {
-          Object.defineProperty(ev, "key", { value: keyChar, writable: false, configurable: true });
-        } catch { /* non-fatal */ }
-      }
-      // Dispatch on BOTH document and window to reach the engine regardless
-      // of whether it registered its listener on document (energyjp fork)
-      // or window (Fiiight fork). document.dispatchEvent bubbles up to
-      // window, but window.dispatchEvent does NOT reach document — so we
-      // dispatch on document first (reaches both), then also on window
-      // as a fallback in case the engine only listens on window and
-      // document dispatch has a propagation issue on some mobile browsers.
+      // Dispatch on document ONLY. The engine registers its keyboard
+      // listener on document (verified via F-key preventDefault test:
+      // F1 dispatched on document is preventDefaulted by the engine;
+      // F2 dispatched on window is NOT).
+      // window.dispatchEvent does NOT reach document listeners (window
+      // is above document in the DOM tree, events don't propagate downward).
       document.dispatchEvent(ev);
-      // Also dispatch a fresh event on window (can't reuse the same event
-      // object after dispatch in some browsers).
-      try {
-        const ev2 = new KeyboardEvent(type, {
-          code: code,
-          key: keyChar,
-          bubbles: true,
-          cancelable: true,
-          composed: true,
-        });
-        if (ev2.code !== code) {
-          try { Object.defineProperty(ev2, "code", { value: code, writable: false, configurable: true }); } catch {}
-        }
-        window.dispatchEvent(ev2);
-      } catch { /* window dispatch is best-effort */ }
     } catch {
       // Fallback for very old browsers
       try {
