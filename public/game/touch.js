@@ -121,11 +121,49 @@
         cancelable: true,
         composed: true,
       });
-      // TEMPORARY DIAGNOSTIC: log what we're dispatching
-      console.log("[touch] fire:", type, "code=" + code, "ev.code=" + ev.code, "ev.key=" + ev.key);
+      // Mobile Chrome quirk: constructor may not set `code` properly.
+      // Verify and force-set if needed.
+      if (ev.code !== code) {
+        try {
+          Object.defineProperty(ev, "code", { value: code, writable: false, configurable: true });
+        } catch { /* if defineProperty fails, dispatch anyway — some engines read key */ }
+      }
+      if (ev.key !== keyChar) {
+        try {
+          Object.defineProperty(ev, "key", { value: keyChar, writable: false, configurable: true });
+        } catch { /* non-fatal */ }
+      }
+      // Dispatch on BOTH document and window to reach the engine regardless
+      // of whether it registered its listener on document (energyjp fork)
+      // or window (Fiiight fork). document.dispatchEvent bubbles up to
+      // window, but window.dispatchEvent does NOT reach document — so we
+      // dispatch on document first (reaches both), then also on window
+      // as a fallback in case the engine only listens on window and
+      // document dispatch has a propagation issue on some mobile browsers.
       document.dispatchEvent(ev);
-    } catch (e) {
-      console.error("[touch] fire error:", e);
+      // Also dispatch a fresh event on window (can't reuse the same event
+      // object after dispatch in some browsers).
+      try {
+        const ev2 = new KeyboardEvent(type, {
+          code: code,
+          key: keyChar,
+          bubbles: true,
+          cancelable: true,
+          composed: true,
+        });
+        if (ev2.code !== code) {
+          try { Object.defineProperty(ev2, "code", { value: code, writable: false, configurable: true }); } catch {}
+        }
+        window.dispatchEvent(ev2);
+      } catch { /* window dispatch is best-effort */ }
+    } catch {
+      // Fallback for very old browsers
+      try {
+        const ev = document.createEvent("KeyboardEvent");
+        ev.initKeyboardEvent(type, true, true, window, keyChar, 0, false, false, false, false);
+        Object.defineProperty(ev, "code", { value: code, writable: false, configurable: true });
+        document.dispatchEvent(ev);
+      } catch { /* give up */ }
     }
   }
 
@@ -366,9 +404,6 @@ html.itc-touch-active #ikemen-canvas {
     // Load bindings from config before building
     BINDINGS = loadBindings();
     updateDirCodes();
-    // TEMPORARY DIAGNOSTIC: log loaded bindings
-    console.log("[touch] BINDINGS:", JSON.stringify(BINDINGS));
-    console.log("[touch] DIR_CODE:", JSON.stringify(DIR_CODE));
 
     const style = document.createElement("style");
     style.id = "ikemen-touch-style";
