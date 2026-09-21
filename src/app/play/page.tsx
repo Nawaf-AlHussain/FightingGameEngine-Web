@@ -11,6 +11,7 @@ import {
 } from '@/lib/character-downloader';
 import { useIsTouchDevice, getTouchDebugInfo } from '@/lib/use-touch-device';
 import RotateOverlay from '@/components/RotateOverlay';
+import { readFightResult, clearFightResult, processFightResult, getCurrentModeState } from '@/lib/game-modes';
 
 // TouchControls is dynamically loaded because it touches `window` (touch
 // event detection) and must only render client-side.
@@ -108,9 +109,11 @@ function PlayPageInner() {
         // by the Settings UI (or /local RES toggle) via localStorage config.ini,
         // which vfs.js reads on boot. This is the single source of truth.
         const fillMode = searchParams.get('fill') || 'fill'; // 'fill' or 'fixed' (CSS only)
+        const qmode = searchParams.get('qmode') || 'quickvs'; // progression mode
 
         log(`Match: P1=${p1} vs P2=${p2}${p2ai ? ` (CPU lv${p2ai})` : ''}`);
         log(`Stage: ${stage}`);
+        log(`Mode: ${qmode}`);
 
         // --- 0. Install keyboard preventDefault handler ---
         // The engine listens for native keydown/keyup on document (via
@@ -405,6 +408,7 @@ function PlayPageInner() {
           '-qp1ai', String(p1ai),
           '-qtraining', String(training),
           '-qtime', String(time),
+          '-qmode', qmode, // progression mode: quickvs/arcade/survival/time-attack/watch
         ];
 
         // Hide the boot log once the engine starts
@@ -436,8 +440,42 @@ function PlayPageInner() {
         }
         await go.run(result.instance);
 
-        // Engine exited — fight is over.
+        // Engine exited — fight is over. Read the match result and decide
+        // what to do next based on the game mode.
         cleanup();
+
+        const fightResult = readFightResult();
+        clearFightResult();
+
+        if (fightResult && qmode !== 'quickvs' && qmode !== 'training') {
+          // Progression mode — process the result and advance
+          const action = processFightResult(fightResult);
+          switch (action.type) {
+            case 'next-fight': {
+              log(`Victory! Advancing to fight ${getCurrentModeState()?.fightNumber ?? '?'}`);
+              window.location.href = '/progress';
+              return;
+            }
+            case 'finished': {
+              const resultParam = action.result === 'victory' ? 'win' : 'lose';
+              log(`${action.result === 'victory' ? 'VICTORY!' : 'DEFEAT'} — ${action.wins}W / ${action.losses}L`);
+              window.location.href = `/results?result=${resultParam}&mode=${qmode}&wins=${action.wins}&losses=${action.losses}&time=${action.totalTime.toFixed(1)}`;
+              return;
+            }
+            case 'retry': {
+              log('Draw! Replaying the fight...');
+              window.location.reload();
+              return;
+            }
+            case 'exit': {
+              log('Fight complete. Returning to select...');
+              window.location.href = '/local';
+              return;
+            }
+          }
+        }
+
+        // Single-fight mode (quickvs/training) — go back to select
         log('Fight complete. Returning to select...');
         window.location.href = '/local';
 
