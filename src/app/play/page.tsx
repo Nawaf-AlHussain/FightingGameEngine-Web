@@ -1,6 +1,6 @@
 'use client';
 import { useSearchParams } from 'next/navigation';
-import { useEffect, useRef, useState, Suspense, lazy } from 'react';
+import { useEffect, useRef, useState, Suspense } from 'react';
 import {
   fetchAssetsManifest,
   downloadCharacter,
@@ -12,10 +12,6 @@ import {
 import { useIsTouchDevice } from '@/lib/use-touch-device';
 import RotateOverlay from '@/components/RotateOverlay';
 import { readFightResult, clearFightResult, processFightResult, getCurrentModeState, markFightStart } from '@/lib/game-modes';
-
-// TouchControls is dynamically loaded because it touches `window` (touch
-// event detection) and must only render client-side.
-const TouchControls = lazy(() => import('@/components/TouchControls'));
 
 // This page loads the IKEMEN GO WASM engine and starts a fight directly,
 // bypassing the laggy menu (F-026) using the smooth game() path.
@@ -40,6 +36,27 @@ function PlayPageInner() {
   const [engineRunning, setEngineRunning] = useState(false);
   // Exit confirmation — show a small floating X on touch devices.
   const [showExit, setShowExit] = useState(false);
+
+  // ---- Load vanilla JS touch overlay on touch devices when engine starts ----
+  // touch.js is a self-contained IIFE that creates its own DOM (circular D-pad
+  // + two-arc action buttons + START/ESC pills). It reads P1 key bindings from
+  // localStorage config.ini and dispatches synthetic KeyboardEvents. No React
+  // dependency — simpler and more reliable than the old React TouchControls.
+  useEffect(() => {
+    if (!isTouch || !engineRunning) return;
+    const script = document.createElement('script');
+    script.src = '/game/touch.js';
+    script.onload = () => {
+      const g = globalThis as any;
+      if (g.__ikemenTouch?.build) g.__ikemenTouch.build();
+    };
+    document.head.appendChild(script);
+    return () => {
+      const g = globalThis as any;
+      if (g.__ikemenTouch?.destroy) g.__ikemenTouch.destroy();
+      script.remove();
+    };
+  }, [isTouch, engineRunning]);
 
   // Expose exit handler so the touch exit button can call it.
   const exitFightRef = useRef<(() => void) | null>(null);
@@ -535,16 +552,9 @@ function PlayPageInner() {
         </button>
       )}
 
-      {/* Touch controls — rendered once engine is running, touch only.
-          TouchControls' root <div> already has the `active` class so the
-          `.touch-controls.active { display: flex }` CSS rule applies. Do
-          NOT wrap it in another `.touch-controls` div — that would create
-          a nested element where the inner one defaults to display:none. */}
-      {isTouch && engineRunning && (
-        <Suspense fallback={null}>
-          <TouchControls />
-        </Suspense>
-      )}
+      {/* Touch controls are loaded via vanilla JS (public/game/touch.js)
+          in the useEffect above. No React component needed — the script
+          creates its own DOM overlay with circular D-pad + action buttons. */}
     </div>
   );
 }
