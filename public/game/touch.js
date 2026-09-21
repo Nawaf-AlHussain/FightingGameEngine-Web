@@ -121,21 +121,11 @@
         cancelable: true,
         composed: true,
       });
-      // Mobile Chrome quirk: constructor may not set `code` properly
-      if (ev.code !== code) {
-        try {
-          Object.defineProperty(ev, "code", { value: code, writable: false, configurable: true });
-        } catch { return; }
-      }
+      // TEMPORARY DIAGNOSTIC: log what we're dispatching
+      console.log("[touch] fire:", type, "code=" + code, "ev.code=" + ev.code, "ev.key=" + ev.key);
       document.dispatchEvent(ev);
-    } catch {
-      // Fallback for very old browsers
-      try {
-        const ev = document.createEvent("KeyboardEvent");
-        ev.initKeyboardEvent(type, true, true, window, keyChar, 0, false, false, false, false);
-        Object.defineProperty(ev, "code", { value: code, writable: false, configurable: true });
-        document.dispatchEvent(ev);
-      } catch { /* give up */ }
+    } catch (e) {
+      console.error("[touch] fire error:", e);
     }
   }
 
@@ -376,6 +366,9 @@ html.itc-touch-active #ikemen-canvas {
     // Load bindings from config before building
     BINDINGS = loadBindings();
     updateDirCodes();
+    // TEMPORARY DIAGNOSTIC: log loaded bindings
+    console.log("[touch] BINDINGS:", JSON.stringify(BINDINGS));
+    console.log("[touch] DIR_CODE:", JSON.stringify(DIR_CODE));
 
     const style = document.createElement("style");
     style.id = "ikemen-touch-style";
