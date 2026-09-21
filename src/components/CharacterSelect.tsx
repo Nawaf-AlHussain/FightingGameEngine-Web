@@ -77,14 +77,14 @@ const BUNDLED_CHARS: LocalCharacter[] = [
   },
 ];
 
-const MODES: { id: GameMode; label: string }[] = [
-  { id: 'vs-ai', label: 'VS CPU' },
-  { id: 'vs-player', label: 'VS PLAYER' },
-  { id: 'training', label: 'TRAINING' },
-  { id: 'arcade', label: 'ARCADE' },
-  { id: 'survival', label: 'SURVIVAL' },
-  { id: 'time-attack', label: 'TIME ATTACK' },
-  { id: 'watch', label: 'WATCH' },
+const MODES: { id: GameMode; label: string; description: string; p2Label: string; progression: boolean }[] = [
+  { id: 'vs-ai',      label: 'VS CPU',       description: 'Fight a single match against the CPU.',                  p2Label: 'CPU',              progression: false },
+  { id: 'vs-player',  label: 'VS PLAYER',    description: 'Fight a single match against another player.',           p2Label: 'P2',               progression: false },
+  { id: 'training',   label: 'TRAINING',     description: 'Practice with infinite time and no AI.',                 p2Label: 'DUMMY',            progression: false },
+  { id: 'arcade',     label: 'ARCADE',       description: 'Fight through a five-opponent ladder.',                  p2Label: 'RANDOM OPPONENTS', progression: true },
+  { id: 'survival',   label: 'SURVIVAL',     description: 'Defeat as many opponents as possible. Endless.',         p2Label: 'RANDOM OPPONENTS', progression: true },
+  { id: 'time-attack',label: 'TIME ATTACK',  description: 'Complete three fights as quickly as possible. 60s rounds.', p2Label: 'RANDOM OPPONENTS', progression: true },
+  { id: 'watch',      label: 'WATCH',        description: 'Watch two CPU-controlled fighters battle.',              p2Label: 'CPU',              progression: true },
 ];
 
 const DIFFICULTIES: { id: Difficulty; label: string }[] = [
@@ -121,6 +121,9 @@ export default function CharacterSelect({
   // Mode + difficulty
   const [mode, setMode] = useState<GameMode>('vs-ai');
   const [difficulty, setDifficulty] = useState<Difficulty>('normal');
+
+  // Search filter
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Cursors
   const [p1, setP1] = useState<CursorState>({ index: 0, locked: false });
@@ -569,6 +572,13 @@ export default function CharacterSelect({
     ? 'PREPARING DOWNLOADS…'
     : 'SELECT FIGHTERS';
 
+  // Filter roster by search query (preserves original indices for cursor positioning)
+  const filteredRoster = searchQuery
+    ? roster
+        .map((char, index) => ({ char, index }))
+        .filter(({ char }) => char.displayName.toLowerCase().includes(searchQuery.toLowerCase()))
+    : roster.map((char, index) => ({ char, index }));
+
   return (
     <main className="cs bg-grid" tabIndex={0}>
       <div className="cs__bg-grid bg-grid" aria-hidden="true" />
@@ -618,6 +628,11 @@ export default function CharacterSelect({
         </div>
       )}
 
+      {/* Mode description */}
+      <div className="cs__mode-desc">
+        {MODES.find(m => m.id === mode)?.description}
+      </div>
+
       {/* VS bar: shows each player's current pick + lock status */}
       <div className="cs__vs-bar">
         <PlayerTag
@@ -635,6 +650,30 @@ export default function CharacterSelect({
         />
       </div>
 
+      {/* Search field — only when roster is loaded and large enough to warrant it */}
+      {!loading && !error && roster.length > 10 && (
+        <div className="cs__search">
+          <input
+            type="text"
+            className="cs__search-input"
+            placeholder="SEARCH…"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            aria-label="Search characters"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              className="cs__search-clear"
+              onClick={() => setSearchQuery('')}
+              aria-label="Clear search"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Character grid */}
       <div className="cs__grid" role="grid" aria-label="Character roster">
         {loading && (
@@ -651,8 +690,22 @@ export default function CharacterSelect({
             LOADING…
           </div>
         )}
+        {!loading && filteredRoster.length === 0 && (
+          <div
+            style={{
+              gridColumn: '1 / -1',
+              textAlign: 'center',
+              padding: '2rem',
+              color: 'var(--gray)',
+              fontSize: '0.85rem',
+              letterSpacing: '0.2em',
+            }}
+          >
+            NO CHARACTERS MATCH "{searchQuery.toUpperCase()}"
+          </div>
+        )}
         {!loading &&
-          roster.map((char, index) => {
+          filteredRoster.map(({ char, index }) => {
             const isP1Here = p1.index === index;
             const isP2Here = p2.index === index;
             const p1LockedHere = isP1Here && p1Locked;
