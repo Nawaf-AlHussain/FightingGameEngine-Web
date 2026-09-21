@@ -312,6 +312,8 @@ export interface SettingDef {
 export interface SettingGroup {
   id: string;
   label: string;
+  /** Category for visual grouping in the tab bar (Section 26, 53-54). */
+  category: 'basic' | 'controls' | 'advanced' | 'debug';
   settings: SettingDef[];
 }
 
@@ -523,6 +525,7 @@ export const SETTINGS_SCHEMA: SettingGroup[] = [
   // --- Video -------------------------------------------------------------
   {
     id: 'video',
+    category: 'basic',
     label: 'VIDEO',
     settings: [
       {
@@ -634,6 +637,7 @@ export const SETTINGS_SCHEMA: SettingGroup[] = [
   // --- Audio -------------------------------------------------------------
   {
     id: 'audio',
+    category: 'basic',
     label: 'AUDIO',
     settings: [
       {
@@ -705,6 +709,7 @@ export const SETTINGS_SCHEMA: SettingGroup[] = [
   // --- Gameplay ----------------------------------------------------------
   {
     id: 'gameplay',
+    category: 'basic',
     label: 'GAMEPLAY',
     settings: [
       {
@@ -779,6 +784,7 @@ export const SETTINGS_SCHEMA: SettingGroup[] = [
   // --- Team Modes --------------------------------------------------------
   {
     id: 'team',
+    category: 'advanced',
     label: 'TEAM',
     settings: [
       {
@@ -860,6 +866,7 @@ export const SETTINGS_SCHEMA: SettingGroup[] = [
   // --- Input -------------------------------------------------------------
   {
     id: 'input',
+    category: 'controls',
     label: 'INPUT',
     settings: [
       {
@@ -909,6 +916,7 @@ export const SETTINGS_SCHEMA: SettingGroup[] = [
   // --- Arcade (AI) -------------------------------------------------------
   {
     id: 'arcade',
+    category: 'advanced',
     label: 'ARCADE',
     settings: [
       {
@@ -932,6 +940,7 @@ export const SETTINGS_SCHEMA: SettingGroup[] = [
   // --- Netplay -----------------------------------------------------------
   {
     id: 'netplay',
+    category: 'advanced',
     label: 'NETPLAY',
     settings: [
       {
@@ -989,6 +998,7 @@ export const SETTINGS_SCHEMA: SettingGroup[] = [
   // --- Debug -------------------------------------------------------------
   {
     id: 'debug',
+    category: 'debug',
     label: 'DEBUG',
     settings: [
       {
@@ -1052,6 +1062,7 @@ export const SETTINGS_SCHEMA: SettingGroup[] = [
   // the engine's INI string format (see CODE_TO_INI_KEY above).
   {
     id: 'keys',
+    category: 'controls',
     label: 'KEYS',
     settings: [
       // P1 directions

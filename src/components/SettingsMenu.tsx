@@ -141,19 +141,24 @@ export default function SettingsMenu({ onCancel }: SettingsMenuProps) {
         </div>
       </div>
 
-      {/* Tab bar — vertical on desktop, horizontal scroll on mobile */}
+      {/* Tab bar — grouped by category (Section 26, 53-54) */}
       <div className="settings__tabs" role="tablist" aria-label="Settings categories">
-        {SETTINGS_SCHEMA.map(g => (
-          <button
-            key={g.id}
-            type="button"
-            role="tab"
-            aria-selected={activeGroup === g.id}
-            className={`settings__tab${activeGroup === g.id ? ' settings__tab--active' : ''}`}
-            onClick={() => setActiveGroup(g.id)}
-          >
-            {g.label}
-          </button>
+        {(['basic', 'controls', 'advanced', 'debug'] as const).map(cat => (
+          <div key={cat} className="settings__tab-group">
+            <div className="settings__tab-category">{cat.toUpperCase()}</div>
+            {SETTINGS_SCHEMA.filter(g => g.category === cat).map(g => (
+              <button
+                key={g.id}
+                type="button"
+                role="tab"
+                aria-selected={activeGroup === g.id}
+                className={`settings__tab${activeGroup === g.id ? ' settings__tab--active' : ''}${cat === 'debug' ? ' settings__tab--debug' : ''}`}
+                onClick={() => setActiveGroup(g.id)}
+              >
+                {g.label}
+              </button>
+            ))}
+          </div>
         ))}
       </div>
 
