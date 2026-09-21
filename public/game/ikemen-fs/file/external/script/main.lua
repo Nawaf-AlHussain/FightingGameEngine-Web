@@ -3633,6 +3633,20 @@ function main.f_quickMatch(params)
         -- Build load params and start
         loadStart('pausemenu=false')
         game()
+
+        -- After game() returns, write the match result to a JS global so
+        -- the React layer can decide what to do next (next fight in arcade,
+        -- survival, time attack — or back to character select).
+        -- getWinnerTeam() returns 1 (P1 won), 2 (P2 won), 0 (draw), or -1.
+        local winner = getWinnerTeam()
+        js.global['__ikemenMatchResult'] = {
+            winner = tonumber(winner) or -1,
+            mode = params.mode or 'quickvs',
+            p1 = params.p1 or 'kfm',
+            p2 = params.p2 or 'kfm',
+            stage = params.stage or 'stages/stage0-720.def',
+        }
+
         os.exit()
 end
 
@@ -4165,6 +4179,7 @@ if getCommandLineValue("-qp1") ~= nil and getCommandLineValue("-qp2") ~= nil the
                 p1ai = getCommandLineValue("-qp1ai") or '0',
                 training = getCommandLineValue("-qtraining") or '0',
                 time = getCommandLineValue("-qtime") or '99',
+                mode = getCommandLineValue("-qmode") or 'quickvs',
         })
 elseif motif.attract_mode.enabled then
         main.f_attractMode()
