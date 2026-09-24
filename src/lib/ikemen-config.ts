@@ -226,6 +226,94 @@ export function clearPersistedConfig(): void {
 }
 
 // ---------------------------------------------------------------------------
+// Display-mode presets (render resolution + matching fight aspect)
+// ---------------------------------------------------------------------------
+
+/**
+ * One display-mode preset: a render resolution plus the fight-aspect
+ * configuration that makes the on-screen presentation actually match it.
+ */
+export interface DisplayModePreset {
+  gameWidth: string;
+  gameHeight: string;
+  fightAspectWidth: string;
+  fightAspectHeight: string;
+  /** Written to Video.KeepAspect when present; absent = leave untouched. */
+  keepAspect?: string;
+}
+
+/**
+ * Render-resolution → display-mode mapping.
+ *
+ * Why the fight-aspect keys are needed: in the engine, Video.GameWidth/
+ * GameHeight only set the framebuffer/canvas size. The fight CONTENT aspect
+ * is a separate pair of keys — Video.FightAspectWidth/FightAspectHeight,
+ * where -1,-1 means "follow the stage's localcoord". Nearly all shipped
+ * stages are 1280×720 (16:9), so writing only a 4:3 resolution renders
+ * 16:9 fight content inside a 4:3 canvas: letterboxed with top/bottom
+ * bars (KeepAspect=1) or vertically stretched (KeepAspect=0). Never 4:3.
+ * The engine's own in-game options menu works the same way — resolution
+ * and aspect ratio are two settings there too (external/script/options.lua).
+ *
+ * - 4:3 presets pin FightAspect to 4:3 and enable KeepAspect (the engine's
+ *   shipped default) so any residual mismatch is letterboxed by the engine
+ *   rather than stretched.
+ * - 16:9 presets restore the shipped stage-default semantics (-1,-1) and
+ *   deliberately do NOT touch KeepAspect: with a 16:9 canvas and 16:9
+ *   stages both values render identically, and the historical 16:9 path
+ *   must stay regression-free.
+ */
+export const DISPLAY_MODE_PRESETS: Record<string, DisplayModePreset> = {
+  '320x240':   { gameWidth: '320',  gameHeight: '240',  fightAspectWidth: '4',  fightAspectHeight: '3', keepAspect: '1' },
+  '640x480':   { gameWidth: '640',  gameHeight: '480',  fightAspectWidth: '4',  fightAspectHeight: '3', keepAspect: '1' },
+  '1280x720':  { gameWidth: '1280', gameHeight: '720',  fightAspectWidth: '-1', fightAspectHeight: '-1' },
+  '1920x1080': { gameWidth: '1920', gameHeight: '1080', fightAspectWidth: '-1', fightAspectHeight: '-1' },
+};
+
+/**
+ * Given one half of a resolution preset (GameWidth or GameHeight option
+ * value), return the paired other dimension — or null if the value is not
+ * a known preset. Used to keep the two Render Width/Height selects in
+ * sync so nonsense combinations (e.g. 640×720) can't be produced.
+ */
+export function pairedDimension(
+  key: 'GameWidth' | 'GameHeight',
+  value: string,
+): string | null {
+  for (const p of Object.values(DISPLAY_MODE_PRESETS)) {
+    const matches = key === 'GameWidth' ? p.gameWidth === value : p.gameHeight === value;
+    if (matches) return key === 'GameWidth' ? p.gameHeight : p.gameWidth;
+  }
+  return null;
+}
+
+/**
+ * Apply a display-mode preset to a ConfigData in place: writes
+ * GameWidth/GameHeight, then the matching FightAspect pair (and KeepAspect
+ * for 4:3 presets) so the fight content aspect follows the selected
+ * resolution. Unknown combinations still write the resolution but leave
+ * aspect keys untouched (no speculative writes).
+ *
+ * Operates on the SAME config data / storage as every other setting —
+ * there is no second configuration system.
+ */
+export function applyDisplayModePreset(
+  cfg: ConfigData,
+  gameWidth: string,
+  gameHeight: string,
+): void {
+  set(cfg, 'Video', 'GameWidth', gameWidth);
+  set(cfg, 'Video', 'GameHeight', gameHeight);
+  const preset = DISPLAY_MODE_PRESETS[`${gameWidth}x${gameHeight}`];
+  if (!preset) return;
+  set(cfg, 'Video', 'FightAspectWidth', preset.fightAspectWidth);
+  set(cfg, 'Video', 'FightAspectHeight', preset.fightAspectHeight);
+  if (preset.keepAspect !== undefined) {
+    set(cfg, 'Video', 'KeepAspect', preset.keepAspect);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Typed accessors
 // ---------------------------------------------------------------------------
 
@@ -538,7 +626,7 @@ export const SETTINGS_SCHEMA: SettingGroup[] = [
           { value: '1920', label: '1920 · 1080p (16:9)' },
         ],
         requiresReload: true,
-        hint: 'Internal render resolution. Lower = faster. Higher = sharper.',
+        hint: 'Internal render resolution. Lower = faster, higher = sharper. Pairs with Render Height and sets the matching fight aspect (4:3 or stage default).',
       },
       {
         section: 'Video', key: 'GameHeight', label: 'Render Height',
@@ -550,7 +638,7 @@ export const SETTINGS_SCHEMA: SettingGroup[] = [
           { value: '1080', label: '1080 · Full HD' },
         ],
         requiresReload: true,
-        hint: 'Paired with Render Width. 320×240 = 4:3, 1280×720 = 16:9.',
+        hint: 'Auto-paired with Render Width (640→480, 1280→720, 1920→1080). The matching fight aspect is applied so the picture is genuinely 4:3 or 16:9.',
       },
       {
         section: 'Video', key: 'Fullscreen', label: 'Fullscreen',
