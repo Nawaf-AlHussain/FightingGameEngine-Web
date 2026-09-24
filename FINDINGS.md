@@ -6,6 +6,33 @@ Format: newest entries at the top. Each entry gets a unique ID for cross-referen
 
 ---
 
+## F-039 | Dead FILL/16:9 display toggle — URL param never consumed by /play
+**Date**: 2026-09-24 | **Type**: Finding (dead control, Frontend 2.1 spec §26 violation)
+
+### What happened
+The FILL/16:9 toggle added on `/local` (commit ecc62f4) set a `fill` URL param
+that `/match-prep` dutifully forwarded — but `/play` **never read it**. The
+canvas-fitter rewrite in commits 6cabb9c/b1303c1 made the play page always
+display the canvas at its intrinsic aspect ratio (largest contain-fit), so the
+toggle silently lost its runtime effect. The control *looked* functional.
+
+### Why it matters
+Frontend 2.1 spec Section 26: "Do not expose controls that appear functional
+but have no runtime effect." A display control that does nothing erodes trust
+in every other control on the screen.
+
+### Resolution
+Removed the FILL/16:9 toggle and the `fill` param from `/local` and
+`/match-prep` (spec Section 58: smallest change necessary). Display behavior
+is now honestly: always aspect-preserving fit. Internal resolution remains
+controlled by the RES presets + Settings (GameWidth/GameHeight in config.ini).
+
+**Lesson**: When a downstream page changes how it consumes params (or stops
+consuming them), audit every upstream producer of those params. URL params
+have no compiler to tell you when a consumer disappears.
+
+---
+
 ## F-038 | Spatial grid broad-phase collision filter — eliminates 164ms spikes
 **Date**: 2026-08-26 | **Type**: Breakthrough (performance, from Claude's analysis)
 

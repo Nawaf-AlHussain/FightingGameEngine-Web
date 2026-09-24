@@ -1,5 +1,56 @@
 # PROGRESS — Fighting Game Engine Web
 
+## Session: September 24, 2026 — Frontend 2.1 remaining gaps closed (spec §16/§17/§21/§26/§33/§37/§48)
+
+### Work Done
+
+Audited the Frontend 2.1 implementation against the spec's Definition of Done
+(Section 56) and closed the remaining gaps. No engine/WASM/progression/config
+architecture was touched (spec Section 55).
+
+1. **Removed dead FILL/16:9 display toggle** (spec §26, logged as F-039)
+   - `/local`: removed the toggle + `fillMode` state; `/match-prep`: removed
+     the `fill` param. `/play` never consumed it — display is always
+     aspect-preserving fit since the canvas-fitter rewrite (b1303c1).
+2. **Match prep now consumes REAL asset readiness** (spec §17/§48)
+   - `/match-prep` checks `isCharacterCached`/`isStageCached` (with manifest
+     file lists) for P1/P2/stage and downloads missing assets via the
+     EXISTING downloader (`downloadCharacterToCache`/`downloadStageToCache`)
+     with real per-slot progress. Countdown + FIGHT only enable when
+     everything is actually ready; RETRY DOWNLOAD on failure. Static fake
+     "Starting in 3s…" hint replaced by a real countdown. Mode rules line
+     added (from shared `MODE_RULES`).
+3. **`/progress` shows real context** (spec §21/§22)
+   - Display names for YOUR FIGHTER / NEXT OPPONENT / STAGE resolved from the
+     Assets manifest (falls back to raw IDs honestly). Mode rules line added.
+4. **Shared mode metadata** (spec §41 — single source of truth)
+   - `MODE_LABELS` + `MODE_RULES` exported from `game-modes.ts`; consumed by
+     `/match-prep`, `/progress`, `/results` (replaces 3 private label maps).
+5. **Error/retry affordances** (spec §16/§33)
+   - CharacterSelect + StageSelect: roster/stage-list fetch failure now shows
+     a human message + RETRY button (was raw CDN error text, no retry).
+   - Download-failed cards: "⚠ FAILED — TAP TO RETRY" (retry already worked
+     via card click; the affordance was invisible).
+   - `/play`: boot failures show a structured ErrorState overlay
+     (RETRY = reload, BACK = /local, technical details collapsible).
+6. **Touch + accessibility** (spec §31/§37)
+   - StageSelect footer hints adapt to touch (TAP/FIGHT!) vs keyboard
+     (ARROWS/ENTER/ESC) via new `isTouch` prop.
+   - Global `:focus-visible` outline fallback for interactive elements.
+
+### Verification
+- `tsc --noEmit` clean; `next build` clean (13/13 routes).
+- Production server smoke test: /, /lobby, /local, /match-prep, /progress,
+  /results, /play all return 200; FILL button gone; RES presets intact.
+
+### Not done (deferred)
+- No device/browser matrix testing (needs real hardware; Phase 5 task).
+- `/local` active-progression-run banner (spec §10 "continue vs new run")
+  not added — current behavior: starting a new run deliberately overwrites
+  sessionStorage state; QUIT and /results clear state. Acceptable for now.
+
+---
+
 ## Session: August 26, 2026 — Spatial grid collision filter (F-038) — 164ms spikes eliminated
 
 ### Work Done

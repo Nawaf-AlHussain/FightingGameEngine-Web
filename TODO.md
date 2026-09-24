@@ -4,8 +4,13 @@
 
 **Replace the Dolmexica Infinite WASM engine with IKEMEN GO v2 WASM, keeping the best UI from FightingGameEngine-Demo and the 85+ character roster from FightingGameEngine/Assets.**
 
-## CURRENT STATE (August 26, 2026) — ✅ BEST PERFORMANCE + SPATIAL GRID
+## CURRENT STATE (September 24, 2026) — ✅ FRONTEND 2.1 COMPLETE
 
+- ✅ Frontend 2.1 spec remaining gaps closed (see PROGRESS.md 2026-09-24):
+  match-prep real asset readiness (§48), progress/results real names +
+  mode rules (§21/§22), retry affordances everywhere (§16/§33), dead
+  FILL/16:9 toggle removed (§26, F-039), touch-aware stage hints +
+  focus-visible (§31/§37)
 - ✅ 100% 60fps for ALL characters including heavy DBZ with specials (F-038)
 - ✅ Zero frame spikes during special attacks (spatial grid broad-phase)
 - ✅ No audio stutter during special attacks (audio buffer 8192)
