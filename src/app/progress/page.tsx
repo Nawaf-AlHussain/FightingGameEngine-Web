@@ -3,7 +3,15 @@
 import { useEffect, useState, useRef } from 'react';
 import { useWipeNavigation } from '@/components/WipeTransition';
 import { GameButton } from '@/components/ui';
-import { getCurrentModeState, buildNextFightUrl, clearModeState, type ModeState } from '@/lib/game-modes';
+import {
+  getCurrentModeState,
+  buildNextFightUrl,
+  clearModeState,
+  MODE_LABELS,
+  MODE_RULES,
+  type ModeState,
+} from '@/lib/game-modes';
+import { getCharacters, getStages } from '@/lib/character-downloader';
 
 /**
  * /progress — between-fights screen for Arcade, Survival, and Time Attack.
@@ -24,6 +32,10 @@ export default function ProgressPage() {
   const [state, setState] = useState<ModeState | null>(null);
   const [countdown, setCountdown] = useState(3);
   const navigatedRef = useRef(false);
+  // Display names resolved from the real Assets manifest (spec Section 22:
+  // show names, not raw IDs). Falls back to raw IDs if the fetch fails.
+  const [charNames, setCharNames] = useState<Record<string, string>>({});
+  const [stageName, setStageName] = useState<string | null>(null);
 
   useEffect(() => {
     const s = getCurrentModeState();
@@ -33,6 +45,28 @@ export default function ProgressPage() {
     }
     setState(s);
   }, [navigate]);
+
+  // Resolve display names for P1, the next opponent, and the stage.
+  useEffect(() => {
+    if (!state) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [chars, stages] = await Promise.all([getCharacters(), getStages()]);
+        if (cancelled) return;
+        const names: Record<string, string> = {};
+        for (const c of chars) names[c.id] = c.displayName;
+        setCharNames(names);
+        const stg = stages.find(x => x.id === state.stageId);
+        setStageName(stg?.displayName ?? null);
+      } catch {
+        // Keep raw IDs — honest fallback, no fabricated data.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [state]);
 
   useEffect(() => {
     if (!state) return;
@@ -68,12 +102,11 @@ export default function ProgressPage() {
     );
   }
 
-  const modeLabel = {
-    'arcade': 'ARCADE',
-    'survival': 'SURVIVAL',
-    'time-attack': 'TIME ATTACK',
-    'watch': 'WATCH',
-  }[state.mode] || state.mode.toUpperCase();
+  const modeLabel = MODE_LABELS[state.mode] || state.mode.toUpperCase();
+  const rules = MODE_RULES[state.mode];
+
+  const displayName = (id: string) => charNames[id] ?? id;
+  const nextOpponentId = state.opponents[(state.fightNumber - 1) % state.opponents.length];
 
   const isSurvival = state.mode === 'survival';
   const isArcade = state.mode === 'arcade';
@@ -151,6 +184,10 @@ export default function ProgressPage() {
 
         <div className="progress__stats">
           <div className="progress__stat">
+            <span className="progress__stat-label">YOUR FIGHTER</span>
+            <span className="progress__stat-value progress__stat-value--p1">{displayName(state.playerChar)}</span>
+          </div>
+          <div className="progress__stat">
             <span className="progress__stat-label">WINS</span>
             <span className="progress__stat-value">{state.wins}</span>
           </div>
@@ -170,10 +207,18 @@ export default function ProgressPage() {
 
         <div className="progress__next">
           <div className="progress__next-label">NEXT OPPONENT</div>
-          <div className="progress__next-name">
-            {state.opponents[(state.fightNumber - 1) % state.opponents.length]}
-          </div>
+          <div className="progress__next-name">{displayName(nextOpponentId)}</div>
         </div>
+
+        {stageName && (
+          <div className="progress__stage">
+            <span className="progress__stat-label">STAGE</span>
+            <span className="progress__stage-name">{stageName}</span>
+          </div>
+        )}
+
+        {/* Mode rules (Frontend 2.1 spec Section 21: relevant rules) */}
+        {rules && <div className="progress__rules">{rules}</div>}
 
         <div className="progress__countdown">
           Next fight in {countdown}…

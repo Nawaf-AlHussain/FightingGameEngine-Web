@@ -100,6 +100,39 @@ const ARCADE_FIGHTS = 5;
 const TIME_ATTACK_FIGHTS = 3;
 
 /**
+ * Shared display labels for every mode (Frontend 2.1 spec Section 41:
+ * one authoritative source for each category of state). Used by
+ * /match-prep, /progress, and /results so the labels can never drift.
+ */
+export const MODE_LABELS: Record<string, string> = {
+  'quickvs': 'VERSUS',
+  'vs-ai': 'VS CPU',
+  'vs-player': 'VS PLAYER',
+  'training': 'TRAINING',
+  'arcade': 'ARCADE',
+  'survival': 'SURVIVAL',
+  'time-attack': 'TIME ATTACK',
+  'watch': 'WATCH',
+};
+
+/**
+ * One-line factual rules per mode (Frontend 2.1 spec Section 17/18:
+ * match preparation and progression screens must show "relevant mode
+ * rules"). Data comes from the real mode configuration below — no
+ * invented statistics.
+ */
+export const MODE_RULES: Record<string, string> = {
+  'quickvs': 'Single fight · first to win takes the match',
+  'vs-ai': 'Single fight · first to win takes the match',
+  'vs-player': 'Single fight · two human players, one keyboard',
+  'training': 'Practice mode · infinite time · dummy opponent does not fight back',
+  'arcade': `${ARCADE_FIGHTS} fights · random opponents · AI difficulty ramps up · a loss ends the run`,
+  'survival': 'Endless opponents · AI difficulty fixed · a loss ends the run · wins are counted',
+  'time-attack': `${TIME_ATTACK_FIGHTS} fights · 60-second rounds · total time is tracked · a loss ends the run`,
+  'watch': 'AI vs AI showcase · both fighters are CPU-controlled · single fight',
+};
+
+/**
  * Start a new progression mode session.
  * Called from /local when the user selects Arcade/Survival/Time Attack/Watch
  * and locks in their character.

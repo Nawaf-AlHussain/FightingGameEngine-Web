@@ -4,7 +4,7 @@ import { useSearchParams } from 'next/navigation';
 import { Suspense, useEffect } from 'react';
 import { useWipeNavigation } from '@/components/WipeTransition';
 import { GameButton } from '@/components/ui';
-import { clearModeState } from '@/lib/game-modes';
+import { clearModeState, MODE_LABELS } from '@/lib/game-modes';
 
 /**
  * /results — final victory/defeat screen (Section 24-25 of spec).
@@ -38,12 +38,7 @@ function ResultsPageInner() {
   }, []);
 
   const isVictory = result === 'win';
-  const modeLabel = {
-    'arcade': 'ARCADE',
-    'survival': 'SURVIVAL',
-    'time-attack': 'TIME ATTACK',
-    'watch': 'WATCH',
-  }[mode] || mode.toUpperCase();
+  const modeLabel = MODE_LABELS[mode] || mode.toUpperCase();
 
   // Format time as MM:SS.S for time-attack
   const formatTime = (seconds: number) => {
