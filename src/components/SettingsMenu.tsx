@@ -9,6 +9,8 @@ import {
   serializeConfigIni,
   getString,
   set,
+  applyDisplayModePreset,
+  pairedDimension,
   SETTINGS_SCHEMA,
   iniKeyToLabel,
   codeToIniKey,
@@ -63,7 +65,24 @@ export default function SettingsMenu({ onCancel }: SettingsMenuProps) {
         const sectionName = def.section;
         const oldSection = next.sections.get(sectionName) ?? {};
         next.sections.set(sectionName, { ...oldSection });
-        set(next, sectionName, def.key, value);
+
+        if (sectionName === 'Video' && (def.key === 'GameWidth' || def.key === 'GameHeight')) {
+          // Render resolution presets drive the whole display mode: the
+          // sibling dimension is auto-paired and the fight-aspect keys
+          // follow the preset (see applyDisplayModePreset). Editing the two
+          // selects independently used to allow nonsense combos (640×720)
+          // and left the fight content at the stage's 16:9 aspect inside a
+          // 4:3 framebuffer — letterboxed or stretched, never true 4:3.
+          const dimKey = def.key as 'GameWidth' | 'GameHeight';
+          const paired = pairedDimension(dimKey, value);
+          const fallbackKey = dimKey === 'GameWidth' ? 'GameHeight' : 'GameWidth';
+          const other = paired ?? getString(next, 'Video', fallbackKey) ?? '';
+          const w = dimKey === 'GameWidth' ? value : other;
+          const h = dimKey === 'GameHeight' ? value : other;
+          applyDisplayModePreset(next, w, h);
+        } else {
+          set(next, sectionName, def.key, value);
+        }
         return next;
       });
       setDirty(true);

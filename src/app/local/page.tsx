@@ -9,7 +9,7 @@ import StageSelect from '@/components/StageSelect';
 import RotateOverlay from '@/components/RotateOverlay';
 import { useWipeNavigation } from '@/components/WipeTransition';
 import { useIsTouchDevice } from '@/lib/use-touch-device';
-import { loadConfig, set as setConfigKey, saveConfig } from '@/lib/ikemen-config';
+import { loadConfig, applyDisplayModePreset, saveConfig } from '@/lib/ikemen-config';
 import { startMode, type ProgressionMode } from '@/lib/game-modes';
 import { getCharacters } from '@/lib/character-downloader';
 
@@ -77,16 +77,22 @@ export default function LocalPlayPage() {
   // the same localStorage config the Settings UI writes to. No separate
   // URL param — Settings UI is the single source of truth.
   //
-  // IMPORTANT: we load the config ONCE, modify BOTH GameWidth and GameHeight,
-  // then save ONCE. Calling setConfigValue twice would race (two independent
-  // load→modify→save cycles where the second save overwrites the first).
+  // applyDisplayModePreset writes GameWidth/GameHeight AND the matching
+  // fight-aspect keys in one call. A bare resolution write is not enough:
+  // the engine derives fight content aspect from FightAspectWidth/Height
+  // (-1 = stage localcoord, and shipped stages are 16:9), so a 4:3
+  // resolution without the aspect keys renders 16:9 content letterboxed or
+  // stretched inside a 4:3 canvas.
+  //
+  // IMPORTANT: we load the config ONCE, apply the preset, then save ONCE.
+  // Calling setConfigValue twice would race (two independent load→modify→
+  // save cycles where the second save overwrites the first).
   const handleAspectChange = useCallback(async (newAspect: Aspect) => {
     setAspect(newAspect);
     const { w, h } = ASPECT_TO_RESOLUTION[newAspect];
     const cfg = await loadConfig();
     if (!cfg) return;
-    setConfigKey(cfg, 'Video', 'GameWidth', String(w));
-    setConfigKey(cfg, 'Video', 'GameHeight', String(h));
+    applyDisplayModePreset(cfg, String(w), String(h));
     saveConfig(cfg);
   }, []);
 
