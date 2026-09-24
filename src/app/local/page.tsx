@@ -66,7 +66,11 @@ export default function LocalPlayPage() {
   const [screen, setScreen] = useState<Screen>('select');
   const [lockIn, setLockIn] = useState<LockInResult | null>(null);
   const [aspect, setAspect] = useState<Aspect>('4:3');
-  const [fillMode, setFillMode] = useState<'fill' | 'fixed'>('fill');
+  // NOTE: the old FILL/16:9 display toggle was removed (Frontend 2.1 spec
+  // Section 26: "Do not expose controls that appear functional but have no
+  // runtime effect"). The /play canvas fitter always displays the canvas at
+  // its intrinsic aspect ratio, fitted to the largest size that fits the
+  // viewport — there is no separate fill mode at runtime.
 
   // ---- When the RES toggle changes, write it to the authoritative config ----
   // This makes the /local RES toggle a "quick set" shortcut that writes to
@@ -112,7 +116,6 @@ export default function LocalPlayPage() {
     async (stageId: string) => {
       if (!lockIn) return;
 
-      const fillParam = fillMode;
       const isProgressionMode = ['arcade', 'survival', 'time-attack', 'watch'].includes(lockIn.mode);
 
       if (isProgressionMode) {
@@ -136,7 +139,6 @@ export default function LocalPlayPage() {
         params.set('stage', stageId);
         params.set('p2ai', String(state.difficulty));
         params.set('qmode', progressionMode);
-        params.set('fill', fillParam);
         if (progressionMode === 'time-attack') {
           params.set('time', '60');
         }
@@ -153,7 +155,6 @@ export default function LocalPlayPage() {
       params.set('p1', lockIn.p1Id);
       params.set('p2', lockIn.p2Id);
       params.set('stage', stageId);
-      params.set('fill', fillParam);
 
       switch (lockIn.mode) {
         case 'vs-ai':
@@ -170,7 +171,7 @@ export default function LocalPlayPage() {
 
       navigate(`/match-prep?${params.toString()}`);
     },
-    [lockIn, fillMode, navigate]
+    [lockIn, navigate]
   );
 
   // ---- Cancel handlers ----
@@ -230,25 +231,6 @@ export default function LocalPlayPage() {
           {r.label}
         </button>
       ))}
-      <span style={{ width: 1, height: 16, background: 'var(--gray-dark)', margin: '0 2px' }} />
-      <button
-        type="button"
-        onClick={() => setFillMode('fill')}
-        title="Stretch canvas to fill screen"
-        className={`cs__diff-btn${fillMode === 'fill' ? ' cs__diff-btn--active' : ''}`}
-        style={{ cursor: 'pointer' }}
-      >
-        FILL
-      </button>
-      <button
-        type="button"
-        onClick={() => setFillMode('fixed')}
-        title="Lock to 16:9 aspect ratio, centered (no stretching on ultrawide)"
-        className={`cs__diff-btn${fillMode === 'fixed' ? ' cs__diff-btn--active' : ''}`}
-        style={{ cursor: 'pointer' }}
-      >
-        16:9
-      </button>
     </div>
   );
 
@@ -260,6 +242,7 @@ export default function LocalPlayPage() {
         <StageSelect
           onSelect={handleStageSelect}
           onCancel={handleCancelStage}
+          isTouch={isTouch}
         />
       </div>
     );

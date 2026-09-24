@@ -30,6 +30,8 @@ interface LocalStage {
 interface StageSelectProps {
   onSelect: (stageId: string) => void;
   onCancel: () => void;
+  /** When true, hints use touch wording instead of keyboard wording. */
+  isTouch?: boolean;
 }
 
 type DownloadStatus = 'idle' | 'downloading' | 'cached' | 'error';
@@ -57,7 +59,7 @@ const BUNDLED_STAGES: LocalStage[] = [
 // Component
 // ---------------------------------------------------------------------------
 
-export default function StageSelect({ onSelect, onCancel }: StageSelectProps) {
+export default function StageSelect({ onSelect, onCancel, isTouch = false }: StageSelectProps) {
   const [stages, setStages] = useState<LocalStage[]>(BUNDLED_STAGES);
   // Full StageInfo objects keyed by id (needed for downloadStageToCache,
   // which requires the manifest entry with `files`, `cdnBase`, etc.).
@@ -65,6 +67,8 @@ export default function StageSelect({ onSelect, onCancel }: StageSelectProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  // Bumped by the RETRY button to re-run the stage list fetch (spec Section 33).
+  const [retryTick, setRetryTick] = useState(0);
 
   // ---- Download cache state ----
   // cachedIds: stages already in IndexedDB (populated on mount + updated
@@ -89,6 +93,8 @@ export default function StageSelect({ onSelect, onCancel }: StageSelectProps) {
   // ---- Fetch stage list from CDN ----
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
+    setError(null);
     getStages()
       .then((cdnStages: StageInfo[]) => {
         if (cancelled) return;
@@ -116,7 +122,7 @@ export default function StageSelect({ onSelect, onCancel }: StageSelectProps) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [retryTick]);
 
   // ---- On mount, check which stages are already cached in IndexedDB ----
   useEffect(() => {
@@ -285,11 +291,12 @@ export default function StageSelect({ onSelect, onCancel }: StageSelectProps) {
       );
     }
 
-    // Download failed.
+    // Download failed — selecting the stage + confirming re-triggers the
+    // download (spec Section 16: failure must be visible and retryable).
     if (ds?.status === 'error') {
       return (
         <div className="ss__card-download" style={{ color: 'var(--red)' }}>
-          DOWNLOAD FAILED
+          ⚠ FAILED — RETRY
         </div>
       );
     }
@@ -312,7 +319,7 @@ export default function StageSelect({ onSelect, onCancel }: StageSelectProps) {
     : downloadStates[selectedStage.id]?.status === 'downloading'
     ? `DOWNLOADING · ${downloadStates[selectedStage.id].progress}%`
     : downloadStates[selectedStage.id]?.status === 'error'
-    ? 'DOWNLOAD FAILED — RETRY BY RESELECTING'
+    ? 'DOWNLOAD FAILED — PRESS ENTER / TAP FIGHT TO RETRY'
     : 'PREPARING DOWNLOAD…';
 
   return (
@@ -324,9 +331,21 @@ export default function StageSelect({ onSelect, onCancel }: StageSelectProps) {
           {loading
             ? 'LOADING STAGES…'
             : error
-            ? `CDN ERROR: ${error.toUpperCase()}`
+            ? 'COULD NOT LOAD STAGE LIST'
             : `${stages.length} STAGES AVAILABLE`}
         </div>
+        {error && (
+          <div className="cs__roster-error">
+            <span className="cs__roster-error-msg">CDN error: {error}</span>
+            <button
+              type="button"
+              className="cs__diff-btn cs__diff-btn--active"
+              onClick={() => setRetryTick(t => t + 1)}
+            >
+              RETRY
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Selected stage preview panel */}
@@ -397,7 +416,15 @@ export default function StageSelect({ onSelect, onCancel }: StageSelectProps) {
       {/* Footer */}
       <div className="ss__footer">
         <div className="cs__controls-help" style={{ marginBottom: '0.75rem' }}>
-          <span>ARROWS</span> select · <span>ENTER</span> confirm · <span>ESC</span> back
+          {isTouch ? (
+            <>
+              <span>TAP</span> select · <span>FIGHT!</span> confirm
+            </>
+          ) : (
+            <>
+              <span>ARROWS</span> select · <span>ENTER</span> confirm · <span>ESC</span> back
+            </>
+          )}
           {selectedStage && (
             <div style={{ marginTop: '0.25rem' }}>
               Current: <span style={{ color: 'var(--cyan)' }}>

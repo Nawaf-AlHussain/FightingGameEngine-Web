@@ -117,6 +117,9 @@ export default function CharacterSelect({
   const [characterInfos, setCharacterInfos] = useState<Record<string, CharacterInfo>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Bumped by the RETRY button to re-run the roster fetch (spec Section 33:
+  // errors must answer "can the user retry?").
+  const [retryTick, setRetryTick] = useState(0);
 
   // Mode + difficulty
   const [mode, setMode] = useState<GameMode>('vs-ai');
@@ -156,6 +159,8 @@ export default function CharacterSelect({
   // ---- Fetch roster from CDN ----
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
+    setError(null);
     getCharacters()
       .then((chars: CharacterInfo[]) => {
         if (cancelled) return;
@@ -180,7 +185,7 @@ export default function CharacterSelect({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [retryTick]);
 
   // ---- On mount, check which characters are already cached in IndexedDB ----
   useEffect(() => {
@@ -546,11 +551,12 @@ export default function CharacterSelect({
       );
     }
 
-    // Download failed.
+    // Download failed — the label doubles as the retry affordance: clicking
+    // the card re-triggers the download via handleCardClick (spec Section 16).
     if (ds?.status === 'error') {
       return (
         <div className="cs__card-download" style={{ color: 'var(--red)' }}>
-          ⚠ DOWNLOAD FAILED
+          ⚠ FAILED — TAP TO RETRY
         </div>
       );
     }
@@ -590,9 +596,21 @@ export default function CharacterSelect({
           {loading
             ? 'LOADING ROSTER…'
             : error
-            ? `CDN ERROR: ${error.toUpperCase()}`
+            ? 'COULD NOT LOAD CHARACTER LIST'
             : `${roster.length} CHARACTERS AVAILABLE`}
         </div>
+        {error && (
+          <div className="cs__roster-error">
+            <span className="cs__roster-error-msg">CDN error: {error}</span>
+            <button
+              type="button"
+              className="cs__diff-btn cs__diff-btn--active"
+              onClick={() => setRetryTick(t => t + 1)}
+            >
+              RETRY
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Mode bar */}

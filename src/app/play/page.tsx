@@ -11,6 +11,7 @@ import {
 } from '@/lib/character-downloader';
 import { useIsTouchDevice } from '@/lib/use-touch-device';
 import RotateOverlay from '@/components/RotateOverlay';
+import { ErrorState } from '@/components/ui';
 import { readFightResult, clearFightResult, processFightResult, getCurrentModeState, markFightStart } from '@/lib/game-modes';
 
 // This page loads the IKEMEN GO WASM engine and starts a fight directly,
@@ -36,6 +37,10 @@ function PlayPageInner() {
   const [engineRunning, setEngineRunning] = useState(false);
   // Exit confirmation — show a small floating X on touch devices.
   const [showExit, setShowExit] = useState(false);
+  // Boot failure — shown as a structured ErrorState overlay (Frontend 2.1
+  // spec Section 33: what failed, can the user retry, can they go back).
+  // The boot log below remains available as "Technical Details".
+  const [bootError, setBootError] = useState<string | null>(null);
 
   // ---- Load vanilla JS touch overlay on touch devices when engine starts ----
   // touch.js is a self-contained IIFE that creates its own DOM (circular D-pad
@@ -573,6 +578,7 @@ function PlayPageInner() {
         }
         log('BOOT ERROR: ' + msg);
         console.error(e);
+        if (!cancelled) setBootError(msg);
       }
     }
 
@@ -600,6 +606,18 @@ function PlayPageInner() {
       />
       {/* The engine creates its own canvas element */}
       <div id="game-container" />
+
+      {/* Structured boot-failure overlay (Frontend 2.1 spec Section 33).
+          The green boot log above stays visible as raw diagnostics. */}
+      {bootError && (
+        <ErrorState
+          title="ENGINE FAILED TO START"
+          message="The game engine could not finish booting. This is usually a network or browser-memory issue. Retrying reloads the engine; going back returns to character select."
+          onRetry={() => window.location.reload()}
+          onBack={() => { window.location.href = '/local'; }}
+          details={bootError}
+        />
+      )}
 
       {/* Rotate overlay for portrait touch devices */}
       {isTouch && <RotateOverlay />}

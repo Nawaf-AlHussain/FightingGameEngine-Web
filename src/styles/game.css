@@ -91,6 +91,18 @@
   outline-offset: 2px;
 }
 
+/* Global keyboard-focus fallback (Frontend 2.1 spec Section 37: visible
+   focus). Applies to interactive elements that don't define their own
+   focus-visible style (lobby menu items, mode/difficulty buttons, select
+   screen back/fight buttons, etc.). Mouse clicks don't show outlines. */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+
 /* GamePanel */
 .game-panel {
   background: var(--black-soft);
@@ -1978,6 +1990,31 @@ body.fighting {
   text-transform: uppercase;
   letter-spacing: 0.1em;
 }
+.progress__stage {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+.progress__stage-name {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--white);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+.progress__rules {
+  font-size: 0.68rem;
+  color: var(--gray);
+  letter-spacing: 0.08em;
+  margin-bottom: 1.25rem;
+  max-width: 460px;
+  line-height: 1.5;
+}
+.progress__stat-value--p1 {
+  color: var(--red);
+  font-size: 1rem;
+}
 /* Progress dots indicator */
 .progress__dots {
   display: flex;
@@ -2354,6 +2391,21 @@ body.fighting {
   color: var(--white);
   text-transform: uppercase;
 }
+.match-prep__player-status {
+  font-size: 0.65rem;
+  letter-spacing: 0.15em;
+  font-weight: 600;
+  margin-top: 0.35rem;
+  font-family: var(--font-mono);
+}
+.match-prep__rules {
+  font-size: 0.7rem;
+  color: var(--gray);
+  letter-spacing: 0.08em;
+  margin-bottom: 1.5rem;
+  max-width: 480px;
+  line-height: 1.5;
+}
 .match-prep__buttons {
   display: flex;
   gap: 1rem;
@@ -2365,6 +2417,24 @@ body.fighting {
   color: var(--gray-dark);
   letter-spacing: 0.1em;
   font-family: var(--font-mono);
+}
+
+/* Roster/stage list fetch failure — retry affordance (spec Section 33) */
+.cs__roster-error {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  justify-content: center;
+  margin-top: 0.5rem;
+  flex-wrap: wrap;
+}
+.cs__roster-error-msg {
+  font-size: 0.7rem;
+  color: var(--red);
+  letter-spacing: 0.05em;
+  font-family: var(--font-mono);
+  max-width: 420px;
+  overflow-wrap: anywhere;
 }
 
 /* Mobile responsive for match-prep */
