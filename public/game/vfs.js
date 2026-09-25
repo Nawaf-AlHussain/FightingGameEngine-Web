@@ -627,24 +627,29 @@
 
     // Normalize display-mode half-configurations left behind by older
     // Settings builds (which exposed Video.FightAspectWidth/Height and
-    // Video.KeepAspect as standalone controls), and by the earlier
-    // "true 4:3" presets that wrote FightAspect=4,3.
+    // Video.KeepAspect as standalone controls), by the earlier
+    // "true 4:3" presets that wrote FightAspect=4,3, and by the interim
+    // 4:3 presets that pinned KeepAspect=1 (letterbox).
     //
     // Why FightAspect=4,3 must never ship: the engine implements it by
     // mapping the stage world by WIDTH and letting the field of view grow
     // TALLER (16:9 view = 720 stage-units tall, 4:3 view = 960, ~25%
     // zoom-out). The extra vertical range sits BELOW the stage's designed
     // area, so every 1280x720-designed stage shows an unpainted black band
-    // at the bottom of the picture. Desktop IKEMEN GO never does this: its
-    // default (-1,-1 = stage) keeps the stage-native view and letterboxes
-    // it inside the canvas (KeepAspect=1), which is why all stages look
-    // right in 4:3 standalone. The 4:3 display mode therefore uses the same
-    // stage-native semantics (verified: 630x480 canvas + 16:9 stage renders
-    // content 630x354 with symmetric 63px bars, full art, no distortion).
+    // at the bottom of the picture.
+    //
+    // Why a 4:3 canvas must use KeepAspect=0 (stretch-fill), not 1: the
+    // engine always renders the fight at the STAGE's own aspect (FA=-1,-1),
+    // and the only two presentations at a canvas whose aspect differs from
+    // the stage's are letterbox (KA=1, symmetric black bars top/bottom for
+    // 16:9-designed stages — the reported bug) or stretch (KA=0, fills the
+    // canvas with zero bars for every stage; a no-op for 4:3-designed
+    // stages whose aspect already matches the canvas). Classic fullscreen
+    // MUGEN behaviour. There is no crop/height-fit mode in the engine.
     //
     // Rule (mirrors the Settings presets exactly):
     //   any resolution  -> FightAspect = -1,-1 (stage-native aspect)
-    //   4:3 resolution  -> also KeepAspect = 1 (letterbox, never stretch)
+    //   4:3 resolution  -> also KeepAspect = 0 (stretch-fill, never letterbox)
     //   16:9 resolution -> KeepAspect left untouched (historical 16:9 path)
     // The engine re-persists its (normalized) config on its next save, so
     // localStorage heals itself after the first boot.
@@ -671,10 +676,10 @@
           align('FightAspectHeight', '-1');
           if (is43) {
             const ka = /^\s*KeepAspect\s*=\s*(\d)\s*$/mi.exec(text);
-            if (!ka || ka[1] !== '1') {
+            if (!ka || ka[1] !== '0') {
               text = /^\s*KeepAspect\s*=/mi.test(text)
-                ? text.replace(/^\s*KeepAspect\s*=.*$/mi, 'KeepAspect'.padEnd(20) + '= 1')
-                : text.replace(/^(\s*\[Video\]\s*)$/mi, '$1\nKeepAspect        = 1');
+                ? text.replace(/^\s*KeepAspect\s*=.*$/mi, 'KeepAspect'.padEnd(20) + '= 0')
+                : text.replace(/^(\s*\[Video\]\s*)$/mi, '$1\nKeepAspect        = 0');
               changed = true;
             }
           }
