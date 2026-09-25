@@ -248,12 +248,26 @@ export interface DisplayModePreset {
  * Why the fight-aspect keys are needed: in the engine, Video.GameWidth/
  * GameHeight only set the framebuffer/canvas size. The fight CONTENT aspect
  * is a separate pair of keys — Video.FightAspectWidth/FightAspectHeight,
- * where -1,-1 means "follow the stage's localcoord". Nearly all shipped
- * stages are 1280×720 (16:9), so writing only a 4:3 resolution renders
- * 16:9 fight content inside a 4:3 canvas: letterboxed with top/bottom
- * bars (KeepAspect=1) or vertically stretched (KeepAspect=0). Never 4:3.
- * The engine's own in-game options menu works the same way — resolution
- * and aspect ratio are two settings there too (external/script/options.lua).
+ * where -1,-1 means "follow the stage's localcoord". Writing only a 4:3
+ * resolution renders 16:9 fight content inside a 4:3 canvas: letterboxed
+ * with top/bottom bars (KeepAspect=1) or vertically stretched (KeepAspect=0).
+ * Never 4:3. The engine's own in-game options menu works the same way —
+ * resolution and aspect ratio are two settings there too.
+ *
+ * IMPORTANT engine semantics (verified empirically against the shipped WASM
+ * build, pixel-analyzed headless screenshots): with FightAspect=4,3 the
+ * engine renders the fight into a genuine 4:3 viewport, but it does so by
+ * mapping the stage world by WIDTH and letting the field of view grow
+ * TALLER (16:9 view = 720 stage-units tall, 4:3 view = 960). The world is
+ * zoomed out ~25% and the extra vertical range sits mostly BELOW the stage's
+ * designed area. There is no height-fit / horizontal-crop mode in the engine
+ * (FightAspect=0,0 and 960x720/640x480 resolutions behave identically).
+ *
+ * Consequence: a 4:3 viewport shows a black band at the bottom of the picture
+ * ON STAGES WHOSE ART DOES NOT PAINT THAT EXTENSION (most 1280×720-designed
+ * stages, e.g. the CDN stages, don't; the shipped stage0-720 does). That band
+ * is stage content, not a display bug — 16:9 mode can never show it because
+ * the viewport then matches the stage design exactly.
  *
  * - 4:3 presets pin FightAspect to 4:3 and enable KeepAspect (the engine's
  *   shipped default) so any residual mismatch is letterboxed by the engine
@@ -262,6 +276,12 @@ export interface DisplayModePreset {
  *   deliberately do NOT touch KeepAspect: with a 16:9 canvas and 16:9
  *   stages both values render identically, and the historical 16:9 path
  *   must stay regression-free.
+ *
+ * These keys are intentionally NOT exposed as standalone Settings controls:
+ * partial states (e.g. 16:9 resolution + 4:3 fight aspect) stretch or
+ * letterbox the picture and are exactly the "still looks 16:9-ish with one
+ * black bar" bug. vfs.js also normalizes stale persisted half-configs at
+ * boot, so the engine can never receive them again.
  */
 export const DISPLAY_MODE_PRESETS: Record<string, DisplayModePreset> = {
   '320x240':   { gameWidth: '320',  gameHeight: '240',  fightAspectWidth: '4',  fightAspectHeight: '3', keepAspect: '1' },
@@ -645,36 +665,15 @@ export const SETTINGS_SCHEMA: SettingGroup[] = [
         type: 'toggle',
         hint: 'Browser fullscreen on the canvas element.',
       },
-      {
-        section: 'Video', key: 'KeepAspect', label: 'Keep Aspect Ratio',
-        type: 'toggle',
-        requiresReload: true,
-        hint: 'When on, engine letterboxes the FBO to match the fight aspect ratio. Recommended ON.',
-      },
-      {
-        section: 'Video', key: 'FightAspectWidth', label: 'Fight Aspect Width',
-        type: 'select',
-        options: [
-          { value: '-1', label: 'Stage Default' },
-          { value: '4',  label: '4 (4:3 aspect)' },
-          { value: '16', label: '16 (16:9 aspect)' },
-          { value: '16', label: '16 (16:10 aspect)' },
-        ],
-        requiresReload: true,
-        hint: 'Aspect ratio used during fights. -1 = use stage localcoord.',
-      },
-      {
-        section: 'Video', key: 'FightAspectHeight', label: 'Fight Aspect Height',
-        type: 'select',
-        options: [
-          { value: '-1', label: 'Stage Default' },
-          { value: '3',  label: '3 (4:3 aspect)' },
-          { value: '9',  label: '9 (16:9 aspect)' },
-          { value: '10', label: '10 (16:10 aspect)' },
-        ],
-        requiresReload: true,
-        hint: 'Pairs with width. 4:3 = (4,3), 16:9 = (16,9).',
-      },
+      // NOTE: Video.KeepAspect / Video.FightAspectWidth / FightAspectHeight
+      // are deliberately NOT exposed as standalone settings. They only make
+      // sense as part of a COMPLETE display mode; editing them independently
+      // produced broken half-configurations (e.g. 16:9 render resolution with
+      // a 4:3 fight aspect), which stretch the picture or letterbox it, and
+      // on 1280x720-designed stages reveal the unpainted area below the
+      // stage floor as a black band at the bottom of the picture. The Render
+      // Width/Height presets drive the entire display mode atomically via
+      // applyDisplayModePreset() — there is no valid partial state anymore.
       {
         section: 'Video', key: 'VSync', label: 'VSync',
         type: 'toggle',

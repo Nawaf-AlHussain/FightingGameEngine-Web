@@ -625,6 +625,62 @@
       }
     } catch (e) { /* leave config as restored */ }
 
+    // Normalize display-mode half-configurations left behind by older
+    // Settings builds (which exposed Video.FightAspectWidth/Height and
+    // Video.KeepAspect as standalone controls).
+    //
+    // The display mode is DEFINED by GameWidth/GameHeight; the fight-aspect
+    // keys must agree with it. A mismatched persisted pair (e.g. 1280x720
+    // render resolution with FightAspect=4,3) makes the engine stretch the
+    // 4:3 fight viewport across a 16:9 canvas, and on 1280x720-designed
+    // stages the taller 4:3 field reveals the unpainted area below the stage
+    // floor as a black band at the bottom of the picture.
+    //
+    // Rule (mirrors the Settings presets exactly):
+    //   4:3 resolution  -> FightAspect = 4,3 and KeepAspect = 1
+    //   anything else   -> FightAspect = -1,-1 (stage default), KeepAspect
+    //                      left untouched (the historical 16:9 path).
+    // The engine re-persists its (normalized) config on its next save, so
+    // localStorage heals itself after the first boot.
+    try {
+      const cfg = contents.get('save/config.ini');
+      if (cfg) {
+        let text = new TextDecoder().decode(cfg);
+        const gw = /^\s*GameWidth\s*=\s*(\d+)\s*$/mi.exec(text);
+        const gh = /^\s*GameHeight\s*=\s*(\d+)\s*$/mi.exec(text);
+        if (gw && gh) {
+          const is43 = Math.abs(+gw[1] / +gh[1] - 4 / 3) < 0.01;
+          const want = is43 ? ['4', '3'] : ['-1', '-1'];
+          let changed = false;
+          const align = (key, val) => {
+            const re = new RegExp('^\\s*' + key + '\\s*=.*$', 'mi');
+            if (re.test(text)) {
+              const cur = new RegExp('^\\s*' + key + '\\s*=\\s*(-?\\d+)\\s*$', 'mi').exec(text);
+              if (!cur || cur[1] !== val) {
+                text = text.replace(re, key.padEnd(20) + '= ' + val);
+                changed = true;
+              }
+            }
+          };
+          align('FightAspectWidth', want[0]);
+          align('FightAspectHeight', want[1]);
+          if (is43) {
+            const ka = /^\s*KeepAspect\s*=\s*(\d)\s*$/mi.exec(text);
+            if (!ka || ka[1] !== '1') {
+              text = /^\s*KeepAspect\s*=/mi.test(text)
+                ? text.replace(/^\s*KeepAspect\s*=.*$/mi, 'KeepAspect'.padEnd(20) + '= 1')
+                : text.replace(/^(\s*\[Video\]\s*)$/mi, '$1\nKeepAspect        = 1');
+              changed = true;
+            }
+          }
+          if (changed) {
+            contents.set('save/config.ini', new TextEncoder().encode(text));
+            console.log('[vfs] normalized display-mode config to ' + (is43 ? '4:3' : 'stage-default aspect'));
+          }
+        }
+      }
+    } catch (e) { /* leave config as restored */ }
+
     // Layer any in-browser mods on top of the shipped content (no-op if none).
     try {
       const nMods = await loadModsOverlay();
