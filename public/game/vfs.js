@@ -625,11 +625,11 @@
       }
     } catch (e) { /* leave config as restored */ }
 
-    // Normalize display-mode half-configurations left behind by older
-    // Settings builds (which exposed Video.FightAspectWidth/Height and
-    // Video.KeepAspect as standalone controls), by the earlier
-    // "true 4:3" presets that wrote FightAspect=4,3, and by the interim
-    // 4:3 presets that pinned KeepAspect=1 (letterbox).
+    // Normalize display-mode configurations left behind by older builds:
+    // Settings builds that exposed FightAspectWidth/Height and KeepAspect as
+    // standalone controls, the "true 4:3" presets that wrote FightAspect=4,3,
+    // the interim letterbox presets (KeepAspect=1 at 4:3), and the interim
+    // stretch presets (KeepAspect=0 at 4:3 — the "vertically stretched" bug).
     //
     // Why FightAspect=4,3 must never ship: the engine implements it by
     // mapping the stage world by WIDTH and letting the field of view grow
@@ -638,19 +638,26 @@
     // area, so every 1280x720-designed stage shows an unpainted black band
     // at the bottom of the picture.
     //
-    // Why a 4:3 canvas must use KeepAspect=0 (stretch-fill), not 1: the
-    // engine always renders the fight at the STAGE's own aspect (FA=-1,-1),
-    // and the only two presentations at a canvas whose aspect differs from
-    // the stage's are letterbox (KA=1, symmetric black bars top/bottom for
-    // 16:9-designed stages — the reported bug) or stretch (KA=0, fills the
-    // canvas with zero bars for every stage; a no-op for 4:3-designed
-    // stages whose aspect already matches the canvas). Classic fullscreen
-    // MUGEN behaviour. There is no crop/height-fit mode in the engine.
+    // Why a 4:3 CANVAS can never satisfy the 4:3 display mode: the engine
+    // always renders the fight at the STAGE's own aspect (FA=-1,-1), and the
+    // only presentations at a canvas whose aspect differs from the stage's
+    // are letterbox (KA=1, bars) or stretch (KA=0, distortion). The
+    // fill-by-cropping the 4:3 mode wants does not exist engine-side.
     //
-    // Rule (mirrors the Settings presets exactly):
-    //   any resolution  -> FightAspect = -1,-1 (stage-native aspect)
-    //   4:3 resolution  -> also KeepAspect = 0 (stretch-fill, never letterbox)
-    //   16:9 resolution -> KeepAspect left untouched (historical 16:9 path)
+    // The 4:3 display mode therefore renders the proven 16:9 path (1280x720,
+    // FA=-1,-1) with KeepAspect=1, which letterboxes every stage's content
+    // CENTERED inside the canvas; the /play fitter then cover-crops the
+    // canvas into a 4:3 box (object-fit: cover) — edge-to-edge fill, zero
+    // bars, character size identical to 16:9 mode. A persisted 4:3
+    // resolution can only come from an older 4:3 preset, so it is MIGRATED
+    // to that render config and the display-mode marker is set to '4:3'
+    // (same key the presets write; see ikemen-config.ts).
+    //
+    // Rule:
+    //   4:3 resolution  -> GameWidth/GameHeight = 1280/720, FA = -1,-1,
+    //                      KeepAspect = 1, marker '4:3'
+    //   16:9 resolution -> FA = -1,-1, KeepAspect left untouched
+    //                      (historical 16:9 path), marker left untouched
     // The engine re-persists its (normalized) config on its next save, so
     // localStorage heals itself after the first boot.
     try {
@@ -675,17 +682,29 @@
           align('FightAspectWidth', '-1');
           align('FightAspectHeight', '-1');
           if (is43) {
-            const ka = /^\s*KeepAspect\s*=\s*(\d)\s*$/mi.exec(text);
-            if (!ka || ka[1] !== '0') {
-              text = /^\s*KeepAspect\s*=/mi.test(text)
-                ? text.replace(/^\s*KeepAspect\s*=.*$/mi, 'KeepAspect'.padEnd(20) + '= 0')
-                : text.replace(/^(\s*\[Video\]\s*)$/mi, '$1\nKeepAspect        = 0');
+            // Migrate the legacy 4:3 render resolution to the 16:9 render
+            // config the 4:3 display mode now uses (the fitter crops).
+            if (+gw[1] !== 1280 || +gh[1] !== 720) {
+              text = text.replace(/^\s*GameWidth\s*=.*$/mi, 'GameWidth'.padEnd(20) + '= 1280');
+              text = text.replace(/^\s*GameHeight\s*=.*$/mi, 'GameHeight'.padEnd(20) + '= 720');
               changed = true;
             }
+            const ka = /^\s*KeepAspect\s*=\s*(\d)\s*$/mi.exec(text);
+            if (!ka || ka[1] !== '1') {
+              text = /^\s*KeepAspect\s*=/mi.test(text)
+                ? text.replace(/^\s*KeepAspect\s*=.*$/mi, 'KeepAspect'.padEnd(20) + '= 1')
+                : text.replace(/^(\s*\[Video\]\s*)$/mi, '$1\nKeepAspect        = 1');
+              changed = true;
+            }
+            try {
+              if (localStorage.getItem('ikemen-display-mode') !== '4:3') {
+                localStorage.setItem('ikemen-display-mode', '4:3');
+              }
+            } catch (e) { /* marker best-effort */ }
           }
           if (changed) {
             contents.set('save/config.ini', new TextEncoder().encode(text));
-            console.log('[vfs] normalized display-mode config to ' + (is43 ? '4:3' : 'stage-default aspect'));
+            console.log('[vfs] normalized display-mode config to ' + (is43 ? '4:3 (16:9 render + fitter crop)' : 'stage-default aspect'));
           }
         }
       }

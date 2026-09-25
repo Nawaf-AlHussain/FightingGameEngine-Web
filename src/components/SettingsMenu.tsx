@@ -9,13 +9,14 @@ import {
   serializeConfigIni,
   getString,
   set,
-  applyDisplayModePreset,
-  pairedDimension,
+  applyDisplayModeChoice,
+  getDisplayModeChoice,
   SETTINGS_SCHEMA,
   iniKeyToLabel,
   codeToIniKey,
   isValidIniKey,
   type ConfigData,
+  type DisplayModeChoice,
   type SettingDef,
   type SettingGroup,
 } from '@/lib/ikemen-config';
@@ -66,20 +67,13 @@ export default function SettingsMenu({ onCancel }: SettingsMenuProps) {
         const oldSection = next.sections.get(sectionName) ?? {};
         next.sections.set(sectionName, { ...oldSection });
 
-        if (sectionName === 'Video' && (def.key === 'GameWidth' || def.key === 'GameHeight')) {
-          // Render resolution presets drive the whole display mode: the
-          // sibling dimension is auto-paired and the fight-aspect keys
-          // follow the preset (see applyDisplayModePreset). Editing the two
-          // selects independently used to allow nonsense combos (640×720)
-          // and left the fight content at the stage's 16:9 aspect inside a
-          // 4:3 framebuffer — letterboxed or stretched, never true 4:3.
-          const dimKey = def.key as 'GameWidth' | 'GameHeight';
-          const paired = pairedDimension(dimKey, value);
-          const fallbackKey = dimKey === 'GameWidth' ? 'GameHeight' : 'GameWidth';
-          const other = paired ?? getString(next, 'Video', fallbackKey) ?? '';
-          const w = dimKey === 'GameWidth' ? value : other;
-          const h = dimKey === 'GameHeight' ? value : other;
-          applyDisplayModePreset(next, w, h);
+        if (sectionName === 'Video' && def.key === 'DisplayMode') {
+          // The Display Mode preset drives the whole display mode atomically:
+          // resolution, fight-aspect keys, KeepAspect and the persisted mode
+          // marker the /play fitter reads (see applyDisplayModeChoice).
+          // 'DisplayMode' itself is a UI pseudo-key — never written to the
+          // engine config; the config only receives the real Video keys.
+          applyDisplayModeChoice(next, value as DisplayModeChoice);
         } else {
           set(next, sectionName, def.key, value);
         }
@@ -570,6 +564,11 @@ function KeyBind({
 // ---------------------------------------------------------------------------
 
 function readValue(data: ConfigData, def: SettingDef): string {
+  // The display mode is reconstructed from the persisted marker + config
+  // resolution — it is a UI pseudo-key with no single INI backing.
+  if (def.section === 'Video' && def.key === 'DisplayMode') {
+    return getDisplayModeChoice(data);
+  }
   // Try int first (for slider/number), fall back to string.
   const s = getString(data, def.section, def.key);
   return s ?? '';
