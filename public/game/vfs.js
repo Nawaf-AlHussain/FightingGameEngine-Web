@@ -627,19 +627,25 @@
 
     // Normalize display-mode half-configurations left behind by older
     // Settings builds (which exposed Video.FightAspectWidth/Height and
-    // Video.KeepAspect as standalone controls).
+    // Video.KeepAspect as standalone controls), and by the earlier
+    // "true 4:3" presets that wrote FightAspect=4,3.
     //
-    // The display mode is DEFINED by GameWidth/GameHeight; the fight-aspect
-    // keys must agree with it. A mismatched persisted pair (e.g. 1280x720
-    // render resolution with FightAspect=4,3) makes the engine stretch the
-    // 4:3 fight viewport across a 16:9 canvas, and on 1280x720-designed
-    // stages the taller 4:3 field reveals the unpainted area below the stage
-    // floor as a black band at the bottom of the picture.
+    // Why FightAspect=4,3 must never ship: the engine implements it by
+    // mapping the stage world by WIDTH and letting the field of view grow
+    // TALLER (16:9 view = 720 stage-units tall, 4:3 view = 960, ~25%
+    // zoom-out). The extra vertical range sits BELOW the stage's designed
+    // area, so every 1280x720-designed stage shows an unpainted black band
+    // at the bottom of the picture. Desktop IKEMEN GO never does this: its
+    // default (-1,-1 = stage) keeps the stage-native view and letterboxes
+    // it inside the canvas (KeepAspect=1), which is why all stages look
+    // right in 4:3 standalone. The 4:3 display mode therefore uses the same
+    // stage-native semantics (verified: 630x480 canvas + 16:9 stage renders
+    // content 630x354 with symmetric 63px bars, full art, no distortion).
     //
     // Rule (mirrors the Settings presets exactly):
-    //   4:3 resolution  -> FightAspect = 4,3 and KeepAspect = 1
-    //   anything else   -> FightAspect = -1,-1 (stage default), KeepAspect
-    //                      left untouched (the historical 16:9 path).
+    //   any resolution  -> FightAspect = -1,-1 (stage-native aspect)
+    //   4:3 resolution  -> also KeepAspect = 1 (letterbox, never stretch)
+    //   16:9 resolution -> KeepAspect left untouched (historical 16:9 path)
     // The engine re-persists its (normalized) config on its next save, so
     // localStorage heals itself after the first boot.
     try {
@@ -650,7 +656,6 @@
         const gh = /^\s*GameHeight\s*=\s*(\d+)\s*$/mi.exec(text);
         if (gw && gh) {
           const is43 = Math.abs(+gw[1] / +gh[1] - 4 / 3) < 0.01;
-          const want = is43 ? ['4', '3'] : ['-1', '-1'];
           let changed = false;
           const align = (key, val) => {
             const re = new RegExp('^\\s*' + key + '\\s*=.*$', 'mi');
@@ -662,8 +667,8 @@
               }
             }
           };
-          align('FightAspectWidth', want[0]);
-          align('FightAspectHeight', want[1]);
+          align('FightAspectWidth', '-1');
+          align('FightAspectHeight', '-1');
           if (is43) {
             const ka = /^\s*KeepAspect\s*=\s*(\d)\s*$/mi.exec(text);
             if (!ka || ka[1] !== '1') {
