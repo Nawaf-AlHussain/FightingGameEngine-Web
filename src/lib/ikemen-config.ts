@@ -223,6 +223,11 @@ export function clearPersistedConfig(): void {
   } catch {
     // ignore
   }
+  try {
+    localStorage.removeItem(DISPLAY_MODE_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -240,113 +245,148 @@ export interface DisplayModePreset {
   fightAspectHeight: string;
   /** Written to Video.KeepAspect when present; absent = leave untouched. */
   keepAspect?: string;
+  /** Persisted next to the config so the /play fitter knows the mode. */
+  marker: DisplayModeMarker;
 }
 
 /**
- * Render-resolution → display-mode mapping.
+ * The engine (verified against upstream v0.99/v1.0/master AND the shipped
+ * WASM, pixel-analyzed headless screenshots) has exactly these presentation
+ * primitives:
  *
- * Why the fight-aspect keys are needed: in the engine, Video.GameWidth/
- * GameHeight only set the framebuffer/canvas size. The fight CONTENT aspect
- * is a separate pair of keys — Video.FightAspectWidth/FightAspectHeight,
- * where -1,-1 means "follow the stage's localcoord". Writing only a 4:3
- * resolution leaves the fight content aspect at the engine default
- * (resolution aspect), which does NOT follow the stage.
- *
- * IMPORTANT engine semantics (source-verified against upstream v1.0.0/master
- * AND pixel-verified against the shipped WASM build, headless screenshots with
- * the user's own CDN stages):
- *
- * - The fight view is ALWAYS rendered at the STAGE's own aspect (FA=-1,-1):
- *   a 1280x720-designed stage renders 16:9 content; a legacy 320x240 stage
- *   renders 4:3 content. There is no engine mode that crops or height-fits a
- *   stage (char.go scales per-axis; upstream confirmed on v0.99/v1.0/master).
- * - KeepAspect=1 LETTERBOXES the fight view inside the canvas. At a 4:3
- *   canvas with a 16:9-designed stage that is symmetric top/bottom bars —
- *   pixel-verified: 630x480 canvas -> content 630x354, 63px bars top AND
- *   bottom. This is the reported "top and bottom black bars" bug: at a 4:3
- *   framebuffer, KeepAspect=1 can never show 16:9-designed stages without
- *   bars, because 16:9 content does not fill a 4:3 frame.
- * - KeepAspect=0 STRETCHES the fight view to fill the canvas — no bars for
- *   ANY stage. For 4:3-designed stages (stage aspect == canvas aspect) the
- *   stretch is mathematically a no-op (scales are equal), i.e. identical to
- *   KeepAspect=1. For 16:9-designed stages it is the classic pre-1.0
- *   fullscreen MUGEN behaviour: the whole picture fills the 4:3 screen
- *   (vertically stretched ~33%) instead of showing bars. This is the ONLY
- *   engine-level presentation at a 4:3 framebuffer with zero black bars for
- *   every stage aspect.
+ * - FightAspect=-1,-1 renders the fight at the STAGE's own aspect: a
+ *   1280x720-designed stage produces 16:9 content, a legacy 320x240 stage
+ *   produces 4:3 content. There is no engine mode that crops or height-fits
+ *   a stage (char.go scales per-axis).
+ * - KeepAspect=1 LETTERBOXES that content inside the canvas, centered.
+ * - KeepAspect=0 STRETCHES it to fill the canvas.
  * - FightAspect=4,3 re-frames the fight into a 4:3 world by WIDTH: the field
- *   of view grows TALLER (16:9 view = 720 stage-units tall, 4:3 view = 960,
- *   ~25% zoom-out). The extra vertical range sits BELOW the stage's designed
- *   area, so every 1280x720-designed stage shows an UNPAINTED BLACK BAND at
- *   the bottom ("one black bar at the bottom" bug report). Must never ship.
- * - Desktop IKEMEN GO defaults to GameWidth=1280, GameHeight=720,
- *   FightAspect=-1,-1, KeepAspect=1 (upstream resources/defaultConfig.ini):
- *   a 16:9 canvas where every stage is presented at its own aspect — 16:9
- *   stages fill the window (no bars), legacy 4:3 stages pillarbox on the
- *   sides. That is the presentation the user calls "perfect in standalone".
+ *   of view grows TALLER (16:9 view = 720 stage-units tall, 4:3 view = 960).
+ *   The extra vertical range sits BELOW the stage's designed area, so every
+ *   1280x720-designed stage shows an unpainted black band at the bottom.
+ *   Must never ship.
  *
- * Consequence:
- * - 4:3 presets (320x240, 640x480) MUST pin KeepAspect=0 (stretch-fill):
- *   the only no-bars presentation at a 4:3 framebuffer for 16:9-designed
- *   stages. 4:3-designed stages render identically under 0 or 1.
- * - 16:9 presets (1280x720, 1920x1080) deliberately do NOT touch
- *   KeepAspect: with a 16:9 canvas and 16:9 stages both values render
- *   identically, and the historical 16:9 path must stay regression-free.
+ * Consequence: at a 4:3 framebuffer, 16:9-designed stage content can only be
+ * letterboxed (bars) or stretched (distortion) — the fill-by-cropping the
+ * user asks for does not exist engine-side. So the 4:3 display mode renders
+ * EXACTLY like the proven 16:9 path (16:9 canvas, FA=-1,-1) with KeepAspect=1,
+ * which guarantees every stage's content is centered inside the canvas, and
+ * the WEB FITTER (/play) presents that canvas as a cover-fill of a 4:3 box:
+ * the bitmap is scaled until it covers the box and the overflowing left/right
+ * edges are cropped. Result for every stage aspect:
  *
- * These keys are intentionally NOT exposed as standalone Settings controls:
- * partial states (e.g. 16:9 resolution + 4:3 fight aspect) stretch or
- * letterbox the picture and are exactly the "still looks 16:9-ish with one
- * black bar" bug. vfs.js also normalizes stale persisted half-configs at
- * boot, so the engine can never receive them again.
+ * - 16:9-designed stages: content fills the canvas; the 4:3 box shows the
+ *   center crop. Zero bars, zero distortion, and character size on screen is
+ *   IDENTICAL to 16:9 mode (the vertical scale is untouched) — "zoom in so
+ *   the bars are gone while the characters stay the same size".
+ * - 4:3-designed stages (training etc.): the engine letterboxes them to the
+ *   center 960x720 of the 1280x720 canvas; the 4:3 crop window captures the
+ *   content exactly. Zero bars, zero distortion.
+ * - Anything in between: centered content, slight side crop, still bar-free.
+ *
+ * 16:9 display modes are untouched: same resolution, same fight-aspect keys,
+ * KeepAspect left as-is (identical rendering for 16:9 content either way).
  */
-export const DISPLAY_MODE_PRESETS: Record<string, DisplayModePreset> = {
-  '320x240':   { gameWidth: '320',  gameHeight: '240',  fightAspectWidth: '-1', fightAspectHeight: '-1', keepAspect: '0' },
-  '640x480':   { gameWidth: '640',  gameHeight: '480',  fightAspectWidth: '-1', fightAspectHeight: '-1', keepAspect: '0' },
-  '1280x720':  { gameWidth: '1280', gameHeight: '720',  fightAspectWidth: '-1', fightAspectHeight: '-1' },
-  '1920x1080': { gameWidth: '1920', gameHeight: '1080', fightAspectWidth: '-1', fightAspectHeight: '-1' },
-};
+export const DISPLAY_MODE_PRESETS = {
+  /**
+   * 4:3 classic fullscreen. Renders the proven 16:9 path at 720p with
+   * KeepAspect=1 (content always centered); the /play fitter cover-crops
+   * the canvas into a 4:3 display box.
+   */
+  '4:3': {
+    gameWidth: '1280',
+    gameHeight: '720',
+    fightAspectWidth: '-1',
+    fightAspectHeight: '-1',
+    keepAspect: '1',
+    marker: '4:3',
+  },
+  '16:9-720p': {
+    gameWidth: '1280',
+    gameHeight: '720',
+    fightAspectWidth: '-1',
+    fightAspectHeight: '-1',
+    marker: '16:9',
+  },
+  '16:9-1080p': {
+    gameWidth: '1920',
+    gameHeight: '1080',
+    fightAspectWidth: '-1',
+    fightAspectHeight: '-1',
+    marker: '16:9',
+  },
+} as const satisfies Record<string, DisplayModePreset>;
+
+export type DisplayModeChoice = keyof typeof DISPLAY_MODE_PRESETS;
 
 /**
- * Given one half of a resolution preset (GameWidth or GameHeight option
- * value), return the paired other dimension — or null if the value is not
- * a known preset. Used to keep the two Render Width/Height selects in
- * sync so nonsense combinations (e.g. 640×720) can't be produced.
+ * localStorage key that records WHICH display mode the user selected. The
+ * engine config cannot distinguish the modes anymore (4:3 mode renders at
+ * 1280x720, the same resolution as 16:9 720p), so the /play fitter reads
+ * this marker to decide between the cover-crop (4:3) and contain (16:9)
+ * presentations. Written only by applyDisplayModeChoice; vfs.js also sets
+ * it to '4:3' when it migrates a stale 4:3-resolution config at boot.
+ * vfs.js duplicates the key string (plain script, no imports).
  */
-export function pairedDimension(
-  key: 'GameWidth' | 'GameHeight',
-  value: string,
-): string | null {
-  for (const p of Object.values(DISPLAY_MODE_PRESETS)) {
-    const matches = key === 'GameWidth' ? p.gameWidth === value : p.gameHeight === value;
-    if (matches) return key === 'GameWidth' ? p.gameHeight : p.gameWidth;
+export const DISPLAY_MODE_STORAGE_KEY = 'ikemen-display-mode';
+
+export type DisplayModeMarker = '4:3' | '16:9';
+
+/** Read the persisted display-mode marker (null = never selected/migrated). */
+export function getDisplayModeMarker(): DisplayModeMarker | null {
+  try {
+    const v = localStorage.getItem(DISPLAY_MODE_STORAGE_KEY);
+    return v === '4:3' || v === '16:9' ? v : null;
+  } catch {
+    return null;
   }
-  return null;
+}
+
+function setDisplayModeMarker(mode: DisplayModeMarker): void {
+  try {
+    localStorage.setItem(DISPLAY_MODE_STORAGE_KEY, mode);
+  } catch {
+    // ignore — fitter falls back to the contain (16:9) presentation
+  }
 }
 
 /**
- * Apply a display-mode preset to a ConfigData in place: writes
- * GameWidth/GameHeight, then the matching FightAspect pair (and KeepAspect
- * for 4:3 presets) so the fight content aspect follows the selected
- * resolution. Unknown combinations still write the resolution but leave
- * aspect keys untouched (no speculative writes).
+ * Apply a display-mode choice to a ConfigData in place and persist the
+ * display-mode marker: writes GameWidth/GameHeight, the FightAspect pair,
+ * KeepAspect (when the preset pins it) and the marker atomically — there is
+ * no valid partial state.
  *
  * Operates on the SAME config data / storage as every other setting —
  * there is no second configuration system.
  */
-export function applyDisplayModePreset(
-  cfg: ConfigData,
-  gameWidth: string,
-  gameHeight: string,
-): void {
-  set(cfg, 'Video', 'GameWidth', gameWidth);
-  set(cfg, 'Video', 'GameHeight', gameHeight);
-  const preset = DISPLAY_MODE_PRESETS[`${gameWidth}x${gameHeight}`];
+export function applyDisplayModeChoice(cfg: ConfigData, choice: DisplayModeChoice): void {
+  const preset = DISPLAY_MODE_PRESETS[choice];
   if (!preset) return;
+  set(cfg, 'Video', 'GameWidth', preset.gameWidth);
+  set(cfg, 'Video', 'GameHeight', preset.gameHeight);
   set(cfg, 'Video', 'FightAspectWidth', preset.fightAspectWidth);
   set(cfg, 'Video', 'FightAspectHeight', preset.fightAspectHeight);
-  if (preset.keepAspect !== undefined) {
+  if ('keepAspect' in preset) {
     set(cfg, 'Video', 'KeepAspect', preset.keepAspect);
   }
+  setDisplayModeMarker(preset.marker);
+}
+
+/**
+ * Reconstruct the active display-mode choice from the persisted marker and
+ * the config resolution — used by Settings/local UIs to show the current
+ * selection. Stale pre-marker configs whose resolution is 4:3 map to '4:3'
+ * (that resolution could only have been written by an older 4:3 preset).
+ */
+export function getDisplayModeChoice(cfg: ConfigData): DisplayModeChoice {
+  if (getDisplayModeMarker() === '4:3') return '4:3';
+  const gw = getInt(cfg, 'Video', 'GameWidth');
+  const gh = getInt(cfg, 'Video', 'GameHeight');
+  if (gw && gh && gw > 0 && gh > 0) {
+    if (Math.abs(gw / gh - 4 / 3) < 0.01) return '4:3';
+    if (gw === 1920 && gh === 1080) return '16:9-1080p';
+  }
+  return '16:9-720p';
 }
 
 // ---------------------------------------------------------------------------
@@ -653,28 +693,15 @@ export const SETTINGS_SCHEMA: SettingGroup[] = [
     label: 'VIDEO',
     settings: [
       {
-        section: 'Video', key: 'GameWidth', label: 'Render Width',
+        section: 'Video', key: 'DisplayMode', label: 'Display Mode',
         type: 'select',
         options: [
-          { value: '320',  label: '320 · 480p Low (4:3)' },
-          { value: '640',  label: '640 · 480p (4:3)' },
-          { value: '1280', label: '1280 · 720p (16:9)' },
-          { value: '1920', label: '1920 · 1080p (16:9)' },
+          { value: '4:3',        label: '4:3 · Classic fullscreen (zoom fill)' },
+          { value: '16:9-720p',  label: '16:9 · 720p HD' },
+          { value: '16:9-1080p', label: '16:9 · 1080p Full HD' },
         ],
         requiresReload: true,
-        hint: 'Internal render resolution. Lower = faster, higher = sharper. Pairs with Render Height and drives the matching display mode (4:3 fills a 4:3 screen, 16:9 = widescreen).',
-      },
-      {
-        section: 'Video', key: 'GameHeight', label: 'Render Height',
-        type: 'select',
-        options: [
-          { value: '240',  label: '240 · Low' },
-          { value: '480',  label: '480 · Standard' },
-          { value: '720',  label: '720 · HD' },
-          { value: '1080', label: '1080 · Full HD' },
-        ],
-        requiresReload: true,
-        hint: 'Auto-paired with Render Width (640→480, 1280→720, 1920→1080). 4:3 modes fill the screen edge-to-edge with no black bars (16:9-designed stages appear vertically stretched, like classic fullscreen MUGEN); 16:9 modes show every stage at its native aspect.',
+        hint: '4:3 renders at 720p and zooms in to fill a 4:3 screen edge-to-edge: the sides of the picture are cropped, characters keep the widescreen size, and there are zero black bars on every stage. 16:9 shows every stage at its native aspect.',
       },
       {
         section: 'Video', key: 'Fullscreen', label: 'Fullscreen',
@@ -687,9 +714,9 @@ export const SETTINGS_SCHEMA: SettingGroup[] = [
       // produced broken half-configurations (e.g. 16:9 render resolution with
       // a 4:3 fight aspect), which stretch the picture or letterbox it, and
       // on 1280x720-designed stages reveal the unpainted area below the
-      // stage floor as a black band at the bottom of the picture. The Render
-      // Width/Height presets drive the entire display mode atomically via
-      // applyDisplayModePreset() — there is no valid partial state anymore.
+      // stage floor as a black band at the bottom of the picture. The
+      // Display Mode preset drives the entire mode atomically via
+      // applyDisplayModeChoice() — there is no valid partial state anymore.
       {
         section: 'Video', key: 'VSync', label: 'VSync',
         type: 'toggle',

@@ -9,7 +9,7 @@ import StageSelect from '@/components/StageSelect';
 import RotateOverlay from '@/components/RotateOverlay';
 import { useWipeNavigation } from '@/components/WipeTransition';
 import { useIsTouchDevice } from '@/lib/use-touch-device';
-import { loadConfig, applyDisplayModePreset, saveConfig } from '@/lib/ikemen-config';
+import { loadConfig, applyDisplayModeChoice, getDisplayModeMarker, type DisplayModeChoice, saveConfig } from '@/lib/ikemen-config';
 import { startMode, type ProgressionMode } from '@/lib/game-modes';
 import { getCharacters } from '@/lib/character-downloader';
 
@@ -19,7 +19,8 @@ import { getCharacters } from '@/lib/character-downloader';
 
 type Screen = 'select' | 'stage-select';
 
-type Aspect = 'low' | '4:3' | '16:9';
+/** The /local RES quick-set mirrors the Settings Display Mode choices. */
+type Aspect = Extract<DisplayModeChoice, '4:3' | '16:9-720p'>;
 
 interface LockInResult {
   p1Id: string;
@@ -43,17 +44,11 @@ const DIFFICULTY_TO_AI: Record<Difficulty, number> = {
 };
 
 // ---------------------------------------------------------------------------
-// Resolution toggle: maps the 3-preset toggle to GameWidth/GameHeight.
+// Resolution toggle: maps the RES quick-set to the display-mode presets.
 // These are written to localStorage config.ini (the authoritative source)
-// via setConfigValue, NOT passed as URL params. vfs.js picks them up via
-// restorePersisted() on next boot.
+// via applyDisplayModeChoice, NOT passed as URL params. vfs.js picks them
+// up via restorePersisted() on next boot.
 // ---------------------------------------------------------------------------
-
-const ASPECT_TO_RESOLUTION: Record<Aspect, { w: number; h: number }> = {
-  'low':  { w: 320, h: 240 },  // 480p low — fastest
-  '4:3':  { w: 640, h: 480 },  // 4:3 standard
-  '16:9': { w: 1280, h: 720 }, // 16:9 HD
-};
 
 // ---------------------------------------------------------------------------
 // Component
@@ -65,39 +60,34 @@ export default function LocalPlayPage() {
 
   const [screen, setScreen] = useState<Screen>('select');
   const [lockIn, setLockIn] = useState<LockInResult | null>(null);
-  const [aspect, setAspect] = useState<Aspect>('4:3');
+  const [aspect, setAspect] = useState<Aspect>(() =>
+    getDisplayModeMarker() === '16:9' ? '16:9-720p' : '4:3'
+  );
   // NOTE: the old FILL/16:9 display toggle was removed (Frontend 2.1 spec
   // Section 26: "Do not expose controls that appear functional but have no
-  // runtime effect"). The /play canvas fitter always displays the canvas at
-  // its intrinsic aspect ratio, fitted to the largest size that fits the
-  // viewport — there is no separate fill mode at runtime.
+  // runtime effect"). The /play canvas fitter displays the canvas contain-
+  // fitted in 16:9 mode and cover-cropped into a 4:3 box in 4:3 mode.
 
   // ---- When the RES toggle changes, write it to the authoritative config ----
   // This makes the /local RES toggle a "quick set" shortcut that writes to
   // the same localStorage config the Settings UI writes to. No separate
   // URL param — Settings UI is the single source of truth.
   //
-  // applyDisplayModePreset writes GameWidth/GameHeight AND the matching
-  // fight-aspect keys in one call. A bare resolution write is not enough:
-  // the engine derives fight content aspect from FightAspectWidth/Height.
-  // With no keys the engine falls back to the resolution aspect, which
-  // forces a 4:3 fight world rendered by width (FOV grows taller than the
-  // stage design) — that is the "black band at the bottom" bug. The preset
-  // writes -1,-1 (stage-native aspect). At 4:3 resolutions it also pins
-  // KeepAspect=0 (stretch-fill): the only engine presentation at a 4:3
-  // canvas with zero black bars for every stage aspect — 16:9-designed
-  // stages fill the screen stretched (classic fullscreen MUGEN) instead of
-  // letterboxing with bars, and 4:3-designed stages render identically.
+  // applyDisplayModeChoice writes GameWidth/GameHeight, the FightAspect
+  // pair, KeepAspect and the display-mode marker in one call (a bare
+  // resolution write is not enough — partial states letterbox or stretch).
+  // 4:3 renders the proven 16:9 path at 720p and the /play fitter cover-
+  // crops it into a 4:3 box: edge-to-edge fill, zero bars, character size
+  // unchanged. 16:9 shows every stage at its native aspect.
   //
   // IMPORTANT: we load the config ONCE, apply the preset, then save ONCE.
   // Calling setConfigValue twice would race (two independent load→modify→
   // save cycles where the second save overwrites the first).
   const handleAspectChange = useCallback(async (newAspect: Aspect) => {
     setAspect(newAspect);
-    const { w, h } = ASPECT_TO_RESOLUTION[newAspect];
     const cfg = await loadConfig();
     if (!cfg) return;
-    applyDisplayModePreset(cfg, String(w), String(h));
+    applyDisplayModeChoice(cfg, newAspect);
     saveConfig(cfg);
   }, []);
 
@@ -196,9 +186,8 @@ export default function LocalPlayPage() {
 
   // ---- Aspect ratio toggle (writes to localStorage, NOT URL) ----
   const aspectButtons: { id: Aspect; label: string; hint: string }[] = [
-    { id: 'low', label: '480p', hint: '320×240 · fastest' },
-    { id: '4:3', label: '4:3', hint: '640×480 · balanced' },
-    { id: '16:9', label: '16:9', hint: '1280×720 · highest' },
+    { id: '4:3', label: '4:3', hint: '720p render · zoom fill, zero black bars' },
+    { id: '16:9-720p', label: '16:9', hint: '720p HD · native aspect' },
   ];
 
   // -----------------------------------------------------------------------

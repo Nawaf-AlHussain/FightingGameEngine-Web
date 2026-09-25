@@ -127,12 +127,25 @@ function PlayPageInner() {
         const p1ai = searchParams.get('p1ai') || '0'; // 0 = human, >0 = AI level
         const training = searchParams.get('training') || '0';
         const time = searchParams.get('time') || '99';
-        // NOTE: 'aspect' URL param is no longer used. Resolution is controlled
-        // by the Settings UI (or /local RES toggle) via localStorage config.ini,
-        // which vfs.js reads on boot. This is the single source of truth.
-        // The game canvas is always displayed with its intrinsic aspect ratio.
-        // It is fitted to the largest size that can fully fit inside the viewport;
-        // the engine's internal resolution is never changed by this display logic.
+        // NOTE: 'aspect' URL param is no longer used. The display mode is
+        // controlled by the Settings UI (or /local RES toggle) via the
+        // persisted config.ini plus the 'ikemen-display-mode' marker, both
+        // written by applyDisplayModeChoice. vfs.js reads the config on boot;
+        // this is the single source of truth.
+        //
+        // Presentation per display mode:
+        // - 16:9: the canvas is displayed with its intrinsic aspect ratio,
+        //   fitted to the largest size that fully fits inside the viewport
+        //   (contain). Unchanged historical behavior.
+        // - 4:3: the engine renders the proven 16:9 path (1280x720,
+        //   KeepAspect=1 keeps every stage's content centered in the canvas);
+        //   the canvas is then presented as a COVER-FILL of the largest 4:3
+        //   box that fits the viewport — the bitmap is scaled until it covers
+        //   the box and the overflowing left/right edges are cropped
+        //   (object-fit: cover). Edge-to-edge picture, zero black bars, zero
+        //   distortion on every stage, and character size on screen is
+        //   identical to 16:9 mode (the vertical scale is untouched) — the
+        //   camera is effectively zoomed in so the bars are gone.
         const fitCanvasToViewport = () => {
           const canvas = document.querySelector('canvas#ikemen-canvas') as HTMLCanvasElement | null;
           if (!canvas || canvas.width <= 0 || canvas.height <= 0) return false;
@@ -140,6 +153,33 @@ function PlayPageInner() {
           const viewport = window.visualViewport;
           const viewportWidth = viewport?.width || window.innerWidth;
           const viewportHeight = viewport?.height || window.innerHeight;
+
+          let mode43 = false;
+          try {
+            mode43 = localStorage.getItem('ikemen-display-mode') === '4:3';
+          } catch {
+            // Storage unavailable — fall through to the 16:9 presentation.
+          }
+
+          if (mode43) {
+            // Largest 4:3 display box that fits the viewport (one dimension
+            // is always binding; both formulas agree on the other).
+            const boxWidth = Math.min(viewportWidth, viewportHeight * (4 / 3));
+            const boxHeight = Math.min(viewportHeight, viewportWidth * (3 / 4));
+
+            canvas.style.setProperty('width', boxWidth + 'px', 'important');
+            canvas.style.setProperty('height', boxHeight + 'px', 'important');
+            canvas.style.setProperty('object-fit', 'cover', 'important');
+            canvas.style.setProperty('object-position', 'center', 'important');
+            canvas.style.setProperty('left', '50%', 'important');
+            canvas.style.setProperty('top', '50%', 'important');
+            canvas.style.setProperty('transform', 'translate(-50%, -50%)', 'important');
+            canvas.style.setProperty('position', 'fixed', 'important');
+            canvas.style.setProperty('max-width', 'none', 'important');
+            canvas.style.setProperty('max-height', 'none', 'important');
+            return true;
+          }
+
           const aspect = canvas.width / canvas.height;
 
           // Maximum aspect-ratio-preserving size that fits entirely in the
@@ -150,6 +190,8 @@ function PlayPageInner() {
 
           canvas.style.setProperty('width', displayWidth + 'px', 'important');
           canvas.style.setProperty('height', displayHeight + 'px', 'important');
+          canvas.style.setProperty('object-fit', 'contain', 'important');
+          canvas.style.setProperty('object-position', 'center', 'important');
           canvas.style.setProperty('left', '50%', 'important');
           canvas.style.setProperty('top', '50%', 'important');
           canvas.style.setProperty('transform', 'translate(-50%, -50%)', 'important');
@@ -164,7 +206,9 @@ function PlayPageInner() {
           style.id = 'ikemen-canvas-fit';
           style.textContent = [
             'html, body { overflow: hidden !important; }',
-            'canvas#ikemen-canvas { display: block !important; object-fit: contain !important; margin: 0 !important; }',
+            // object-fit / object-position are set inline per display mode
+            // (contain for 16:9, cover for 4:3) by fitCanvasToViewport.
+            'canvas#ikemen-canvas { display: block !important; margin: 0 !important; }',
           ].join('\n');
           document.head.appendChild(style);
           document.body.classList.add('fighting');
