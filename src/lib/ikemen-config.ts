@@ -253,35 +253,44 @@ export interface DisplayModePreset {
  * (resolution aspect), which does NOT follow the stage.
  *
  * IMPORTANT engine semantics (source-verified against upstream v1.0.0/master
- * AND pixel-verified against the shipped WASM build, headless screenshots):
+ * AND pixel-verified against the shipped WASM build, headless screenshots with
+ * the user's own CDN stages):
  *
- * - FightAspect=-1,-1 (stage) + KeepAspect=1 renders the fight at the
- *   STAGE's own aspect and letterboxes it inside the canvas with symmetric
- *   top/bottom bars, during active gameplay (measured: 630x480 canvas,
- *   16:9-designed stage -> content 630x354, 63px bars top AND bottom, full
- *   stage art, no distortion). KeepAspect=0 stretches instead.
- * - FightAspect=4,3 renders the fight into a genuine 4:3 world by mapping
- *   the stage world by WIDTH and letting the field of view grow TALLER
- *   (16:9 view = 720 stage-units tall, 4:3 view = 960, ~25% zoom-out). The
- *   extra vertical range sits BELOW the stage's designed area, so any stage
- *   whose art stops at its design (all 1280x720-designed CDN stages) shows
- *   an UNPAINTED BLACK BAND at the bottom. There is no height-fit /
- *   horizontal-crop mode in the engine that could avoid this.
+ * - The fight view is ALWAYS rendered at the STAGE's own aspect (FA=-1,-1):
+ *   a 1280x720-designed stage renders 16:9 content; a legacy 320x240 stage
+ *   renders 4:3 content. There is no engine mode that crops or height-fits a
+ *   stage (char.go scales per-axis; upstream confirmed on v0.99/v1.0/master).
+ * - KeepAspect=1 LETTERBOXES the fight view inside the canvas. At a 4:3
+ *   canvas with a 16:9-designed stage that is symmetric top/bottom bars —
+ *   pixel-verified: 630x480 canvas -> content 630x354, 63px bars top AND
+ *   bottom. This is the reported "top and bottom black bars" bug: at a 4:3
+ *   framebuffer, KeepAspect=1 can never show 16:9-designed stages without
+ *   bars, because 16:9 content does not fill a 4:3 frame.
+ * - KeepAspect=0 STRETCHES the fight view to fill the canvas — no bars for
+ *   ANY stage. For 4:3-designed stages (stage aspect == canvas aspect) the
+ *   stretch is mathematically a no-op (scales are equal), i.e. identical to
+ *   KeepAspect=1. For 16:9-designed stages it is the classic pre-1.0
+ *   fullscreen MUGEN behaviour: the whole picture fills the 4:3 screen
+ *   (vertically stretched ~33%) instead of showing bars. This is the ONLY
+ *   engine-level presentation at a 4:3 framebuffer with zero black bars for
+ *   every stage aspect.
+ * - FightAspect=4,3 re-frames the fight into a 4:3 world by WIDTH: the field
+ *   of view grows TALLER (16:9 view = 720 stage-units tall, 4:3 view = 960,
+ *   ~25% zoom-out). The extra vertical range sits BELOW the stage's designed
+ *   area, so every 1280x720-designed stage shows an UNPAINTED BLACK BAND at
+ *   the bottom ("one black bar at the bottom" bug report). Must never ship.
+ * - Desktop IKEMEN GO defaults to GameWidth=1280, GameHeight=720,
+ *   FightAspect=-1,-1, KeepAspect=1 (upstream resources/defaultConfig.ini):
+ *   a 16:9 canvas where every stage is presented at its own aspect — 16:9
+ *   stages fill the window (no bars), legacy 4:3 stages pillarbox on the
+ *   sides. That is the presentation the user calls "perfect in standalone".
  *
- * Consequence (this is the "one black bar at the bottom" bug report):
- * forcing FightAspect=4,3 breaks every 16:9-designed stage. Desktop
- * IKEMEN GO never does this — its default (-1,-1) keeps the stage-native
- * view and letterboxes it, which is why "all stages look right in 4:3
- * standalone". The 4:3 presets therefore now replicate the standalone
- * behavior exactly: stage-native fight aspect + KeepAspect, inside a 4:3
- * canvas. 16:9-designed stages show complete art with symmetric bars
- * (like a real 4:3 screen running standalone); 4:3-designed legacy stages
- * fill the canvas; the band is impossible because the viewport always
- * matches the stage design.
- *
- * - 4:3 presets: 4:3 render resolution + FightAspect=-1,-1 + KeepAspect=1.
- * - 16:9 presets: stage-default semantics (-1,-1) and deliberately do NOT
- *   touch KeepAspect: with a 16:9 canvas and 16:9 stages both values render
+ * Consequence:
+ * - 4:3 presets (320x240, 640x480) MUST pin KeepAspect=0 (stretch-fill):
+ *   the only no-bars presentation at a 4:3 framebuffer for 16:9-designed
+ *   stages. 4:3-designed stages render identically under 0 or 1.
+ * - 16:9 presets (1280x720, 1920x1080) deliberately do NOT touch
+ *   KeepAspect: with a 16:9 canvas and 16:9 stages both values render
  *   identically, and the historical 16:9 path must stay regression-free.
  *
  * These keys are intentionally NOT exposed as standalone Settings controls:
@@ -291,8 +300,8 @@ export interface DisplayModePreset {
  * boot, so the engine can never receive them again.
  */
 export const DISPLAY_MODE_PRESETS: Record<string, DisplayModePreset> = {
-  '320x240':   { gameWidth: '320',  gameHeight: '240',  fightAspectWidth: '-1', fightAspectHeight: '-1', keepAspect: '1' },
-  '640x480':   { gameWidth: '640',  gameHeight: '480',  fightAspectWidth: '-1', fightAspectHeight: '-1', keepAspect: '1' },
+  '320x240':   { gameWidth: '320',  gameHeight: '240',  fightAspectWidth: '-1', fightAspectHeight: '-1', keepAspect: '0' },
+  '640x480':   { gameWidth: '640',  gameHeight: '480',  fightAspectWidth: '-1', fightAspectHeight: '-1', keepAspect: '0' },
   '1280x720':  { gameWidth: '1280', gameHeight: '720',  fightAspectWidth: '-1', fightAspectHeight: '-1' },
   '1920x1080': { gameWidth: '1920', gameHeight: '1080', fightAspectWidth: '-1', fightAspectHeight: '-1' },
 };
@@ -653,7 +662,7 @@ export const SETTINGS_SCHEMA: SettingGroup[] = [
           { value: '1920', label: '1920 · 1080p (16:9)' },
         ],
         requiresReload: true,
-        hint: 'Internal render resolution. Lower = faster, higher = sharper. Pairs with Render Height and sets the matching fight aspect (4:3 or stage default).',
+        hint: 'Internal render resolution. Lower = faster, higher = sharper. Pairs with Render Height and drives the matching display mode (4:3 fills a 4:3 screen, 16:9 = widescreen).',
       },
       {
         section: 'Video', key: 'GameHeight', label: 'Render Height',
@@ -665,7 +674,7 @@ export const SETTINGS_SCHEMA: SettingGroup[] = [
           { value: '1080', label: '1080 · Full HD' },
         ],
         requiresReload: true,
-        hint: 'Auto-paired with Render Width (640→480, 1280→720, 1920→1080). The matching fight aspect is applied so the picture is genuinely 4:3 or 16:9.',
+        hint: 'Auto-paired with Render Width (640→480, 1280→720, 1920→1080). 4:3 modes fill the screen edge-to-edge with no black bars (16:9-designed stages appear vertically stretched, like classic fullscreen MUGEN); 16:9 modes show every stage at its native aspect.',
       },
       {
         section: 'Video', key: 'Fullscreen', label: 'Fullscreen',

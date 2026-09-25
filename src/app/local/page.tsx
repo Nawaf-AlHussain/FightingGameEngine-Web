@@ -83,9 +83,11 @@ export default function LocalPlayPage() {
   // With no keys the engine falls back to the resolution aspect, which
   // forces a 4:3 fight world rendered by width (FOV grows taller than the
   // stage design) — that is the "black band at the bottom" bug. The preset
-  // writes -1,-1 (stage-native aspect) so the engine letterboxes the
-  // stage's own view inside the canvas (KeepAspect=1), exactly like
-  // desktop IKEMEN GO.
+  // writes -1,-1 (stage-native aspect). At 4:3 resolutions it also pins
+  // KeepAspect=0 (stretch-fill): the only engine presentation at a 4:3
+  // canvas with zero black bars for every stage aspect — 16:9-designed
+  // stages fill the screen stretched (classic fullscreen MUGEN) instead of
+  // letterboxing with bars, and 4:3-designed stages render identically.
   //
   // IMPORTANT: we load the config ONCE, apply the preset, then save ONCE.
   // Calling setConfigValue twice would race (two independent load→modify→
