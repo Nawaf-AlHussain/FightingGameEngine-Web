@@ -79,10 +79,13 @@ export default function LocalPlayPage() {
   //
   // applyDisplayModePreset writes GameWidth/GameHeight AND the matching
   // fight-aspect keys in one call. A bare resolution write is not enough:
-  // the engine derives fight content aspect from FightAspectWidth/Height
-  // (-1 = stage localcoord, and shipped stages are 16:9), so a 4:3
-  // resolution without the aspect keys renders 16:9 content letterboxed or
-  // stretched inside a 4:3 canvas.
+  // the engine derives fight content aspect from FightAspectWidth/Height.
+  // With no keys the engine falls back to the resolution aspect, which
+  // forces a 4:3 fight world rendered by width (FOV grows taller than the
+  // stage design) — that is the "black band at the bottom" bug. The preset
+  // writes -1,-1 (stage-native aspect) so the engine letterboxes the
+  // stage's own view inside the canvas (KeepAspect=1), exactly like
+  // desktop IKEMEN GO.
   //
   // IMPORTANT: we load the config ONCE, apply the preset, then save ONCE.
   // Calling setConfigValue twice would race (two independent load→modify→

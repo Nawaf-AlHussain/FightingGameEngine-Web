@@ -249,33 +249,40 @@ export interface DisplayModePreset {
  * GameHeight only set the framebuffer/canvas size. The fight CONTENT aspect
  * is a separate pair of keys — Video.FightAspectWidth/FightAspectHeight,
  * where -1,-1 means "follow the stage's localcoord". Writing only a 4:3
- * resolution renders 16:9 fight content inside a 4:3 canvas: letterboxed
- * with top/bottom bars (KeepAspect=1) or vertically stretched (KeepAspect=0).
- * Never 4:3. The engine's own in-game options menu works the same way —
- * resolution and aspect ratio are two settings there too.
+ * resolution leaves the fight content aspect at the engine default
+ * (resolution aspect), which does NOT follow the stage.
  *
- * IMPORTANT engine semantics (verified empirically against the shipped WASM
- * build, pixel-analyzed headless screenshots): with FightAspect=4,3 the
- * engine renders the fight into a genuine 4:3 viewport, but it does so by
- * mapping the stage world by WIDTH and letting the field of view grow
- * TALLER (16:9 view = 720 stage-units tall, 4:3 view = 960). The world is
- * zoomed out ~25% and the extra vertical range sits mostly BELOW the stage's
- * designed area. There is no height-fit / horizontal-crop mode in the engine
- * (FightAspect=0,0 and 960x720/640x480 resolutions behave identically).
+ * IMPORTANT engine semantics (source-verified against upstream v1.0.0/master
+ * AND pixel-verified against the shipped WASM build, headless screenshots):
  *
- * Consequence: a 4:3 viewport shows a black band at the bottom of the picture
- * ON STAGES WHOSE ART DOES NOT PAINT THAT EXTENSION (most 1280×720-designed
- * stages, e.g. the CDN stages, don't; the shipped stage0-720 does). That band
- * is stage content, not a display bug — 16:9 mode can never show it because
- * the viewport then matches the stage design exactly.
+ * - FightAspect=-1,-1 (stage) + KeepAspect=1 renders the fight at the
+ *   STAGE's own aspect and letterboxes it inside the canvas with symmetric
+ *   top/bottom bars, during active gameplay (measured: 630x480 canvas,
+ *   16:9-designed stage -> content 630x354, 63px bars top AND bottom, full
+ *   stage art, no distortion). KeepAspect=0 stretches instead.
+ * - FightAspect=4,3 renders the fight into a genuine 4:3 world by mapping
+ *   the stage world by WIDTH and letting the field of view grow TALLER
+ *   (16:9 view = 720 stage-units tall, 4:3 view = 960, ~25% zoom-out). The
+ *   extra vertical range sits BELOW the stage's designed area, so any stage
+ *   whose art stops at its design (all 1280x720-designed CDN stages) shows
+ *   an UNPAINTED BLACK BAND at the bottom. There is no height-fit /
+ *   horizontal-crop mode in the engine that could avoid this.
  *
- * - 4:3 presets pin FightAspect to 4:3 and enable KeepAspect (the engine's
- *   shipped default) so any residual mismatch is letterboxed by the engine
- *   rather than stretched.
- * - 16:9 presets restore the shipped stage-default semantics (-1,-1) and
- *   deliberately do NOT touch KeepAspect: with a 16:9 canvas and 16:9
- *   stages both values render identically, and the historical 16:9 path
- *   must stay regression-free.
+ * Consequence (this is the "one black bar at the bottom" bug report):
+ * forcing FightAspect=4,3 breaks every 16:9-designed stage. Desktop
+ * IKEMEN GO never does this — its default (-1,-1) keeps the stage-native
+ * view and letterboxes it, which is why "all stages look right in 4:3
+ * standalone". The 4:3 presets therefore now replicate the standalone
+ * behavior exactly: stage-native fight aspect + KeepAspect, inside a 4:3
+ * canvas. 16:9-designed stages show complete art with symmetric bars
+ * (like a real 4:3 screen running standalone); 4:3-designed legacy stages
+ * fill the canvas; the band is impossible because the viewport always
+ * matches the stage design.
+ *
+ * - 4:3 presets: 4:3 render resolution + FightAspect=-1,-1 + KeepAspect=1.
+ * - 16:9 presets: stage-default semantics (-1,-1) and deliberately do NOT
+ *   touch KeepAspect: with a 16:9 canvas and 16:9 stages both values render
+ *   identically, and the historical 16:9 path must stay regression-free.
  *
  * These keys are intentionally NOT exposed as standalone Settings controls:
  * partial states (e.g. 16:9 resolution + 4:3 fight aspect) stretch or
@@ -284,8 +291,8 @@ export interface DisplayModePreset {
  * boot, so the engine can never receive them again.
  */
 export const DISPLAY_MODE_PRESETS: Record<string, DisplayModePreset> = {
-  '320x240':   { gameWidth: '320',  gameHeight: '240',  fightAspectWidth: '4',  fightAspectHeight: '3', keepAspect: '1' },
-  '640x480':   { gameWidth: '640',  gameHeight: '480',  fightAspectWidth: '4',  fightAspectHeight: '3', keepAspect: '1' },
+  '320x240':   { gameWidth: '320',  gameHeight: '240',  fightAspectWidth: '-1', fightAspectHeight: '-1', keepAspect: '1' },
+  '640x480':   { gameWidth: '640',  gameHeight: '480',  fightAspectWidth: '-1', fightAspectHeight: '-1', keepAspect: '1' },
   '1280x720':  { gameWidth: '1280', gameHeight: '720',  fightAspectWidth: '-1', fightAspectHeight: '-1' },
   '1920x1080': { gameWidth: '1920', gameHeight: '1080', fightAspectWidth: '-1', fightAspectHeight: '-1' },
 };
