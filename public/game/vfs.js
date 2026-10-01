@@ -626,86 +626,99 @@
     } catch (e) { /* leave config as restored */ }
 
     // Normalize display-mode configurations left behind by older builds:
-    // Settings builds that exposed FightAspectWidth/Height and KeepAspect as
-    // standalone controls, the "true 4:3" presets that wrote FightAspect=4,3,
-    // the interim letterbox presets (KeepAspect=1 at 4:3), and the interim
-    // stretch presets (KeepAspect=0 at 4:3 — the "vertically stretched" bug).
+    // the crop-era presets ('4:3' marker + 1280x720 16:9 render + web fitter
+    // cover-crop), the interim letterbox presets, the stretch presets, and
+    // the first-generation 4:3 render resolutions (640x480).
     //
-    // Why FightAspect=4,3 must never ship: the engine implements it by
-    // mapping the stage world by WIDTH and letting the field of view grow
-    // TALLER (16:9 view = 720 stage-units tall, 4:3 view = 960, ~25%
-    // zoom-out). The extra vertical range sits BELOW the stage's designed
-    // area, so every 1280x720-designed stage shows an unpainted black band
-    // at the bottom of the picture.
+    // The 4:3 display mode is now the ENGINE'S NATIVE 4:3: FightAspect=4,3
+    // re-frames the fight into a genuine 4:3 world (verified in the shipped
+    // WASM with headless screenshots: full-bleed 4:3, zero bars, zero
+    // distortion, and MORE vertical stage content than 16:9 — the extra
+    // height lands in the stage's overdraw regions, placed by the engine
+    // camera's aspectcorrection per the stage's overdrawhigh/overdrawlow).
+    // The canvas is 960x720 (4:3), so the /play fitter needs no mode-specific
+    // presentation anymore — plain contain-fit is correct at both aspects.
     //
-    // Why a 4:3 CANVAS can never satisfy the 4:3 display mode: the engine
-    // always renders the fight at the STAGE's own aspect (FA=-1,-1), and the
-    // only presentations at a canvas whose aspect differs from the stage's
-    // are letterbox (KA=1, bars) or stretch (KA=0, distortion). The
-    // fill-by-cropping the 4:3 mode wants does not exist engine-side.
-    //
-    // The 4:3 display mode therefore renders the proven 16:9 path (1280x720,
-    // FA=-1,-1) with KeepAspect=1, which letterboxes every stage's content
-    // CENTERED inside the canvas; the /play fitter then cover-crops the
-    // canvas into a 4:3 box (object-fit: cover) — edge-to-edge fill, zero
-    // bars, character size identical to 16:9 mode. A persisted 4:3
-    // resolution can only come from an older 4:3 preset, so it is MIGRATED
-    // to that render config and the display-mode marker is set to '4:3'
-    // (same key the presets write; see ikemen-config.ts).
+    // Stage zoom ([Config] ZoomActive + [Debug] ForceStageAutoZoom) is also
+    // ensured here at EVERY boot: the camera then dynamically zooms out while
+    // players are far apart (clamped by the stage's own camera bounds),
+    // revealing the stage's top. Stages that author their own [Camera] zoom
+    // settings are unaffected — ForceStageAutoZoom only fills in zoom-less
+    // stages (e.g. UIU_Fountain).
     //
     // Rule:
-    //   4:3 resolution  -> GameWidth/GameHeight = 1280/720, FA = -1,-1,
-    //                      KeepAspect = 1, marker '4:3'
-    //   16:9 resolution -> FA = -1,-1, KeepAspect left untouched
-    //                      (historical 16:9 path), marker left untouched
+    //   marker '4:3' or a 4:3 resolution from a stale preset (no marker)
+    //     -> GameWidth/GameHeight = 960/720, FA = 4,3, KeepAspect = 1,
+    //        marker '4:3'
+    //   marker '16:9' or anything else (16:9 path)
+    //     -> resolution/KeepAspect untouched, FA healed to -1,-1 (broken
+    //        half-configs from the old standalone settings UI)
+    //   always -> Config.ZoomActive = 1, Debug.ForceStageAutoZoom = 1
     // The engine re-persists its (normalized) config on its next save, so
     // localStorage heals itself after the first boot.
     try {
       const cfg = contents.get('save/config.ini');
       if (cfg) {
         let text = new TextDecoder().decode(cfg);
+        let changed = false;
         const gw = /^\s*GameWidth\s*=\s*(\d+)\s*$/mi.exec(text);
         const gh = /^\s*GameHeight\s*=\s*(\d+)\s*$/mi.exec(text);
-        if (gw && gh) {
-          const is43 = Math.abs(+gw[1] / +gh[1] - 4 / 3) < 0.01;
-          let changed = false;
-          const align = (key, val) => {
-            const re = new RegExp('^\\s*' + key + '\\s*=.*$', 'mi');
-            if (re.test(text)) {
-              const cur = new RegExp('^\\s*' + key + '\\s*=\\s*(-?\\d+)\\s*$', 'mi').exec(text);
-              if (!cur || cur[1] !== val) {
-                text = text.replace(re, key.padEnd(20) + '= ' + val);
-                changed = true;
-              }
-            }
-          };
-          align('FightAspectWidth', '-1');
-          align('FightAspectHeight', '-1');
-          if (is43) {
-            // Migrate the legacy 4:3 render resolution to the 16:9 render
-            // config the 4:3 display mode now uses (the fitter crops).
-            if (+gw[1] !== 1280 || +gh[1] !== 720) {
-              text = text.replace(/^\s*GameWidth\s*=.*$/mi, 'GameWidth'.padEnd(20) + '= 1280');
-              text = text.replace(/^\s*GameHeight\s*=.*$/mi, 'GameHeight'.padEnd(20) + '= 720');
+        let marker = null;
+        try { marker = localStorage.getItem('ikemen-display-mode'); } catch (e) { /* best-effort */ }
+        // An explicit marker wins (the user's choice); with no marker, a 4:3
+        // resolution can only come from a stale pre-marker 4:3 preset.
+        const is43 = marker === '4:3' ? true
+          : marker === '16:9' ? false
+          : !!(gw && gh && Math.abs(+gw[1] / +gh[1] - 4 / 3) < 0.01);
+
+        // Align a key if present; insert it under its section header if the
+        // key is missing (creating the whole section at the end if needed).
+        const ensureKey = (key, val, section) => {
+          const re = new RegExp('^\\s*' + key + '\\s*=.*$', 'mi');
+          if (re.test(text)) {
+            const cur = new RegExp('^\\s*' + key + '\\s*=\\s*(-?\\d+)\\s*$', 'mi').exec(text);
+            if (!cur || cur[1] !== String(val)) {
+              text = text.replace(re, key.padEnd(20) + '= ' + val);
               changed = true;
             }
-            const ka = /^\s*KeepAspect\s*=\s*(\d)\s*$/mi.exec(text);
-            if (!ka || ka[1] !== '1') {
-              text = /^\s*KeepAspect\s*=/mi.test(text)
-                ? text.replace(/^\s*KeepAspect\s*=.*$/mi, 'KeepAspect'.padEnd(20) + '= 1')
-                : text.replace(/^(\s*\[Video\]\s*)$/mi, '$1\nKeepAspect        = 1');
-              changed = true;
+            return;
+          }
+          const secRe = new RegExp('^\\[' + section + '\\]\\s*$', 'mi');
+          if (secRe.test(text)) {
+            text = text.replace(secRe, (m) => m + '\n' + key.padEnd(20) + '= ' + val);
+          } else {
+            text += '\n[' + section + ']\n' + key.padEnd(20) + '= ' + val + '\n';
+          }
+          changed = true;
+        };
+
+        if (is43) {
+          // Migrate crop-era / legacy 4:3 configs to the native 4:3 render.
+          ensureKey('GameWidth', 960, 'Video');
+          ensureKey('GameHeight', 720, 'Video');
+          ensureKey('FightAspectWidth', 4, 'Video');
+          ensureKey('FightAspectHeight', 3, 'Video');
+          ensureKey('KeepAspect', 1, 'Video');
+          try {
+            if (localStorage.getItem('ikemen-display-mode') !== '4:3') {
+              localStorage.setItem('ikemen-display-mode', '4:3');
             }
-            try {
-              if (localStorage.getItem('ikemen-display-mode') !== '4:3') {
-                localStorage.setItem('ikemen-display-mode', '4:3');
-              }
-            } catch (e) { /* marker best-effort */ }
-          }
-          if (changed) {
-            contents.set('save/config.ini', new TextEncoder().encode(text));
-            console.log('[vfs] normalized display-mode config to ' + (is43 ? '4:3 (16:9 render + fitter crop)' : 'stage-default aspect'));
-          }
+          } catch (e) { /* marker best-effort */ }
+        } else {
+          // 16:9 path — heal broken half-configs only (FA must be -1,-1);
+          // resolution and KeepAspect stay untouched (historical behavior).
+          ensureKey('FightAspectWidth', -1, 'Video');
+          ensureKey('FightAspectHeight', -1, 'Video');
+        }
+        // Stage zoom — enabled for every display mode (see comment above).
+        ensureKey('ZoomActive', 1, 'Config');
+        ensureKey('ForceStageAutoZoom', 1, 'Debug');
+
+        if (changed) {
+          contents.set('save/config.ini', new TextEncoder().encode(text));
+          console.log('[vfs] normalized display-mode config to '
+            + (is43 ? 'native 4:3 (960x720, FightAspect=4,3)' : '16:9 stage-default aspect')
+            + ' + stage zoom');
         }
       }
     } catch (e) { /* leave config as restored */ }

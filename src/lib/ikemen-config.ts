@@ -245,59 +245,62 @@ export interface DisplayModePreset {
   fightAspectHeight: string;
   /** Written to Video.KeepAspect when present; absent = leave untouched. */
   keepAspect?: string;
-  /** Persisted next to the config so the /play fitter knows the mode. */
+  /** Persisted next to the config so vfs.js can migrate stale modes. */
   marker: DisplayModeMarker;
 }
 
 /**
- * The engine (verified against upstream v0.99/v1.0/master AND the shipped
- * WASM, pixel-analyzed headless screenshots) has exactly these presentation
- * primitives:
+ * The engine (verified against upstream Ikemen-GO master source AND the
+ * shipped WASM with pixel-checked headless screenshots) has exactly these
+ * presentation primitives:
  *
  * - FightAspect=-1,-1 renders the fight at the STAGE's own aspect: a
  *   1280x720-designed stage produces 16:9 content, a legacy 320x240 stage
- *   produces 4:3 content. There is no engine mode that crops or height-fits
- *   a stage (char.go scales per-axis).
- * - KeepAspect=1 LETTERBOXES that content inside the canvas, centered.
- * - KeepAspect=0 STRETCHES it to fill the canvas.
- * - FightAspect=4,3 re-frames the fight into a 4:3 world by WIDTH: the field
- *   of view grows TALLER (16:9 view = 720 stage-units tall, 4:3 view = 960).
- *   The extra vertical range sits BELOW the stage's designed area, so every
- *   1280x720-designed stage shows an unpainted black band at the bottom.
- *   Must never ship.
+ *   produces 4:3 content.
+ * - FightAspect=4,3 re-frames the fight into a GENUINE 4:3 world (engine
+ *   applyFightAspect: world = 240*(w/h) x 240 units, width-fitted to the
+ *   stage's localcoord). For a 1280x720-designed stage the field of view
+ *   grows TALLER: the 16:9 view is 720 stage-units tall, the 4:3 view is
+ *   960 — the extra 240 units are placed by the engine camera's
+ *   aspectcorrection into the stage's overdraw regions above and below the
+ *   designed area (per the stage's overdrawhigh/overdrawlow). The result is
+ *   a full-bleed 4:3 picture with MORE vertical stage content than 16:9:
+ *   zero bars, zero distortion, nothing cropped. This is the engine's own
+ *   native 4:3 mode — the same picture standalone IKEMEN shows in a 4:3
+ *   window.
+ * - KeepAspect only matters when the canvas aspect differs from the fight
+ *   aspect (then it letterboxes/stretches). The presets always keep canvas
+ *   aspect == fight aspect, so the fight fills the canvas edge-to-edge at
+ *   both aspects and the web fitter needs no mode-specific presentation —
+ *   plain contain-fit is correct for both.
+ * - Stage zoom ([Camera] zoomin/zoomout/autozoom, gated by
+ *   [Config] ZoomActive): the camera dynamically zooms out while players
+ *   are far apart and back in for close combat, anchored at the floor.
+ *   Stages WITHOUT zoom config (e.g. UIU_Fountain) get the standard
+ *   autozoom package via [Debug] ForceStageAutoZoom=1 — the zoomed-out
+ *   scale is clamped by the stage's own camera bounds (engine MinScale),
+ *   so it reveals exactly as much of the stage's top as the stage can
+ *   paint. Stages that author their own zoom settings keep them.
  *
- * Consequence: at a 4:3 framebuffer, 16:9-designed stage content can only be
- * letterboxed (bars) or stretched (distortion) — the fill-by-cropping the
- * user asks for does not exist engine-side. So the 4:3 display mode renders
- * EXACTLY like the proven 16:9 path (16:9 canvas, FA=-1,-1) with KeepAspect=1,
- * which guarantees every stage's content is centered inside the canvas, and
- * the WEB FITTER (/play) presents that canvas as a cover-fill of a 4:3 box:
- * the bitmap is scaled until it covers the box and the overflowing left/right
- * edges are cropped. Result for every stage aspect:
- *
- * - 16:9-designed stages: content fills the canvas; the 4:3 box shows the
- *   center crop. Zero bars, zero distortion, and character size on screen is
- *   IDENTICAL to 16:9 mode (the vertical scale is untouched) — "zoom in so
- *   the bars are gone while the characters stay the same size".
- * - 4:3-designed stages (training etc.): the engine letterboxes them to the
- *   center 960x720 of the 1280x720 canvas; the 4:3 crop window captures the
- *   content exactly. Zero bars, zero distortion.
- * - Anything in between: centered content, slight side crop, still bar-free.
- *
- * 16:9 display modes are untouched: same resolution, same fight-aspect keys,
- * KeepAspect left as-is (identical rendering for 16:9 content either way).
+ * Display-mode presets:
+ * - '4:3': a true 4:3 framebuffer (960x720) + FightAspect=4,3. Natively
+ *   rendered 4:3 with visibly more vertical stage content than 16:9. On a
+ *   16:9 monitor the web fitter shows the canvas at its intrinsic aspect
+ *   (side pillarboxing — the honest 4:3 presentation, exactly like
+ *   standalone IKEMEN in a 4:3 window on a widescreen display).
+ * - '16:9-*': the historical widescreen path, byte-identical rendering.
  */
 export const DISPLAY_MODE_PRESETS = {
   /**
-   * 4:3 classic fullscreen. Renders the proven 16:9 path at 720p with
-   * KeepAspect=1 (content always centered); the /play fitter cover-crops
-   * the canvas into a 4:3 display box.
+   * 4:3 classic fullscreen. The engine renders a GENUINE 4:3 picture:
+   * 960x720 canvas + FightAspect=4,3 (its native 4:3 mode) — more vertical
+   * stage content than 16:9, zero bars, zero distortion, nothing cropped.
    */
   '4:3': {
-    gameWidth: '1280',
+    gameWidth: '960',
     gameHeight: '720',
-    fightAspectWidth: '-1',
-    fightAspectHeight: '-1',
+    fightAspectWidth: '4',
+    fightAspectHeight: '3',
     keepAspect: '1',
     marker: '4:3',
   },
@@ -320,13 +323,12 @@ export const DISPLAY_MODE_PRESETS = {
 export type DisplayModeChoice = keyof typeof DISPLAY_MODE_PRESETS;
 
 /**
- * localStorage key that records WHICH display mode the user selected. The
- * engine config cannot distinguish the modes anymore (4:3 mode renders at
- * 1280x720, the same resolution as 16:9 720p), so the /play fitter reads
- * this marker to decide between the cover-crop (4:3) and contain (16:9)
- * presentations. Written only by applyDisplayModeChoice; vfs.js also sets
- * it to '4:3' when it migrates a stale 4:3-resolution config at boot.
- * vfs.js duplicates the key string (plain script, no imports).
+ * localStorage key that records WHICH display mode the user selected.
+ * Written only by applyDisplayModeChoice; vfs.js reads it at boot to
+ * migrate stale configs (and duplicates the key string — plain script,
+ * no imports). The /play fitter does NOT need it anymore: the 4:3 mode
+ * renders at a genuine 4:3 canvas, so the single contain-fit presentation
+ * is correct for every mode.
  */
 export const DISPLAY_MODE_STORAGE_KEY = 'ikemen-display-mode';
 
@@ -359,6 +361,20 @@ function setDisplayModeMarker(mode: DisplayModeMarker): void {
  * Operates on the SAME config data / storage as every other setting —
  * there is no second configuration system.
  */
+/**
+ * Stage zoom is a gameplay-camera feature, independent of the display
+ * aspect — enabled for EVERY display mode. Config.ZoomActive is the
+ * master gate; Debug.ForceStageAutoZoom gives the standard autozoom
+ * package (zoomin=1, zoomout=0.625 clamped by the stage's own camera
+ * bounds, floor-anchored) to stages that don't author their own
+ * [Camera] zoom settings — e.g. UIU Fountain — without touching stages
+ * that do.
+ */
+export function ensureStageZoomKeys(cfg: ConfigData): void {
+  set(cfg, 'Config', 'ZoomActive', '1');
+  set(cfg, 'Debug', 'ForceStageAutoZoom', '1');
+}
+
 export function applyDisplayModeChoice(cfg: ConfigData, choice: DisplayModeChoice): void {
   const preset = DISPLAY_MODE_PRESETS[choice];
   if (!preset) return;
@@ -369,6 +385,7 @@ export function applyDisplayModeChoice(cfg: ConfigData, choice: DisplayModeChoic
   if ('keepAspect' in preset) {
     set(cfg, 'Video', 'KeepAspect', preset.keepAspect);
   }
+  ensureStageZoomKeys(cfg);
   setDisplayModeMarker(preset.marker);
 }
 
@@ -696,12 +713,12 @@ export const SETTINGS_SCHEMA: SettingGroup[] = [
         section: 'Video', key: 'DisplayMode', label: 'Display Mode',
         type: 'select',
         options: [
-          { value: '4:3',        label: '4:3 · Classic fullscreen (zoom fill)' },
+          { value: '4:3',        label: '4:3 · Classic fullscreen (taller view)' },
           { value: '16:9-720p',  label: '16:9 · 720p HD' },
           { value: '16:9-1080p', label: '16:9 · 1080p Full HD' },
         ],
         requiresReload: true,
-        hint: '4:3 renders at 720p and zooms in to fill a 4:3 screen edge-to-edge: the sides of the picture are cropped, characters keep the widescreen size, and there are zero black bars on every stage. 16:9 shows every stage at its native aspect.',
+        hint: '4:3 renders a genuine 4:3 picture (960x720) with more vertical stage content than 16:9 — zero black bars, zero distortion, nothing cropped. Stage zoom is enabled in both modes: the camera pulls back while players are far apart and shows more of the stage\'s top. 16:9 shows every stage at its native widescreen aspect.',
       },
       {
         section: 'Video', key: 'Fullscreen', label: 'Fullscreen',
@@ -712,9 +729,7 @@ export const SETTINGS_SCHEMA: SettingGroup[] = [
       // are deliberately NOT exposed as standalone settings. They only make
       // sense as part of a COMPLETE display mode; editing them independently
       // produced broken half-configurations (e.g. 16:9 render resolution with
-      // a 4:3 fight aspect), which stretch the picture or letterbox it, and
-      // on 1280x720-designed stages reveal the unpainted area below the
-      // stage floor as a black band at the bottom of the picture. The
+      // a 4:3 fight aspect), which stretch the picture or letterbox it. The
       // Display Mode preset drives the entire mode atomically via
       // applyDisplayModeChoice() — there is no valid partial state anymore.
       {
