@@ -69,8 +69,9 @@ export default function SettingsMenu({ onCancel }: SettingsMenuProps) {
 
         if (sectionName === 'Video' && def.key === 'DisplayMode') {
           // The Display Mode preset drives the whole display mode atomically:
-          // resolution, fight-aspect keys, KeepAspect and the persisted mode
-          // marker the /play fitter reads (see applyDisplayModeChoice).
+          // resolution, fight-aspect keys, KeepAspect, the stage-zoom keys
+          // and the persisted mode marker vfs.js uses for stale-config
+          // migration (see applyDisplayModeChoice).
           // 'DisplayMode' itself is a UI pseudo-key — never written to the
           // engine config; the config only receives the real Video keys.
           applyDisplayModeChoice(next, value as DisplayModeChoice);

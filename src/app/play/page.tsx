@@ -129,23 +129,18 @@ function PlayPageInner() {
         const time = searchParams.get('time') || '99';
         // NOTE: 'aspect' URL param is no longer used. The display mode is
         // controlled by the Settings UI (or /local RES toggle) via the
-        // persisted config.ini plus the 'ikemen-display-mode' marker, both
-        // written by applyDisplayModeChoice. vfs.js reads the config on boot;
-        // this is the single source of truth.
+        // persisted config.ini (written by applyDisplayModeChoice). vfs.js
+        // reads the config on boot; this is the single source of truth.
         //
-        // Presentation per display mode:
-        // - 16:9: the canvas is displayed with its intrinsic aspect ratio,
-        //   fitted to the largest size that fully fits inside the viewport
-        //   (contain). Unchanged historical behavior.
-        // - 4:3: the engine renders the proven 16:9 path (1280x720,
-        //   KeepAspect=1 keeps every stage's content centered in the canvas);
-        //   the canvas is then presented as a COVER-FILL of the largest 4:3
-        //   box that fits the viewport — the bitmap is scaled until it covers
-        //   the box and the overflowing left/right edges are cropped
-        //   (object-fit: cover). Edge-to-edge picture, zero black bars, zero
-        //   distortion on every stage, and character size on screen is
-        //   identical to 16:9 mode (the vertical scale is untouched) — the
-        //   camera is effectively zoomed in so the bars are gone.
+        // Presentation (ONE path for every display mode): the canvas is
+        // displayed at its intrinsic aspect ratio, fitted to the largest
+        // size that fully fits inside the viewport (contain), centered.
+        // The 16:9 modes render at a 16:9 canvas and the 4:3 mode renders
+        // at a genuine 4:3 canvas (960x720 + FightAspect=4,3 — the engine's
+        // native 4:3, with MORE vertical stage content than 16:9), so plain
+        // contain-fit is correct at both aspects: wide viewports pillarbox
+        // a 4:3 canvas, tall/narrow viewports letterbox a 16:9 canvas, and
+        // the picture itself is always undistorted and uncropped.
         const fitCanvasToViewport = () => {
           const canvas = document.querySelector('canvas#ikemen-canvas') as HTMLCanvasElement | null;
           if (!canvas || canvas.width <= 0 || canvas.height <= 0) return false;
@@ -153,32 +148,6 @@ function PlayPageInner() {
           const viewport = window.visualViewport;
           const viewportWidth = viewport?.width || window.innerWidth;
           const viewportHeight = viewport?.height || window.innerHeight;
-
-          let mode43 = false;
-          try {
-            mode43 = localStorage.getItem('ikemen-display-mode') === '4:3';
-          } catch {
-            // Storage unavailable — fall through to the 16:9 presentation.
-          }
-
-          if (mode43) {
-            // Largest 4:3 display box that fits the viewport (one dimension
-            // is always binding; both formulas agree on the other).
-            const boxWidth = Math.min(viewportWidth, viewportHeight * (4 / 3));
-            const boxHeight = Math.min(viewportHeight, viewportWidth * (3 / 4));
-
-            canvas.style.setProperty('width', boxWidth + 'px', 'important');
-            canvas.style.setProperty('height', boxHeight + 'px', 'important');
-            canvas.style.setProperty('object-fit', 'cover', 'important');
-            canvas.style.setProperty('object-position', 'center', 'important');
-            canvas.style.setProperty('left', '50%', 'important');
-            canvas.style.setProperty('top', '50%', 'important');
-            canvas.style.setProperty('transform', 'translate(-50%, -50%)', 'important');
-            canvas.style.setProperty('position', 'fixed', 'important');
-            canvas.style.setProperty('max-width', 'none', 'important');
-            canvas.style.setProperty('max-height', 'none', 'important');
-            return true;
-          }
 
           const aspect = canvas.width / canvas.height;
 
@@ -206,8 +175,8 @@ function PlayPageInner() {
           style.id = 'ikemen-canvas-fit';
           style.textContent = [
             'html, body { overflow: hidden !important; }',
-            // object-fit / object-position are set inline per display mode
-            // (contain for 16:9, cover for 4:3) by fitCanvasToViewport.
+            // object-fit / object-position are set inline (always contain —
+            // the canvas aspect always matches the chosen display mode).
             'canvas#ikemen-canvas { display: block !important; margin: 0 !important; }',
           ].join('\n');
           document.head.appendChild(style);

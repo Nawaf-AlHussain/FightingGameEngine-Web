@@ -66,7 +66,8 @@ export default function LocalPlayPage() {
   // NOTE: the old FILL/16:9 display toggle was removed (Frontend 2.1 spec
   // Section 26: "Do not expose controls that appear functional but have no
   // runtime effect"). The /play canvas fitter displays the canvas contain-
-  // fitted in 16:9 mode and cover-cropped into a 4:3 box in 4:3 mode.
+  // fitted at its intrinsic aspect for every display mode (the 4:3 mode
+  // renders at a genuine 4:3 canvas, so no mode-specific presentation).
 
   // ---- When the RES toggle changes, write it to the authoritative config ----
   // This makes the /local RES toggle a "quick set" shortcut that writes to
@@ -74,11 +75,12 @@ export default function LocalPlayPage() {
   // URL param — Settings UI is the single source of truth.
   //
   // applyDisplayModeChoice writes GameWidth/GameHeight, the FightAspect
-  // pair, KeepAspect and the display-mode marker in one call (a bare
-  // resolution write is not enough — partial states letterbox or stretch).
-  // 4:3 renders the proven 16:9 path at 720p and the /play fitter cover-
-  // crops it into a 4:3 box: edge-to-edge fill, zero bars, character size
-  // unchanged. 16:9 shows every stage at its native aspect.
+  // pair, KeepAspect, the stage-zoom keys and the display-mode marker in
+  // one call (a bare resolution write is not enough — partial states
+  // letterbox or stretch). 4:3 renders a genuine 4:3 picture (960x720,
+  // FightAspect=4,3 — the engine's native 4:3): more vertical stage
+  // content, zero bars, zero distortion. 16:9 shows every stage at its
+  // native widescreen aspect.
   //
   // IMPORTANT: we load the config ONCE, apply the preset, then save ONCE.
   // Calling setConfigValue twice would race (two independent load→modify→
