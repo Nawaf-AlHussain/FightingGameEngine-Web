@@ -54,6 +54,10 @@ function isEssential(f) {
   if (f.endsWith('.zss')) return true;
   if (f === 'data/ikemen1/system.def') return true;
   if (f === 'data/ikemen1/fight.def') return true;
+  // Active lifebar pack (LEGACY HD by NoZ) — referenced by the motif's
+  // fight= line. Must be in the .pak: a fight started before a lazy fetch
+  // finished would boot without a lifebar, which is a hard failure.
+  if (f.startsWith('data/Legacy-DirectX/')) return true;
   if (f === 'data/select.def') return true;
   if (f === 'data/system.zss') return true;
   if (f === 'font/debug.def') return true;

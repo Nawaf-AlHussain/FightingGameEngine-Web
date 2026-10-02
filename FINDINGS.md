@@ -6,6 +6,55 @@ Format: newest entries at the top. Each entry gets a unique ID for cross-referen
 
 ---
 
+## F-040 | Stage zoom is config-switchable engine-side — and autozoom is inert on 720-localcoord stages
+**Date**: 2026-10-02 | **Type**: Breakthrough (engine capability, verified against Ikemen GO source) 
+
+### What happened
+"Turn on stage zoom for all stages" turned out to be a pure config.ini switch in
+the vendored engine — no .def patching, no WASM rebuild:
+
+- `[Config] ZoomActive` — master toggle (ships as 1).
+- `[Debug] ForceStageZoomout / ForceStageZoomin` — applied by `stage.go` ONLY
+  when a stage defines neither `zoomin` nor `zoomout` (both default 1).
+- `[Debug] ForceStageAutoZoom` — gives stages without an explicit `autozoom`
+  key the MUGEN 1.1 autozoom defaults (`LegacyZoomMin=0.625`, `LegacyZoomMax=1`,
+  zoomanchor=bottom, speeds 0.4).
+
+### The trap: autozoom is a silent no-op on 1280x720 stages
+`camera.go` clamps autozoom's minimum scale with
+`yminscl = gameHeight / (240 - Min(0, boundH))` — the **240 is a hardcoded
+MUGEN base height**, not the stage's `localcoord[1]`. For a 1280x720-localcoord
+stage rendered at 1280x720 (localscl=1, boundhigh≈-221), yminscl computes to
+~1.56, `MinScale = Max(zoomout, Min(zoomin, max(xminscl, yminscl)))` collapses
+to 1.0, and the scale is pinned — enabling autozoom changes nothing on screen.
+The non-autozoom branch clamps by `xminscl` only (~0.766 for UIU_Fountain's
+±196 bounds), so a forced `zoomout` below 1.0 DOES zoom there.
+
+### Why the shipped values are what they are
+`ForceStageZoomout = 0.75` + `ForceStageZoomin = 0` + `ForceStageAutoZoom = 0`
+gives stages without authored zoom a dynamic range of roughly [0.75..1.0]:
+scale holds at 1.0 (character size identical to the classic view) while the
+fighters are close, and pulls out as they separate. The widened window reveals
+the stage's **overdraw margin** (`overdrawhigh/overdrawlow`, 120 units on
+UIU_Fountain) — real extra stage content at the top/bottom in both 16:9 and
+4:3. Crucially, a 16:9 window at scale 1.0 already contains a 720-unit stage's
+entire design height: the only honest way to "see more vertically" is the
+camera pulling back; no crop/stretch/re-render can invent pixels.
+
+### Stage census (Assets repo, 19 stages)
+UIU_Fountain, DU_Campus, Masjid_Al_Mustafa, UIU_Gallery, Unimart, stage0-720:
+no zoom keys (force options apply). volcano: authored zoomin=.8/zoomout=.5.
+13 DBFZ stages: authored zoom. Force options deliberately never touch
+authored values.
+
+### Resolution
+vfs.js boot normalization aligns `ForceStageZoomout=0.75` on every boot
+(returning players' persisted saves included) and backfills a missing
+`[Config] ZoomActive=1`; an explicit OFF in Settings is honored. Shipped
+`save/config.ini` updated to match and game.pak regenerated.
+
+---
+
 ## F-039 | Dead FILL/16:9 display toggle — URL param never consumed by /play
 **Date**: 2026-09-24 | **Type**: Finding (dead control, Frontend 2.1 spec §26 violation)
 
