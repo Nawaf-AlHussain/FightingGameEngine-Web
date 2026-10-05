@@ -123,10 +123,27 @@
   }
 
   function exists(vpath) {
+    vpath = resolveDataAlias(vpath);
     return contents.has(vpath) || manifest.has(vpath) || dirs.has(vpath);
   }
-  function isDir(vpath) { return dirs.has(vpath); }
+
+  // Some engine paths arrive WITHOUT the data/ root: the lifebar [Files]
+  // font paths are spelled "ikemen1/fonts/Timer.def" and the WASM build hands
+  // them to the VFS verbatim, while the files actually live at
+  // "data/ikemen1/fonts/..." (the sff/snd in the same section resolve against
+  // the motif's own directory and never hit this). Unknown vpath + known
+  // data/<vpath> => serve the aliased file instead of failing ENOENT, which
+  // blanked every lifebar/menu font on the engine's own screens.
+  function resolveDataAlias(vpath) {
+    if (contents.has(vpath) || manifest.has(vpath) || dirs.has(vpath)) return vpath;
+    if (vpath.startsWith('data/')) return vpath;
+    const aliased = 'data/' + vpath;
+    if (contents.has(aliased) || manifest.has(aliased) || dirs.has(aliased)) return aliased;
+    return vpath;
+  }
+  function isDir(vpath) { return dirs.has(resolveDataAlias(vpath)); }
   function sizeOf(vpath) {
+    vpath = resolveDataAlias(vpath);
     if (contents.has(vpath)) return contents.get(vpath).length;
     if (manifest.has(vpath)) return manifest.get(vpath);
     return 0;
@@ -198,7 +215,7 @@
     },
 
     open(path, flags, mode, callback) {
-      const vpath = norm(path);
+      let vpath = resolveDataAlias(norm(path));
       const creating = (flags & O_CREAT) !== 0;
       if (!exists(vpath) && !creating) { callback(enoent(vpath)); return; }
       if (isDir(vpath)) {
@@ -542,12 +559,16 @@
         packedIndex.set(vpath, length);
         registerDirsFor(vpath);
       }
-      // NOTE: Do NOT register lazy files (data.lazy) in the manifest.
-      // If we did, exists() would return true for system.sff (9.2 MB),
-      // system.snd (3.7 MB), etc., and the engine would try to fetch them
-      // synchronously during gameplay, causing massive freezes.
-      // By leaving them unregistered, exists() returns false, and the
-      // engine skips them (which is correct — we don't use menus).
+      // Lazy files (menu fonts, theme menu assets, fight-HUD fonts, UI sounds)
+      // ARE registered — the engine's own screens need them. They were skipped
+      // in the quick-match-only era ("we don't use menus"), which left the
+      // fight lifebar fonts AND every engine-menu font dead. Registration only
+      // records vpath→size: bytes stay unfetched until something open()s them,
+      // and the background prefetch below warms the cache during boot.
+      for (const [vpath, size] of Object.entries(data.lazy || {})) {
+        manifest.set(vpath, size);
+        registerDirsFor(vpath);
+      }
     } else {
       for (const [vpath, size] of Object.entries(data.files)) {
         manifest.set(vpath, size);
@@ -714,6 +735,38 @@
         ensureKey('ZoomActive', 1, 'Config');
         ensureKey('ForceStageAutoZoom', 1, 'Debug');
 
+        // Keyboard bindings for the ENGINE'S OWN menus (NETWORK > HOST GAME
+        // etc. on /play?net=1). Quick-match play never needed them because it
+        // bypasses the engine menu entirely, so configs from before netplay
+        // have no [Keys_P1] section and the menu would be unnavigable. Insert
+        // the site's canonical defaults (same as the touch overlay and the
+        // settings KEYS tab) ONLY when the section is absent entirely — a
+        // section that exists means the user has remapped, and we must not
+        // stomp their bindings. Values use the engine's MUGEN-style key names
+        // ("w", "8", "UP", ...) — NOT KeyboardEvent.code strings, which the
+        // engine's StringToKey does not understand.
+        if (!/^\s*\[Keys_P1\]\s*$/mi.test(text)) {
+          text +=
+            '\n[Keys_P1]\n' +
+            'Joystick = -1\n' +   // REQUIRED: missing/0 makes the engine treat P1 as gamepad 0
+            'GUID   = \n' +
+            'Up     = w\n' +
+            'Down   = s\n' +
+            'Left   = a\n' +
+            'Right  = d\n' +
+            'A      = 8\n' +
+            'B      = 9\n' +
+            'C      = 0\n' +
+            'X      = i\n' +
+            'Y      = o\n' +
+            'Z      = p\n' +
+            'Start  = u\n' +
+            'D      = q\n' +
+            'W      = e\n' +
+            'Menu   = ESCAPE\n';
+          changed = true;
+        }
+
         if (changed) {
           contents.set('save/config.ini', new TextEncoder().encode(text));
           console.log('[vfs] normalized display-mode config to '
@@ -798,10 +851,13 @@
     await Promise.all(preloadList.map(p => fetchFile(p).catch(() => {})));
 
     // Warm the cache in the background: without this, the first use of any
-    // file mid-fight (a sound effect, a hit spark sheet) blocks the game
-    // loop on a network fetch - felt as a random tiny freeze. Limited
-    // concurrency so boot-critical fetches still win the bandwidth race.
-    if (!data.pack) {
+    // file mid-fight (a sound effect, a hit spark sheet) or in the engine's
+    // own menus (system.sff, menu fonts) blocks the game loop on a network
+    // fetch - felt as a random tiny freeze. Limited concurrency so
+    // boot-critical fetches still win the bandwidth race. Runs for BOTH
+    // packed and unpacked builds (packed builds ship their lazy set as
+    // individual files too).
+    {
       const pending = [...manifest.keys()];
       const totalBytes = pending.reduce((n, p) => n + (manifest.get(p) || 0), 0);
       let doneBytes = 0;
