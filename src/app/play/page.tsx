@@ -224,6 +224,21 @@ function PlayPageInner() {
 
         const cleanupCanvasFit = installCanvasFit();
         const qmode = searchParams.get('qmode') || 'quickvs'; // progression mode
+        // Netplay modes (both use the WebRTC bridge - public/game/webrtc.js,
+        // engine netplay_js.go):
+        //   net=1      boot WITHOUT quick-match flags: the engine's own title
+        //              screen appears, whose NETWORK > HOST/JOIN GAME menu drives
+        //              the bridge; players then pick VERSUS 2P through the
+        //              engine's synced select screens.
+        //   net=direct boot straight into a netplay fight with the URL's fixed
+        //              roster: -p1/-p2/-s + -ip ('' hosts, anything else joins -
+        //              the address string is meaningless on the WebRTC build).
+        //              Both players must open the SAME p1/p2/stage link.
+        const netParam = searchParams.get('net') || '';
+        const netMenu = netParam === '1';
+        const netDirect = netParam === 'direct';
+        const netMode = netMenu || netDirect;
+        const netRole = searchParams.get('role') === 'join' ? 'join' : 'host';
 
         log(`Match: P1=${p1} vs P2=${p2}${p2ai ? ` (CPU lv${p2ai})` : ''}`);
         log(`Stage: ${stage}`);
@@ -299,6 +314,15 @@ function PlayPageInner() {
         log('Loading virtual filesystem...');
         await loadScript('/game/vfs.js');
         if (cancelled) return;
+
+        // --- 3b. Load the netplay bridge (before the engine boots - the Go
+        // side reaches for globalThis.ikemenNet the moment the user enters
+        // NETWORK > HOST/JOIN GAME; if it is missing the menu errors out) ---
+        if (netMode) {
+          log('Loading netplay bridge...');
+          await loadScript('/game/webrtc.js');
+          if (cancelled) return;
+        }
 
         // --- 4. Load wasm_exec.js (Go's WASM runtime) ---
         log('Loading Go WASM runtime...');
@@ -413,7 +437,7 @@ function PlayPageInner() {
         const isBundledChar = (id: string) => id === 'kfm';
         const isBundledStage = (s: string) => s === 'stages/stage0-720.def';
 
-        if (!isBundledChar(p1) || !isBundledChar(p2) || !isBundledStage(stage)) {
+        if (!netMenu && (!isBundledChar(p1) || !isBundledChar(p2) || !isBundledStage(stage))) {
           // Try to inject from IndexedDB cache first (instant)
           log('Loading characters from cache...');
 
@@ -492,22 +516,38 @@ function PlayPageInner() {
         if (cancelled) return;
 
         // --- 9. Build go.argv with the resolved character/stage paths ---
-        log('Engine starting... (quick match, bypassing menu)');
+        if (netMenu) {
+          log('Engine starting... (netplay - use the engine menu: NETWORK > HOST GAME or JOIN GAME)');
+        } else if (netDirect) {
+          log(`Engine starting... (netplay ${netRole} - connecting via WebRTC bridge)`);
+        } else {
+          log('Engine starting... (quick match, bypassing menu)');
+        }
 
         // Install the display-only canvas fitter before starting the engine.
         // It waits for the engine-created canvas, then keeps it at the maximum
         // aspect-ratio-preserving size during browser/mobile viewport changes.
-        go.argv = [
-          'ikemen',
-          '-qp1', p1Path,
-          '-qp2', p2Path,
-          '-qstage', stagePath,
-          '-qp2ai', p2ai || '0', // 0 = human, >0 = AI level
-          '-qp1ai', String(p1ai),
-          '-qtraining', String(training),
-          '-qtime', String(time),
-          '-qmode', qmode, // progression mode: quickvs/arcade/survival/time-attack/watch
-        ];
+        go.argv = netMenu
+          ? ['ikemen'] // no quick-match flags: boot to the engine title screen (NETWORK menu)
+          : netDirect
+          ? [
+              'ikemen',
+              '-p1', p1Path,
+              '-p2', p2Path,
+              '-s', stagePath,
+              '-ip', netRole === 'join' ? 'webrtc' : '', // '' = listen (host); value ignored by the WebRTC transport
+            ]
+          : [
+              'ikemen',
+              '-qp1', p1Path,
+              '-qp2', p2Path,
+              '-qstage', stagePath,
+              '-qp2ai', p2ai || '0', // 0 = human, >0 = AI level
+              '-qp1ai', String(p1ai),
+              '-qtraining', String(training),
+              '-qtime', String(time),
+              '-qmode', qmode, // progression mode: quickvs/arcade/survival/time-attack/watch
+            ];
 
         // Hide the boot log once the engine starts
         if (boot) {
@@ -534,8 +574,9 @@ function PlayPageInner() {
         setEngineRunning(true);
         // Mark fight start time for Time Attack duration tracking.
         // Must be called right before go.run() so it measures the actual
-        // fight duration, not the engine boot time.
-        markFightStart();
+        // fight duration, not the engine boot time. Not meaningful for
+        // netplay (no progression session) - skip to keep stats clean.
+        if (!netMode) markFightStart();
         // Show floating exit button on touch devices after engine starts.
         if (isTouch) {
           setTimeout(() => setShowExit(true), 1500);

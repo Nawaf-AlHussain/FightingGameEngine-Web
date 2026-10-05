@@ -31,10 +31,26 @@
   // Empty = no lobby; the manual copy-paste flow still works and is always
   // available as a fallback. ?signal=<url> on the page URL overrides (dev).
   const SIGNAL_URL = ''; // Empty = manual copy-paste connect, which needs no server. To enable short room codes instead, point this at a lobby WebSocket you run (see the protocol notes in the block comment above).
+
+  // Deployed lobby URL, fetched once at page load from a one-line text file
+  // next to the game. This is the production wiring for the netrelay/ server:
+  // deploy the relay (see netrelay/README.md), put its wss:// URL into
+  // public/game/netrelay-url.txt, push - and every client picks the lobby up
+  // with zero code changes (no-store so roster updates propagate). Leaving
+  // the file empty keeps every client on the manual copy-paste flow, which
+  // needs no server at all. Priority: ?signal= URL param > SIGNAL_URL const
+  // > this file > the localhost dev default below.
+  let fileSignalUrl = '';
+  fetch('/game/netrelay-url.txt', { cache: 'no-store' })
+    .then((r) => (r.ok ? r.text() : ''))
+    .then((t) => { const u = (t || '').trim().split(/\s+/)[0]; if (u) fileSignalUrl = u; })
+    .catch(() => { /* offline or 404: manual connect still works */ });
+
   function signalUrl() {
     const q = new URLSearchParams(location.search).get('signal');
     if (q) return q;
     if (SIGNAL_URL) return SIGNAL_URL;
+    if (fileSignalUrl) return fileSignalUrl;
     // Local dev convenience: the reference server's default port.
     if (/^(localhost|127\.)/.test(location.hostname)) return 'ws://localhost:8940/ws';
     return '';

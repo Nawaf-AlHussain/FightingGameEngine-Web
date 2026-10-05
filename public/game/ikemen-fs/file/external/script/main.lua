@@ -1,4 +1,10 @@
 main = {}
+-- Web build flag: the WASM engine has no TCP sockets - netplay rides the
+-- page's WebRTC bridge (public/game/webrtc.js, engine netplay_js.go), and
+-- joining needs no IP address. Setting this makes the NETWORK > JOIN GAME
+-- menu item go straight to the 'webjoin' flow (see the serverjoin redirect
+-- in the menu dispatch) instead of the desktop "NEW ADDRESS" IP-entry list.
+main.webBuild = true
 --;===========================================================
 --; INITIALIZE DATA
 --;===========================================================
