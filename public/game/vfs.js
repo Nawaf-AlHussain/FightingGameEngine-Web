@@ -639,11 +639,11 @@
     // The canvas is 960x720 (4:3), so the /play fitter needs no mode-specific
     // presentation anymore — plain contain-fit is correct at both aspects.
     //
-    // Stage zoom ([Config] ZoomActive + [Debug] ForceStageZoomout) is also
+    // Stage zoom ([Config] ZoomActive + [Debug] ForceStageAutoZoom) is also
     // ensured here at EVERY boot: the camera then dynamically zooms out while
     // players are far apart (clamped by the stage's own camera bounds),
     // revealing the stage's top. Stages that author their own [Camera] zoom
-    // settings are unaffected — ForceStageZoomout only fills in zoom-less
+    // settings are unaffected — ForceStageAutoZoom only fills in zoom-less
     // stages (e.g. UIU_Fountain).
     //
     // Rule:
@@ -653,7 +653,7 @@
     //   marker '16:9' or anything else (16:9 path)
     //     -> resolution/KeepAspect untouched, FA healed to -1,-1 (broken
     //        half-configs from the old standalone settings UI)
-    //   always -> Config.ZoomActive = 1, Debug.ForceStageZoomout = 0.75
+    //   always -> Config.ZoomActive = 1, Debug.ForceStageAutoZoom = 1
     // The engine re-persists its (normalized) config on its next save, so
     // localStorage heals itself after the first boot.
     try {
@@ -676,9 +676,7 @@
         const ensureKey = (key, val, section) => {
           const re = new RegExp('^\\s*' + key + '\\s*=.*$', 'mi');
           if (re.test(text)) {
-            // Decimal-tolerant: ForceStageZoomout carries a fractional value,
-            // an integer-only capture would "heal" it on every single boot.
-            const cur = new RegExp('^\\s*' + key + '\\s*=\\s*(-?\\d+(?:\\.\\d+)?)\\s*$', 'mi').exec(text);
+            const cur = new RegExp('^\\s*' + key + '\\s*=\\s*(-?\\d+)\\s*$', 'mi').exec(text);
             if (!cur || cur[1] !== String(val)) {
               text = text.replace(re, key.padEnd(20) + '= ' + val);
               changed = true;
@@ -713,30 +711,8 @@
           ensureKey('FightAspectHeight', -1, 'Video');
         }
         // Stage zoom — enabled for every display mode (see comment above).
-        //
-        // Why ForceStageZoomout and NOT ForceStageAutoZoom: autozoom's
-        // minimum-scale clamp hardcodes the 240-unit MUGEN base height
-        // (camera.go: gameHeight / (240 - boundH)); on this site's
-        // 1280x720-localcoord stages that floor lands above 1.0 and PINS the
-        // scale, so autozoom is silently inert on every stage the site
-        // ships. Plain force-zoomout is the mechanism that works (verified
-        // against stage.go Camera group + camera.go): the camera holds scale
-        // 1.0 close-range — characters exactly the size players know — and
-        // pulls the view OUT toward the floor max(0.75, xminscl) as the
-        // players separate, where xminscl is the scale at which the stage's
-        // horizontal bounds still fill the screen. The widened window shows
-        // the stage's overdraw margin — the extra painted sky each stage
-        // declares above/below its camera bounds — which is genuinely MORE
-        // stage content, vertically, in BOTH display modes, with zero crop,
-        // stretch or second render path. This also IS "stage zoom turned
-        // on" in the MUGEN sense — the same dynamic zoom MUGEN 1.1 stages
-        // ship with. Stages with authored zoom (volcano, the DBFZ pack) are
-        // untouched (force keys apply only to stages defining neither
-        // zoomin nor zoomout). A player's explicit Stage Zoom OFF choice
-        // (ZoomActive=0 in Settings) is honored: ZoomActive is backfilled
-        // only when the key is missing, never overwritten.
         ensureKey('ZoomActive', 1, 'Config');
-        ensureKey('ForceStageZoomout', 0.75, 'Debug');
+        ensureKey('ForceStageAutoZoom', 1, 'Debug');
 
         if (changed) {
           contents.set('save/config.ini', new TextEncoder().encode(text));

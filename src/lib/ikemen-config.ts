@@ -273,11 +273,11 @@ export interface DisplayModePreset {
  *   aspect == fight aspect, so the fight fills the canvas edge-to-edge at
  *   both aspects and the web fitter needs no mode-specific presentation —
  *   plain contain-fit is correct for both.
- * - Stage zoom ([Camera] zoomin/zoomout, gated by
+ * - Stage zoom ([Camera] zoomin/zoomout/autozoom, gated by
  *   [Config] ZoomActive): the camera dynamically zooms out while players
  *   are far apart and back in for close combat, anchored at the floor.
- *   Stages WITHOUT zoom config (e.g. UIU_Fountain) get the dynamic
- *   pull-out via [Debug] ForceStageZoomout=0.75 — the zoomed-out
+ *   Stages WITHOUT zoom config (e.g. UIU_Fountain) get the standard
+ *   autozoom package via [Debug] ForceStageAutoZoom=1 — the zoomed-out
  *   scale is clamped by the stage's own camera bounds (engine MinScale),
  *   so it reveals exactly as much of the stage's top as the stage can
  *   paint. Stages that author their own zoom settings keep them.
@@ -364,17 +364,15 @@ function setDisplayModeMarker(mode: DisplayModeMarker): void {
 /**
  * Stage zoom is a gameplay-camera feature, independent of the display
  * aspect — enabled for EVERY display mode. Config.ZoomActive is the
- * master gate; Debug.ForceStageZoomout=0.75 gives stages that don't
- * author their own [Camera] zoom settings — e.g. UIU Fountain — a
- * dynamic pull-out while the players separate (the engine clamps the
- * floor by the stage's own camera bounds), without touching stages
- * that do. ForceStageAutoZoom is deliberately NOT set: its minimum-
- * scale clamp assumes 240-unit stages and would pin the scale on
- * 1280x720 stages, silently doing nothing here.
+ * master gate; Debug.ForceStageAutoZoom gives the standard autozoom
+ * package (zoomin=1, zoomout=0.625 clamped by the stage's own camera
+ * bounds, floor-anchored) to stages that don't author their own
+ * [Camera] zoom settings — e.g. UIU Fountain — without touching stages
+ * that do.
  */
 export function ensureStageZoomKeys(cfg: ConfigData): void {
   set(cfg, 'Config', 'ZoomActive', '1');
-  set(cfg, 'Debug', 'ForceStageZoomout', '0.75');
+  set(cfg, 'Debug', 'ForceStageAutoZoom', '1');
 }
 
 export function applyDisplayModeChoice(cfg: ConfigData, choice: DisplayModeChoice): void {
@@ -771,7 +769,7 @@ export const SETTINGS_SCHEMA: SettingGroup[] = [
       {
         section: 'Video', key: 'ZoomActive', label: 'Stage Zoom',
         type: 'toggle',
-        hint: 'Master camera zoom toggle (on by default). With it on, stages without their own zoom values pull the camera out while characters are far apart, showing more of the stage top/bottom.',
+        hint: 'Camera zoom on stage-specific zoom points (Ikemen feature).',
       },
       {
         section: 'Config', key: 'EscOpensMenu', label: 'ESC Opens Pause Menu',
@@ -1181,17 +1179,15 @@ export const SETTINGS_SCHEMA: SettingGroup[] = [
       {
         section: 'Debug', key: 'ForceStageZoomout', label: 'Force Stage Zoom Out',
         type: 'toggle',
-        hint: 'Site-managed: vfs.js resets this to 0.75 at every boot. 0.75 = stages without authored zoom pull the camera out while players separate.',
+        hint: 'Force camera zoomed out for debugging.',
       },
       {
         section: 'Debug', key: 'ForceStageZoomin', label: 'Force Stage Zoom In',
         type: 'toggle',
-        hint: 'Leave off: 0 keeps close-range character size identical to the classic view.',
       },
       {
         section: 'Debug', key: 'ForceStageAutoZoom', label: 'Force Stage Auto Zoom',
         type: 'toggle',
-        hint: 'Leave off: the engine\u2019s autozoom clamp assumes 240-unit stages and pins the scale on 1280x720 stages, so it would do nothing here.',
       },
       {
         section: 'Debug', key: 'SpeedTest', label: 'Speed Test',
