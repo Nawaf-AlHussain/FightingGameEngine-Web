@@ -1,6 +1,6 @@
 'use client';
 import { useSearchParams } from 'next/navigation';
-import { useEffect, useRef, useState, Suspense } from 'react';
+import { useEffect, useRef, useState, useCallback, Suspense } from 'react';
 import {
   fetchAssetsManifest,
   downloadCharacter,
@@ -11,8 +11,10 @@ import {
 } from '@/lib/character-downloader';
 import { useIsTouchDevice } from '@/lib/use-touch-device';
 import RotateOverlay from '@/components/RotateOverlay';
-import { ErrorState } from '@/components/ui';
+import { ErrorState, GameButton } from '@/components/ui';
 import { readFightResult, clearFightResult, processFightResult, getCurrentModeState, markFightStart } from '@/lib/game-modes';
+import CharacterSelect from '@/components/CharacterSelect';
+import StageSelect from '@/components/StageSelect';
 
 // This page loads the IKEMEN GO WASM engine and starts a fight directly,
 // bypassing the laggy menu (F-026) using the smooth game() path.
@@ -28,6 +30,30 @@ import { readFightResult, clearFightResult, processFightResult, getCurrentModeSt
 // - The laggy menu (GC pressure from unoptimized menu rendering — F-026)
 // - The f_commandLine loading/compilation freeze (F-022 through F-025)
 
+// ---- Online (net=1) flow types ---------------------------------------------
+// The whole online experience lives on the /play page so the WebRTC session
+// survives from the room-code exchange through character/stage select into
+// the engine boot — navigating pages would drop the connection.
+
+type NetPhase =
+  | 'idle'        // not an online boot
+  | 'role'        // HOST GAME / JOIN GAME pick
+  | 'connecting'  // room-code panel (bridge) until the channel is open
+  | 'charselect'  // both players pick their fighter on the site
+  | 'stageselect' // host picks the stage
+  | 'waiting'     // guest spectates while the host picks the stage
+  | 'fight'       // engine booting / running with the agreed roster
+  | 'error';      // connection lost / setup failed
+
+interface NetFightConfig {
+  /** Host's fighter (engine side 1). */
+  p1: string;
+  /** Guest's fighter (engine side 2). */
+  p2: string;
+  /** Stage id (bundled path or manifest id — same format as /local). */
+  stage: string;
+}
+
 function PlayPageInner() {
   const bootRef = useRef<HTMLPreElement>(null);
   const searchParams = useSearchParams();
@@ -41,6 +67,153 @@ function PlayPageInner() {
   // spec Section 33: what failed, can the user retry, can they go back).
   // The boot log below remains available as "Technical Details".
   const [bootError, setBootError] = useState<string | null>(null);
+
+  // ---- Online (net=1) flow state ----
+  // bootEngine() runs the preboot (game data + netplay bridge), then parks
+  // on a promise that this state machine resolves with the final match
+  // config once both players picked fighters (and the host a stage).
+  const isNetFlow = (searchParams.get('net') || '') === '1';
+  const [netPhase, setNetPhase] = useState<NetPhase>('idle');
+  const [netRole, setNetRole] = useState<'host' | 'join'>('host');
+  const [netBridgeStarted, setNetBridgeStarted] = useState(false);
+  const [netMine, setNetMine] = useState<{ id: string | null; locked: boolean }>({ id: null, locked: false });
+  const [netOpp, setNetOpp] = useState<{ id: string | null; locked: boolean; liveIdx: number | null }>({ id: null, locked: false, liveIdx: null });
+  const [netError, setNetError] = useState<string | null>(null);
+  const netRoleRef = useRef<'host' | 'join'>('host');
+  const netResolveRef = useRef<((cfg: NetFightConfig | null) => void) | null>(null);
+  const vfsPromiseRef = useRef<Promise<number> | null>(null);
+  const goRef = useRef<any>(null);
+  const wasmPromiseRef = useRef<Promise<WebAssembly.WebAssemblyInstantiatedSource> | null>(null);
+
+  // ---- Incoming website-level control frames from the opponent ----
+  // (IKWS frames over the bridge data channel — selection sync, pre-boot.)
+  const handleNetControl = useCallback((m: Record<string, unknown>) => {
+    if (!m || typeof m !== 'object') return;
+    const t = m.t;
+    if (t === 'cursor') {
+      const idx = typeof m.idx === 'number' ? m.idx : null;
+      setNetOpp(prev => ({ ...prev, liveIdx: idx }));
+    } else if (t === 'lock') {
+      setNetOpp({
+        id: typeof m.id === 'string' ? m.id : '',
+        locked: true,
+        liveIdx: typeof m.idx === 'number' ? m.idx : null,
+      });
+    } else if (t === 'unlock') {
+      setNetOpp(prev => ({ ...prev, locked: false }));
+    } else if (t === 'go') {
+      // Guest: the host finalised the match (both fighters + stage).
+      const p1 = typeof m.p1 === 'string' ? m.p1 : '';
+      const p2 = typeof m.p2 === 'string' ? m.p2 : '';
+      const stage = typeof m.stage === 'string' ? m.stage : '';
+      if (!p1 || !p2 || !stage) return;
+      setNetPhase('fight');
+      netResolveRef.current?.({ p1, p2, stage });
+    }
+  }, []);
+
+  const handleNetPick = useCallback((charId: string | null, index: number) => {
+    const net = (globalThis as any).ikemenNet;
+    const wireRole = netRoleRef.current === 'join' ? 'guest' : 'host';
+    if (charId) {
+      setNetMine({ id: charId, locked: true });
+      try { net?.control?.({ t: 'lock', role: wireRole, id: charId, idx: index }); } catch { /* poller reports drops */ }
+    } else {
+      setNetMine(prev => ({ ...prev, locked: false }));
+      try { net?.control?.({ t: 'unlock', role: wireRole }); } catch { /* poller reports drops */ }
+    }
+  }, []);
+
+  const handleNetCursor = useCallback((index: number) => {
+    const net = (globalThis as any).ikemenNet;
+    try { net?.control?.({ t: 'cursor', role: netRoleRef.current === 'join' ? 'guest' : 'host', idx: index }); } catch { /* ignore */ }
+  }, []);
+
+  // Role picked → connect: wait for the .pak (the build-check hash is
+  // computed at the end of vfs init), then open the bridge room panel.
+  const handleNetRolePick = useCallback(async (role: 'host' | 'join') => {
+    setNetRole(role);
+    netRoleRef.current = role;
+    setNetPhase('connecting');
+    try {
+      if (vfsPromiseRef.current) await vfsPromiseRef.current;
+      const net = (globalThis as any).ikemenNet;
+      if (!net) throw new Error('Netplay bridge not loaded');
+      net.start(role);
+      setNetBridgeStarted(true);
+    } catch (e) {
+      setNetError(e instanceof Error ? e.message : String(e));
+      setNetPhase('error');
+      netResolveRef.current?.(null);
+    }
+  }, []);
+
+  // Host locked the stage → finalise and boot both engines.
+  const handleNetStage = useCallback((stageId: string) => {
+    if (!netMine.id || !netOpp.id) return;
+    const cfg: NetFightConfig = { p1: netMine.id, p2: netOpp.id, stage: stageId };
+    const net = (globalThis as any).ikemenNet;
+    try {
+      net?.control?.({ t: 'go', p1: cfg.p1, p2: cfg.p2, stage: stageId });
+    } catch { /* the poller reports real drops */ }
+    setNetPhase('fight');
+    netResolveRef.current?.(cfg);
+  }, [netMine.id, netOpp.id]);
+
+  const cancelNetFlow = useCallback(() => {
+    try { (globalThis as any).ikemenNet?.close?.(); } catch { /* already gone */ }
+    netResolveRef.current?.(null);
+    window.location.href = '/lobby';
+  }, []);
+
+  // ---- Connection watcher for the online flow ----
+  // 'connecting' waits for the bridge to report established; afterwards a
+  // few consecutive dead polls (or an explicit failure) end the flow.
+  useEffect(() => {
+    if (!['connecting', 'charselect', 'stageselect', 'waiting'].includes(netPhase)) return;
+    let misses = 0;
+    const timer = setInterval(() => {
+      const net = (globalThis as any).ikemenNet;
+      if (!net) return;
+      if (netPhase === 'connecting') {
+        if (typeof net.connected === 'function' && net.connected()) {
+          setNetMine({ id: null, locked: false });
+          setNetOpp({ id: null, locked: false, liveIdx: null });
+          setNetPhase('charselect');
+        } else if (typeof net.failed === 'function' && net.failed()) {
+          setNetError('Connection failed. Both players should retry (a VPN or hotspot can help stubborn routers).');
+          setNetPhase('error');
+          netResolveRef.current?.(null);
+        }
+        return;
+      }
+      if (typeof net.connected === 'function' && net.connected()) {
+        misses = 0;
+        return;
+      }
+      misses += 1;
+      if (misses >= 4 || (typeof net.failed === 'function' && net.failed())) {
+        setNetError('Lost connection to your opponent.');
+        setNetPhase('error');
+        netResolveRef.current?.(null);
+      }
+    }, 500);
+    return () => clearInterval(timer);
+  }, [netPhase]);
+
+  // ---- Online phase machine ----
+  // Both picks in → host goes to stage select, guest to the waiting view.
+  // A re-pick walks the phase back so the other side sees it live.
+  useEffect(() => {
+    if (netPhase === 'charselect') {
+      if (netRole === 'host' && netMine.locked && netOpp.locked) setNetPhase('stageselect');
+      if (netRole === 'join' && netMine.locked) setNetPhase('waiting');
+    } else if (netPhase === 'stageselect') {
+      if (!netMine.locked || !netOpp.locked) setNetPhase('charselect');
+    } else if (netPhase === 'waiting') {
+      if (!netMine.locked) setNetPhase('charselect');
+    }
+  }, [netPhase, netRole, netMine.locked, netOpp.locked]);
 
   // ---- Load vanilla JS touch overlay on touch devices when engine starts ----
   // touch.js is a self-contained IIFE that creates its own DOM (circular D-pad
@@ -87,10 +260,11 @@ function PlayPageInner() {
         document.dispatchEvent(evUp);
       }, 50);
     } catch {}
-    // Always go back to character select after a short delay (in case the
-    // engine's escape handler doesn't fire or doesn't quit the match)
+    // Always go back after a short delay (in case the engine's escape
+    // handler doesn't fire or doesn't quit the match). Online fights go to
+    // the lobby — there is no website select session to return to.
     setTimeout(() => {
-      window.location.href = '/local';
+      window.location.href = isNetFlow ? '/lobby' : '/local';
     }, 500);
   };
 
@@ -101,9 +275,16 @@ function PlayPageInner() {
       const boot = bootRef.current;
       if (!boot) return;
 
+      // Online (net=1) fights return to the lobby — there is no website
+      // select session to go back to mid-flow. Computed here because the
+      // catch block below sits outside the try scope where netMenu lives.
+      const exitTarget = (searchParams.get('net') || '') === '1' ? '/lobby' : '/local';
+
       let onKeyDown: ((e: KeyboardEvent) => void) | null = null;
       let onKeyUp: ((e: KeyboardEvent) => void) | null = null;
       let clickHandler: (() => void) | null = null;
+      // Online (net=1) fight config — filled by the preboot park below.
+      let netFightCfg: NetFightConfig | null = null;
 
       const cleanup = () => {
         if (onKeyDown) window.removeEventListener('keydown', onKeyDown, true);
@@ -116,6 +297,18 @@ function PlayPageInner() {
         boot.textContent += '\n' + msg;
         boot.scrollTop = boot.scrollHeight;
         console.log('[boot]', msg);
+      };
+
+      // In-place line update for progress displays ([PAK]/[P1]/[P2]/[STAGE]).
+      // Hoisted here so the online preboot can show .pak progress too.
+      const setBootLine = (prefix: string, text: string) => {
+        if (cancelled) return;
+        const lines = boot.textContent.split('\n');
+        const idx = lines.findIndex(l => l.startsWith(prefix));
+        if (idx >= 0) lines[idx] = prefix + text;
+        else lines.push(prefix + text);
+        boot.textContent = lines.join('\n');
+        boot.scrollTop = boot.scrollHeight;
       };
 
       try {
@@ -226,10 +419,12 @@ function PlayPageInner() {
         const qmode = searchParams.get('qmode') || 'quickvs'; // progression mode
         // Netplay modes (both use the WebRTC bridge - public/game/webrtc.js,
         // engine netplay_js.go):
-        //   net=1      boot WITHOUT quick-match flags: the engine's own title
-        //              screen appears, whose NETWORK > HOST/JOIN GAME menu drives
-        //              the bridge; players then pick VERSUS 2P through the
-        //              engine's synced select screens.
+        //   net=1      ONLINE MODE via the WEBSITE: role pick (host/join) and
+        //              room codes on the site, then BOTH players pick their
+        //              fighter (and the host the stage) on the site's own
+        //              select screens — picks ride the bridge as IKWS control
+        //              frames — and the engine boots into the fight with the
+        //              agreed roster. NO engine-side menus at any point.
         //   net=direct boot straight into a netplay fight with the URL's fixed
         //              roster: -p1/-p2/-s + -ip ('' hosts, anything else joins -
         //              the address string is meaningless on the WebRTC build).
@@ -238,11 +433,13 @@ function PlayPageInner() {
         const netMenu = netParam === '1';
         const netDirect = netParam === 'direct';
         const netMode = netMenu || netDirect;
-        const netRole = searchParams.get('role') === 'join' ? 'join' : 'host';
+        const netDirectRole = searchParams.get('role') === 'join' ? 'join' : 'host';
 
-        log(`Match: P1=${p1} vs P2=${p2}${p2ai ? ` (CPU lv${p2ai})` : ''}`);
-        log(`Stage: ${stage}`);
-        log(`Mode: ${qmode}`);
+        if (!netMenu) {
+          log(`Match: P1=${p1} vs P2=${p2}${p2ai ? ` (CPU lv${p2ai})` : ''}`);
+          log(`Stage: ${stage}`);
+          log(`Mode: ${qmode}`);
+        }
 
         // --- 0. Install keyboard preventDefault handler ---
         // The engine listens for native keydown/keyup on document (via
@@ -252,34 +449,39 @@ function PlayPageInner() {
         // navigation, etc.). We do NOT push to any array — the old
         // __ikemenKeyDown/__ikemenKeyUp poll-based bridge was dead code
         // (the engine never read it).
+        // Online (net=1) installs this AFTER the select screens are done —
+        // they need the arrows/WASD for navigation.
         const heldKeys = new Set<string>();
 
-        onKeyDown = (e: KeyboardEvent) => {
-          heldKeys.add(e.code);
-          if (
-            e.code.startsWith('Arrow') ||
-            e.code.startsWith('Key') ||
-            e.code.startsWith('Digit') ||
-            e.code === 'Enter' ||
-            e.code === 'Space' ||
-            e.code === 'Escape' ||
-            e.code === 'Tab' ||
-            e.code.startsWith('Shift') ||
-            e.code.startsWith('Control') ||
-            e.code.startsWith('Alt') ||
-            e.code.startsWith('Numpad')
-          ) {
-            e.preventDefault();
-          }
-        };
+        const installKeyboardGuard = () => {
+          onKeyDown = (e: KeyboardEvent) => {
+            heldKeys.add(e.code);
+            if (
+              e.code.startsWith('Arrow') ||
+              e.code.startsWith('Key') ||
+              e.code.startsWith('Digit') ||
+              e.code === 'Enter' ||
+              e.code === 'Space' ||
+              e.code === 'Escape' ||
+              e.code === 'Tab' ||
+              e.code.startsWith('Shift') ||
+              e.code.startsWith('Control') ||
+              e.code.startsWith('Alt') ||
+              e.code.startsWith('Numpad')
+            ) {
+              e.preventDefault();
+            }
+          };
 
-        onKeyUp = (e: KeyboardEvent) => {
-          heldKeys.delete(e.code);
-        };
+          onKeyUp = (e: KeyboardEvent) => {
+            heldKeys.delete(e.code);
+          };
 
-        window.addEventListener('keydown', onKeyDown, true);
-        window.addEventListener('keyup', onKeyUp, true);
-        log('Keyboard preventDefault installed.');
+          window.addEventListener('keydown', onKeyDown, true);
+          window.addEventListener('keyup', onKeyUp, true);
+          log('Keyboard preventDefault installed.');
+        };
+        if (!netMenu) installKeyboardGuard();
 
         // --- 1. Pin devicePixelRatio to 1 (glfw-js expects this) ---
         const g = globalThis as any;
@@ -310,24 +512,92 @@ function PlayPageInner() {
           return originalFetch(input, init);
         };
 
-        // --- 3. Load VFS (must load BEFORE wasm_exec.js) ---
-        log('Loading virtual filesystem...');
-        await loadScript('/game/vfs.js');
-        if (cancelled) return;
+        // ---- ONLINE MODE (net=1): website flow, zero engine menus ----
+        // Role pick, the room-code panel and the character/stage select
+        // screens are all rendered by the netPhase state on THIS page, so
+        // the WebRTC session stays alive from handshake to engine boot.
+        // Everything after the park runs only once both players locked in
+        // and the host picked the stage.
+        if (netMenu) {
+          log('Online mode: loading game data...');
+          await loadScript('/game/vfs.js');
+          if (cancelled) return;
+          // Start the .pak load NOW: the netplay build check exchanges a
+          // hash that vfs init computes at its END, so it must be underway
+          // before the handshake. The fight boot reuses this promise (a
+          // second init would download everything twice).
+          vfsPromiseRef.current = (g.ikemenVfsInit as any)(
+            '/game/ikemen-fs/manifest.json',
+            [],
+            (got: number, total: number) => {
+              if (cancelled) return;
+              const pct = total > 0 ? Math.round((got / total) * 100) : 0;
+              setBootLine('[PAK] ', (got / 1e6).toFixed(1) + ' / ' + (total / 1e6).toFixed(1) + ' MB (' + pct + '%)');
+            }
+          );
+          // Warm the WASM compile while the players are in the lobby and
+          // the select screens — the fight then starts near-instantly.
+          log('Loading Go WASM runtime...');
+          await loadScript('/game/wasm_exec.js');
+          if (cancelled) return;
+          const goPre = new (g.Go as any)();
+          goPre.env = { GOGC: 'off', GOMEMLIMIT: '800MiB' };
+          goRef.current = goPre;
+          wasmPromiseRef.current = WebAssembly.instantiateStreaming(
+            originalFetch('/game/ikemen.wasm', { cache: 'no-cache' }),
+            goPre.importObject,
+          ).catch(async () => {
+            log('Streaming compile failed, buffering...');
+            const bytes = await (await originalFetch('/game/ikemen.wasm', { cache: 'no-cache' })).arrayBuffer();
+            return WebAssembly.instantiate(bytes, goPre.importObject);
+          });
+          log('Loading netplay bridge...');
+          await loadScript('/game/webrtc.js');
+          if (cancelled) return;
+          g.ikemenNet.onControl(handleNetControl);
 
-        // --- 3b. Load the netplay bridge (before the engine boots - the Go
-        // side reaches for globalThis.ikemenNet the moment the user enters
-        // NETWORK > HOST/JOIN GAME; if it is missing the menu errors out) ---
-        if (netMode) {
+          // Park until the website flow resolves the match config:
+          // host locked the stage / guest received 'go' / cancel or drop.
+          netFightCfg = await new Promise<NetFightConfig | null>((resolve) => {
+            netResolveRef.current = resolve;
+            setNetPhase('role');
+          });
+          netResolveRef.current = null;
+          if (cancelled) return;
+          if (!netFightCfg) {
+            // Cancel navigates to /lobby on its own; a dropped connection
+            // leaves the error UI up. Nothing more to boot here.
+            log('Online match did not start.');
+            return;
+          }
+          log(`Online match: P1=${netFightCfg.p1} vs P2=${netFightCfg.p2} (you are ${netRoleRef.current === 'join' ? 'P2/guest' : 'P1/host'})`);
+          log(`Stage: ${netFightCfg.stage}`);
+          installKeyboardGuard();
+        }
+
+        // --- 3. Load VFS (must load BEFORE wasm_exec.js) ---
+        // (net=1 already loaded it in the online preboot above.)
+        if (!netMenu) {
+          log('Loading virtual filesystem...');
+          await loadScript('/game/vfs.js');
+          if (cancelled) return;
+        }
+
+        // --- 3b. Load the netplay bridge (net=direct only — net=1 loaded
+        // it in the online preboot above, before the select screens) ---
+        if (netDirect) {
           log('Loading netplay bridge...');
           await loadScript('/game/webrtc.js');
           if (cancelled) return;
         }
 
         // --- 4. Load wasm_exec.js (Go's WASM runtime) ---
-        log('Loading Go WASM runtime...');
-        await loadScript('/game/wasm_exec.js');
-        if (cancelled) return;
+        // (net=1 already loaded it in the preboot above.)
+        if (!netMenu) {
+          log('Loading Go WASM runtime...');
+          await loadScript('/game/wasm_exec.js');
+          if (cancelled) return;
+        }
 
         // --- 5. WebGL2 hardware check ---
         const strict = document.createElement('canvas');
@@ -359,21 +629,13 @@ function PlayPageInner() {
         // On a typical connection this saves ~40% of total load time:
         //   Sequential: .pak (3s) + WASM (5s) = 8s
         //   Parallel:   max(.pak, WASM)      = 5s
-        log('Loading game.pak + ikemen.wasm in parallel...');
-
-        const setBootLine = (prefix: string, text: string) => {
-          if (cancelled) return;
-          const lines = boot.textContent.split('\n');
-          const idx = lines.findIndex(l => l.startsWith(prefix));
-          if (idx >= 0) lines[idx] = prefix + text;
-          else lines.push(prefix + text);
-          boot.textContent = lines.join('\n');
-          boot.scrollTop = boot.scrollHeight;
-        };
+        log(netMenu ? 'Finalizing engine boot...' : 'Loading game.pak + ikemen.wasm in parallel...');
 
         // Start WASM fetch immediately (don't await yet — runs in background)
         // go.argv is set later (after CDN downloads) with resolved character paths
-        const go = new (g.Go as any)();
+        // (net=1: the Go runtime + WASM compile started in the online preboot —
+        //  reuse them so the fight boots instantly after selection.)
+        const go = netMenu ? goRef.current : new (g.Go as any)();
         // GC settings (tuned based on gctrace data + Claude's analysis):
         // - GOGC=off: Disables automatic GC entirely. GC only runs at our
         //   forced call sites (platformIdleGC at round transitions, pauses,
@@ -391,32 +653,39 @@ function PlayPageInner() {
         //   runs between rounds to collect before garbage accumulates.
         //
         //   lines disappear and only (forced) ones remain.
-        go.env = {
-          GOGC: 'off',
-          GOMEMLIMIT: '800MiB',
-        };
+        if (!netMenu) {
+          go.env = {
+            GOGC: 'off',
+            GOMEMLIMIT: '800MiB',
+          };
+        }
 
         const wasmUrl = '/game/ikemen.wasm';
-        const wasmPromise = WebAssembly.instantiateStreaming(
-          originalFetch(wasmUrl, { cache: 'no-cache' }),
-          go.importObject
-        ).catch(async () => {
-          // Fallback: buffered compile if streaming fails
-          log('Streaming compile failed, buffering...');
-          const bytes = await (await originalFetch(wasmUrl, { cache: 'no-cache' })).arrayBuffer();
-          return WebAssembly.instantiate(bytes, go.importObject);
-        });
+        const wasmPromise = netMenu
+          ? wasmPromiseRef.current!
+          : WebAssembly.instantiateStreaming(
+              originalFetch(wasmUrl, { cache: 'no-cache' }),
+              go.importObject
+            ).catch(async () => {
+              // Fallback: buffered compile if streaming fails
+              log('Streaming compile failed, buffering...');
+              const bytes = await (await originalFetch(wasmUrl, { cache: 'no-cache' })).arrayBuffer();
+              return WebAssembly.instantiate(bytes, go.importObject);
+            });
 
         // Start VFS (.pak) load — updates progress as it streams
-        const vfsPromise = (g.ikemenVfsInit as any)(
-          '/game/ikemen-fs/manifest.json',
-          [],
-          (got: number, total: number) => {
-            if (cancelled) return;
-            const pct = total > 0 ? Math.round((got / total) * 100) : 0;
-            setBootLine('[PAK] ', (got / 1e6).toFixed(1) + ' / ' + (total / 1e6).toFixed(1) + ' MB (' + pct + '%)');
-          }
-        );
+        // (net=1: already started in the preboot — reuse the promise)
+        const vfsPromise = netMenu
+          ? vfsPromiseRef.current!
+          : (g.ikemenVfsInit as any)(
+              '/game/ikemen-fs/manifest.json',
+              [],
+              (got: number, total: number) => {
+                if (cancelled) return;
+                const pct = total > 0 ? Math.round((got / total) * 100) : 0;
+                setBootLine('[PAK] ', (got / 1e6).toFixed(1) + ' / ' + (total / 1e6).toFixed(1) + ' MB (' + pct + '%)');
+              }
+            );
 
         // Await both in parallel
         const [result, nFiles] = await Promise.all([wasmPromise, vfsPromise]);
@@ -430,27 +699,32 @@ function PlayPageInner() {
         // or downloaded as fallback.
         //
         // IMPORTANT: addChar() expects just the character ID, NOT the full path.
-        let p1Path = p1;
-        let p2Path = p2;
-        let stagePath = stage;
+        // (net=1: the roster comes from the website select flow, not the URL —
+        // both sides download the agreed fighters here, same as net=direct.)
+        const effP1 = netFightCfg ? netFightCfg.p1 : p1;
+        const effP2 = netFightCfg ? netFightCfg.p2 : p2;
+        const effStage = netFightCfg ? netFightCfg.stage : stage;
+        let p1Path = effP1;
+        let p2Path = effP2;
+        let stagePath = effStage;
 
         const isBundledChar = (id: string) => id === 'kfm';
         const isBundledStage = (s: string) => s === 'stages/stage0-720.def';
 
-        if (!netMenu && (!isBundledChar(p1) || !isBundledChar(p2) || !isBundledStage(stage))) {
+        if (!isBundledChar(effP1) || !isBundledChar(effP2) || !isBundledStage(effStage)) {
           // Try to inject from IndexedDB cache first (instant)
           log('Loading characters from cache...');
 
           // P1: try cache, fallback to download
-          if (!isBundledChar(p1)) {
-            const injected = await injectCachedCharacter(p1);
+          if (!isBundledChar(effP1)) {
+            const injected = await injectCachedCharacter(effP1);
             if (injected) {
-              log(`P1 loaded from cache: ${p1}`);
-              p1Path = p1;
+              log(`P1 loaded from cache: ${effP1}`);
+              p1Path = effP1;
             } else {
               log(`P1 not in cache, downloading...`);
               const manifest = await fetchAssetsManifest();
-              const char = manifest.characters.find(c => c.id === p1);
+              const char = manifest.characters.find(c => c.id === effP1);
               if (char) {
                 log(`Downloading P1: ${char.displayName} (~${char.sizeMB} MB)...`);
                 await downloadCharacter(char, (pct, msg) => {
@@ -459,21 +733,21 @@ function PlayPageInner() {
                 p1Path = char.id;
                 log(`P1 ready: ${char.id}`);
               } else {
-                log(`ERROR: Character "${p1}" not found in manifest`);
+                log(`ERROR: Character "${effP1}" not found in manifest`);
               }
             }
           }
 
           // P2: try cache, fallback to download
-          if (!isBundledChar(p2)) {
-            const injected = await injectCachedCharacter(p2);
+          if (!isBundledChar(effP2)) {
+            const injected = await injectCachedCharacter(effP2);
             if (injected) {
-              log(`P2 loaded from cache: ${p2}`);
-              p2Path = p2;
+              log(`P2 loaded from cache: ${effP2}`);
+              p2Path = effP2;
             } else {
               log(`P2 not in cache, downloading...`);
               const manifest = await fetchAssetsManifest();
-              const char = manifest.characters.find(c => c.id === p2);
+              const char = manifest.characters.find(c => c.id === effP2);
               if (char) {
                 log(`Downloading P2: ${char.displayName} (~${char.sizeMB} MB)...`);
                 await downloadCharacter(char, (pct, msg) => {
@@ -482,17 +756,17 @@ function PlayPageInner() {
                 p2Path = char.id;
                 log(`P2 ready: ${char.id}`);
               } else {
-                log(`ERROR: Character "${p2}" not found in manifest`);
+                log(`ERROR: Character "${effP2}" not found in manifest`);
               }
             }
           }
 
           // Stage: try cache, fallback to download
-          if (!isBundledStage(stage)) {
+          if (!isBundledStage(effStage)) {
             // For stages, the URL param is the stage ID (e.g. 'DU_Campus')
             // not the full path. We need to find it in the manifest.
             const manifest = await fetchAssetsManifest();
-            const stg = manifest.stages.find(s => s.id === stage);
+            const stg = manifest.stages.find(s => s.id === effStage);
             if (stg) {
               const stageInjected = await injectCachedStage(stg.id);
               if (stageInjected) {
@@ -516,10 +790,9 @@ function PlayPageInner() {
         if (cancelled) return;
 
         // --- 9. Build go.argv with the resolved character/stage paths ---
-        if (netMenu) {
-          log('Engine starting... (netplay - use the engine menu: NETWORK > HOST GAME or JOIN GAME)');
-        } else if (netDirect) {
-          log(`Engine starting... (netplay ${netRole} - connecting via WebRTC bridge)`);
+        if (netMenu || netDirect) {
+          const wireRole = netMenu ? netRoleRef.current : netDirectRole;
+          log(`Engine starting... (netplay ${wireRole} - connecting via WebRTC bridge)`);
         } else {
           log('Engine starting... (quick match, bypassing menu)');
         }
@@ -527,15 +800,17 @@ function PlayPageInner() {
         // Install the display-only canvas fitter before starting the engine.
         // It waits for the engine-created canvas, then keeps it at the maximum
         // aspect-ratio-preserving size during browser/mobile viewport changes.
-        go.argv = netMenu
-          ? ['ikemen'] // no quick-match flags: boot to the engine title screen (NETWORK menu)
-          : netDirect
+        go.argv = (netMenu || netDirect)
           ? [
               'ikemen',
               '-p1', p1Path,
               '-p2', p2Path,
               '-s', stagePath,
-              '-ip', netRole === 'join' ? 'webrtc' : '', // '' = listen (host); value ignored by the WebRTC transport
+              // net=1: the website select flow already established the
+              // session — the engine attaches to it (webrtc.js start()
+              // reuse-guard). '' = listen (host); the value is otherwise
+              // ignored by the WebRTC transport.
+              '-ip', (netMenu ? netRoleRef.current : netDirectRole) === 'join' ? 'webrtc' : '',
             ]
           : [
               'ikemen',
@@ -612,22 +887,22 @@ function PlayPageInner() {
               return;
             }
             case 'exit': {
-              log('Fight complete. Returning to select...');
-              window.location.href = '/local';
+              log('Fight complete. Returning...');
+              window.location.href = exitTarget;
               return;
             }
           }
         }
 
-        // Single-fight mode (quickvs/training) — go back to select
-        log('Fight complete. Returning to select...');
-        window.location.href = '/local';
+        // Single-fight mode (quickvs/training) or a finished online fight.
+        log('Fight complete. Returning...');
+        window.location.href = exitTarget;
 
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         if (msg.includes('Go program has already exited') || msg.includes('unreachable')) {
           cleanup();
-          window.location.href = '/local';
+          window.location.href = exitTarget;
           return;
         }
         log('BOOT ERROR: ' + msg);
@@ -661,6 +936,102 @@ function PlayPageInner() {
       {/* The engine creates its own canvas element */}
       <div id="game-container" />
 
+      {/* ---- Online flow UI (net=1): website select screens, NO engine menus.
+          Sits above the page (fixed) while the boot log/pak load runs behind
+          it; the bridge's own room-code panel (z-index 1000) stays on top so
+          both players can exchange codes during 'connecting'. ---- */}
+      {netPhase === 'role' && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, zIndex: 40,
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            gap: '0.9rem', background: '#0a0a0c',
+          }}
+        >
+          <h1 style={{ fontSize: '2rem', letterSpacing: '0.2em', fontWeight: 800, color: '#eee' }}>
+            ONLINE PLAY
+          </h1>
+          <div style={{ fontSize: '0.65rem', letterSpacing: '0.25em', color: '#888', marginBottom: '1rem' }}>
+            PICK FIGHTERS ON THE SITE — NO ENGINE MENUS
+          </div>
+          <GameButton variant="primary" onClick={() => handleNetRolePick('host')}>
+            HOST GAME
+          </GameButton>
+          <GameButton onClick={() => handleNetRolePick('join')}>
+            JOIN GAME
+          </GameButton>
+          <GameButton variant="danger" onClick={cancelNetFlow}>
+            ← BACK TO LOBBY
+          </GameButton>
+        </div>
+      )}
+      {netPhase === 'connecting' && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, zIndex: 40,
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            gap: '0.8rem', pointerEvents: 'none', background: 'transparent',
+          }}
+        >
+          <div style={{ fontSize: '0.8rem', letterSpacing: '0.25em', color: 'var(--gold, #d9a92f)', fontWeight: 700 }}>
+            {!netBridgeStarted
+              ? 'LOADING GAME DATA…'
+              : netRole === 'host'
+              ? 'WAITING FOR YOUR FRIEND…'
+              : 'CONNECTING TO THE HOST…'}
+          </div>
+          <div style={{ fontSize: '0.65rem', letterSpacing: '0.15em', color: '#888', maxWidth: 440, textAlign: 'center' }}>
+            {netBridgeStarted
+              ? netRole === 'host'
+                ? 'Create a room in the NETPLAY panel and share the room code.'
+                : 'Enter the room code in the NETPLAY panel.'
+              : 'Preparing the build hash used by the netplay check…'}
+          </div>
+          <div style={{ pointerEvents: 'auto', marginTop: '0.5rem' }}>
+            <GameButton variant="danger" onClick={cancelNetFlow}>
+              CANCEL
+            </GameButton>
+          </div>
+        </div>
+      )}
+      {netPhase === 'charselect' && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 40, overflowY: 'auto', background: '#0a0a0c' }}>
+          <CharacterSelect
+            isTouch={isTouch}
+            online={{
+              role: netRole === 'join' ? 'guest' : 'host',
+              opponentId: netOpp.id,
+              opponentIndex: netOpp.liveIdx,
+              opponentLocked: netOpp.locked,
+              onPick: handleNetPick,
+              onCursor: handleNetCursor,
+            }}
+            onCancel={cancelNetFlow}
+          />
+        </div>
+      )}
+      {(netPhase === 'stageselect' || netPhase === 'waiting') && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 40, overflowY: 'auto', background: '#0a0a0c' }}>
+          <StageSelect
+            isTouch={isTouch}
+            spectate={netPhase === 'waiting'}
+            spectateNote="YOUR OPPONENT IS CHOOSING THE STAGE…"
+            onSelect={handleNetStage}
+            onCancel={cancelNetFlow}
+          />
+        </div>
+      )}
+      {netPhase === 'error' && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0a0a0c' }}>
+          <ErrorState
+            title="ONLINE MATCH ENDED"
+            message={netError || 'The connection to your opponent was lost.'}
+            onRetry={() => window.location.reload()}
+            onBack={() => { window.location.href = '/lobby'; }}
+          />
+        </div>
+      )}
+
       {/* Structured boot-failure overlay (Frontend 2.1 spec Section 33).
           The green boot log above stays visible as raw diagnostics. */}
       {bootError && (
@@ -668,7 +1039,7 @@ function PlayPageInner() {
           title="ENGINE FAILED TO START"
           message="The game engine could not finish booting. This is usually a network or browser-memory issue. Retrying reloads the engine; going back returns to character select."
           onRetry={() => window.location.reload()}
-          onBack={() => { window.location.href = '/local'; }}
+          onBack={() => { window.location.href = isNetFlow ? '/lobby' : '/local'; }}
           details={bootError}
         />
       )}

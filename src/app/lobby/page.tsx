@@ -12,8 +12,10 @@ import { GameButton } from '@/components/ui';
  *
  * Menu items:
  * - LOCAL PLAY → /local (character select → stage select → fight)
- * - ONLINE PLAY → /play?net=1 (engine's own NETWORK menu: host/join via the
- *   WebRTC relay, synced select screens; ranked queue if a name is claimed)
+ * - ONLINE PLAY → /play?net=1 (website flow: host/join room codes, then BOTH
+ *   players pick fighters + stage on the site's own select screens — synced
+ *   over the WebRTC bridge — and the engine boots straight into the fight.
+ *   Zero engine-side menus.)
  * - SETTINGS → /settings (engine config, key remapping)
  * - ABOUT → /about (project info)
  *
