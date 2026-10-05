@@ -1,4 +1,1 @@
-# Empty by default: clients fall back to manual copy-paste connect.
-# After deploying netrelay/relay.ts (see netrelay/README.md), replace this
-# line with the relay's WebSocket URL, e.g.:
-# wss://your-relay.deno.dev/ws
+wss://fightinggameengine-web.nawaf-alhussain.deno.net/ws
