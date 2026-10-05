@@ -12,13 +12,14 @@ import { GameButton } from '@/components/ui';
  *
  * Menu items:
  * - LOCAL PLAY → /local (character select → stage select → fight)
+ * - ONLINE PLAY → /play?net=1 (engine's own NETWORK menu: host/join via the
+ *   WebRTC relay, synced select screens; ranked queue if a name is claimed)
  * - SETTINGS → /settings (engine config, key remapping)
  * - ABOUT → /about (project info)
  *
  * Keyboard:
- * - Enter / Space → LOCAL PLAY
- * - S → SETTINGS
- * - A → ABOUT
+ * - Enter / Space → selected item
+ * - L → LOCAL PLAY · O → ONLINE PLAY · S → SETTINGS · A → ABOUT
  */
 
 export default function LobbyPage() {
@@ -27,7 +28,8 @@ export default function LobbyPage() {
   const [selectedIndex, setSelectedIndex] = useState(0);
 
   const menuItems = [
-    { label: 'LOCAL PLAY', action: () => navigate('/local'), key: 'Enter' },
+    { label: 'LOCAL PLAY', action: () => navigate('/local'), key: 'L' },
+    { label: 'ONLINE PLAY', action: () => navigate('/play?net=1'), key: 'O' },
     { label: 'SETTINGS', action: () => navigate('/settings'), key: 'S' },
     { label: 'ABOUT', action: () => navigate('/about'), key: 'A' },
   ];
@@ -47,9 +49,18 @@ export default function LobbyPage() {
     } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
       e.preventDefault();
       setSelectedIndex(i => (i - 1 + menuItems.length) % menuItems.length);
+    } else if (e.key === 'l' || e.key === 'L') {
+      e.preventDefault();
+      navigate('/local');
+    } else if (e.key === 'o' || e.key === 'O') {
+      e.preventDefault();
+      navigate('/play?net=1');
     } else if (e.key === 's' || e.key === 'S') {
       e.preventDefault();
       navigate('/settings');
+    } else if (e.key === 'a' || e.key === 'A') {
+      e.preventDefault();
+      navigate('/about');
     }
   }, [selectedIndex, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -117,7 +128,7 @@ export default function LobbyPage() {
         }}
       >
         <div>
-          <span>↑↓</span> navigate · <span>ENTER</span> select · <span>S</span> settings
+          <span>↑↓</span> navigate · <span>ENTER</span> select · <span>L</span> local · <span>O</span> online · <span>S</span> settings
         </div>
       </div>
 
