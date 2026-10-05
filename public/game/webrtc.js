@@ -187,6 +187,14 @@
   // the boot-page selector (globalThis.ikemenNetcode).
   const NC_MAGIC = [0x49, 0x4b, 0x4e, 0x43]; // "IKNC"
   let peerNetcode = null, ncVerdict = null;
+
+  // Website-level control frames ("IKWS" + JSON): character/stage selection
+  // sync sent by the site while the players are on the website select
+  // screens, BEFORE the engine boots. Filtered out here so the engine
+  // stream stays clean - the engine must never see selection bytes, and
+  // anything still queued when it starts would be fed to it as garbage.
+  const WS_MAGIC = [0x49, 0x4b, 0x57, 0x53]; // "IKWS"
+  let controlHandler = null, controlBacklog = [];
   function localNetcode() { return globalThis.ikemenNetcode === 'rollback' ? 1 : 0; }
   function ncName(v) { return v ? 'Rollback' : 'Delay'; }
 
@@ -267,7 +275,7 @@
         nc.set(NC_MAGIC, 0); nc[4] = localNetcode();
         dc.send(nc);
       } catch (e) { netLog('netcode send failed: ' + e.message); }
-      setStatus('Connected! Return to the game window.');
+      setStatus('Connected! Setting up the match...');
       setTimeout(hidePanel, 2500);
       watchTransport();
     };
@@ -287,6 +295,13 @@
         peerNetcode = u[4];
         maybeJudgeNetcode();
         return; // bridge-level message, not for the engine
+      }
+      if (u.length > 4 && WS_MAGIC.every((b, i) => u[i] === b)) {
+        try {
+          const m = JSON.parse(new TextDecoder().decode(u.subarray(4)));
+          if (controlHandler) controlHandler(m); else controlBacklog.push(m);
+        } catch (err) { netLog('bad control frame: ' + err.message); }
+        return; // website-level message, never for the engine
       }
       bytesRecv += u.length; chunks.push(u); renderDiag();
     };
@@ -839,6 +854,16 @@
 
   globalThis.ikemenNet = {
     start(mode) {
+      // The site can establish the session itself (the character/stage
+      // select screens run BEFORE the engine boots). When the engine then
+      // comes up and asks for a connection, hand it the live one instead
+      // of resetting it - resetState() here would tear down a working
+      // match mid-handshake.
+      if (isConnected && dc && dc.readyState === 'open') {
+        netLog('engine attached to the site-established session');
+        hidePanel();
+        return;
+      }
       resetState();
       netLog(mode === 'host' ? 'hosting - generating offer'
         : mode === 'queue' ? 'entering ranked match queue'
@@ -846,6 +871,23 @@
       if (mode === 'host') startHost();
       else if (mode === 'queue') startQueue();
       else startJoin();
+    },
+    // Website selection-sync channel (pre-boot): control(obj) sends an
+    // IKWS frame to the peer; onControl(cb) registers the receiver, which
+    // also replays any frames that arrived before registration.
+    control(obj) {
+      if (!dc || dc.readyState !== 'open') return false;
+      try {
+        const payload = new TextEncoder().encode(JSON.stringify(obj));
+        const msg = new Uint8Array(4 + payload.length);
+        msg.set(WS_MAGIC, 0); msg.set(payload, 4);
+        dc.send(msg);
+        return true;
+      } catch (e) { netLog('control send failed: ' + e.message); return false; }
+    },
+    onControl(cb) {
+      controlHandler = cb || null;
+      while (controlHandler && controlBacklog.length) controlHandler(controlBacklog.shift());
     },
     // Ranked-queue state for the engine (netplay_js.go): which side the
     // server assigned us ('' until matched), and the verified display

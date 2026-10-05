@@ -32,6 +32,13 @@ interface StageSelectProps {
   onCancel: () => void;
   /** When true, hints use touch wording instead of keyboard wording. */
   isTouch?: boolean;
+  /**
+   * Online guest view: the HOST picks the stage — this side is a
+   * spectator. Interactions are disabled and a note overlay explains
+   * what is happening (onCancel stays reachable via the overlay button).
+   */
+  spectate?: boolean;
+  spectateNote?: string;
 }
 
 type DownloadStatus = 'idle' | 'downloading' | 'cached' | 'error';
@@ -59,7 +66,13 @@ const BUNDLED_STAGES: LocalStage[] = [
 // Component
 // ---------------------------------------------------------------------------
 
-export default function StageSelect({ onSelect, onCancel, isTouch = false }: StageSelectProps) {
+export default function StageSelect({
+  onSelect,
+  onCancel,
+  isTouch = false,
+  spectate = false,
+  spectateNote = '',
+}: StageSelectProps) {
   const [stages, setStages] = useState<LocalStage[]>(BUNDLED_STAGES);
   // Full StageInfo objects keyed by id (needed for downloadStageToCache,
   // which requires the manifest entry with `files`, `cdnBase`, etc.).
@@ -239,6 +252,7 @@ export default function StageSelect({ onSelect, onCancel, isTouch = false }: Sta
 
   // ---- Keyboard controls ----
   useEffect(() => {
+    if (spectate) return; // online guest: the host is picking — no input
     const onKey = (e: KeyboardEvent) => {
       if (loading) return;
       const code = e.code;
@@ -258,7 +272,7 @@ export default function StageSelect({ onSelect, onCancel, isTouch = false }: Sta
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [loading, stages.length, handleConfirm, onCancel]);
+  }, [loading, stages.length, handleConfirm, onCancel, spectate]);
 
   // ---- Render the download status block for a card ----
   const renderDownloadStatus = (stage: LocalStage) => {
@@ -439,27 +453,67 @@ export default function StageSelect({ onSelect, onCancel, isTouch = false }: Sta
           )}
         </div>
         <div className="cs__footer-btns">
-          <button type="button" className="cs__btn-back" onClick={onCancel}>
+          <button type="button" className="cs__btn-back" onClick={onCancel} disabled={spectate}>
             ← BACK
           </button>
           <button
             type="button"
             className="cs__btn-fight"
             onClick={handleConfirm}
-            disabled={loading || !selectedStage || !selectedReady}
-            aria-disabled={loading || !selectedStage || !selectedReady}
+            disabled={spectate || loading || !selectedStage || !selectedReady}
+            aria-disabled={spectate || loading || !selectedStage || !selectedReady}
             title={
-              !selectedStage
+              spectate
+                ? 'The host is choosing the stage'
+                : !selectedStage
                 ? 'Select a stage'
                 : !selectedReady
                 ? 'Stage is still downloading — wait for it to finish'
                 : 'Lock in and fight!'
             }
           >
-            FIGHT!
+            {spectate ? 'WAITING…' : 'FIGHT!'}
           </button>
         </div>
       </div>
+
+      {/* Online guest overlay: the host is picking the stage */}
+      {spectate && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 60,
+            background: 'rgba(8,8,10,0.72)',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '1rem',
+            textAlign: 'center',
+            padding: '1.5rem',
+          }}
+          onClick={e => e.stopPropagation()}
+        >
+          <div
+            style={{
+              fontSize: '0.8rem',
+              letterSpacing: '0.25em',
+              color: 'var(--gold, #d9a92f)',
+              fontWeight: 700,
+            }}
+          >
+            {spectateNote || 'WAITING FOR THE HOST…'}
+          </div>
+          <button
+            type="button"
+            className="cs__btn-back"
+            onClick={onCancel}
+          >
+            ← LEAVE ONLINE MODE
+          </button>
+        </div>
+      )}
     </main>
   );
 }
