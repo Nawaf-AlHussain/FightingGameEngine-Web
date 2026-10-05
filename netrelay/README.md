@@ -26,8 +26,8 @@ Rooms are in-memory, max 500, and expire 30 minutes after creation.
 ## Run locally (dev)
 
 ```bash
-deno run --allow-net netrelay/relay.ts          # listens on :8940
-PORT=9000 deno run --allow-net netrelay/relay.ts
+deno run --allow-net --allow-env netrelay/relay.ts          # listens on :8940
+PORT=9000 deno run --allow-net --allow-env netrelay/relay.ts
 ```
 
 Port 8940 is what `webrtc.js` already expects on localhost, so with the relay
