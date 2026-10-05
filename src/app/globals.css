@@ -1,9 +1,0 @@
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html, body { background: #0a0a0a; color: #eee; font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
-
-/* Remove scrollbars during fight */
-body.fighting {
-  overflow: hidden;
-  width: 100vw;
-  height: 100vh;
-}
