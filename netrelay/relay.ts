@@ -17,8 +17,9 @@
 //   {t:'deny', reason:'badcode'|'badpass'|'full'} on failure
 //
 // Deploy: see netrelay/README.md (Deno Deploy, free tier, zero config).
-// Run locally: deno run --allow-net relay.ts   (defaults to port 8940, the
-// port public/game/webrtc.js already expects for localhost dev testing.)
+// Run locally: deno run --allow-net --allow-env relay.ts   (defaults to port
+// 8940, the port public/game/webrtc.js already expects for localhost dev
+// testing; --allow-env is needed for the PORT override).
 // =============================================================================
 
 // ---------------------------------------------------------------------------
@@ -54,7 +55,7 @@ function newCode(): string {
 
 interface SocketLike {
   send(data: string): void;
-  close(): void;
+  close(code?: number, reason?: string): void;
   readyState: number; // Deno WebSocket.readyState: 0 connecting, 1 open
 }
 
@@ -70,7 +71,15 @@ const rooms = new Map<string, Room>();
 
 // A freshly upgraded Deno WebSocket may still be CONNECTING when our request
 // handler runs, and send() on a connecting socket throws. Queue until open.
+// (It is ALWAYS connecting in here: the 101 handshake response is only sent
+// once the request handler returns, so every send during handling queues.)
 const outbox = new WeakMap<SocketLike, string[]>();
+
+// Rejections must end with a protocol-close AFTER the deny message reaches
+// the client. Closing a CONNECTING socket aborts the handshake outright and
+// the queued deny is never delivered (client just sees a dead socket), so
+// remember the close and perform it once onopen has flushed the outbox.
+const pendingClose = new WeakMap<SocketLike, { code: number; reason: string }>();
 
 function sendTo(ws: SocketLike | null, msg: unknown): void {
   if (!ws) return;
@@ -85,6 +94,24 @@ function sendTo(ws: SocketLike | null, msg: unknown): void {
   }
   const box = outbox.get(ws);
   if (box) box.push(data);
+}
+
+function denyAndClose(
+  ws: SocketLike,
+  denyReason: string,
+  code: number,
+  closeReason: string,
+): void {
+  sendTo(ws, { t: "deny", reason: denyReason });
+  if (ws.readyState === 1) {
+    try {
+      ws.close(code, closeReason);
+    } catch {
+      // socket is dying; nothing to deliver anymore
+    }
+  } else {
+    pendingClose.set(ws, { code, reason: closeReason });
+  }
 }
 
 function flushOutbox(ws: SocketLike): void {
@@ -168,50 +195,22 @@ Deno.serve({ port: PORT }, (req) => {
   const joinCode = (url.searchParams.get("join") ?? "").trim().toLowerCase();
   const pass = url.searchParams.get("pass") ?? "";
 
-  if (create) {
-    if (rooms.size >= MAX_ROOMS) {
-      sendTo(socket, { t: "deny", reason: "busy" });
-      socket.close(1013, "server full");
-      return response;
+  // Wire ALL socket handlers BEFORE the create/join branching. Every branch
+  // below may `return response` early (all deny paths do), and the 101
+  // handshake completes once this handler returns — without onopen attached
+  // by then, a queued deny would never flush and the socket would leak open.
+  socket.onopen = () => {
+    flushOutbox(socket);
+    const pc = pendingClose.get(socket);
+    if (pc) {
+      pendingClose.delete(socket);
+      try {
+        socket.close(pc.code, pc.reason);
+      } catch {
+        // peer already gone; the deny either made it or nothing mattered
+      }
     }
-    const room: Room = {
-      code: newCode(),
-      pass,
-      host: socket,
-      guest: null,
-      createdAt: Date.now(),
-    };
-    rooms.set(room.code, room);
-    sendTo(socket, { t: "room", code: room.code });
-  } else if (joinCode) {
-    const room = rooms.get(joinCode);
-    if (!room) {
-      sendTo(socket, { t: "deny", reason: "badcode" });
-      socket.close(1008, "bad code");
-      return response;
-    }
-    if ((room.pass || "") !== pass) {
-      sendTo(socket, { t: "deny", reason: "badpass" });
-      socket.close(1008, "bad pass");
-      return response;
-    }
-    if (room.guest) {
-      sendTo(socket, { t: "deny", reason: "full" });
-      socket.close(1008, "room full");
-      return response;
-    }
-    room.guest = socket;
-    sendTo(socket, { t: "joined" });
-    sendTo(room.host, { t: "peer" });
-  } else {
-    // Neither creating nor joining (e.g. a stray queue=1 probe — ranked
-    // matchmaking is not part of this relay).
-    sendTo(socket, { t: "deny", reason: "unsupported" });
-    socket.close(1008, "unsupported");
-    return response;
-  }
-
-  socket.onopen = () => flushOutbox(socket);
+  };
 
   socket.onmessage = (ev) => {
     if (typeof ev.data !== "string") return; // signaling is JSON text only
@@ -236,6 +235,44 @@ Deno.serve({ port: PORT }, (req) => {
 
   socket.onclose = () => detach(socket);
   socket.onerror = () => detach(socket);
+
+  if (create) {
+    if (rooms.size >= MAX_ROOMS) {
+      denyAndClose(socket, "busy", 1013, "server full");
+      return response;
+    }
+    const room: Room = {
+      code: newCode(),
+      pass,
+      host: socket,
+      guest: null,
+      createdAt: Date.now(),
+    };
+    rooms.set(room.code, room);
+    sendTo(socket, { t: "room", code: room.code });
+  } else if (joinCode) {
+    const room = rooms.get(joinCode);
+    if (!room) {
+      denyAndClose(socket, "badcode", 1008, "bad code");
+      return response;
+    }
+    if ((room.pass || "") !== pass) {
+      denyAndClose(socket, "badpass", 1008, "bad pass");
+      return response;
+    }
+    if (room.guest) {
+      denyAndClose(socket, "full", 1008, "room full");
+      return response;
+    }
+    room.guest = socket;
+    sendTo(socket, { t: "joined" });
+    sendTo(room.host, { t: "peer" });
+  } else {
+    // Neither creating nor joining (e.g. a stray queue=1 probe — ranked
+    // matchmaking is not part of this relay).
+    denyAndClose(socket, "unsupported", 1008, "unsupported");
+    return response;
+  }
 
   return response;
 });
