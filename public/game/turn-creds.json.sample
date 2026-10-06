@@ -1,0 +1,7 @@
+{
+  "_comment": "Rename this file to turn-creds.json (remove .sample) and fill in a real TURN relay to fix connections between devices that cannot link directly (phone+phone / PC+phone on strict or client-isolated WiFi, and any two different networks). Free option: sign up at metered.ca (no card needed), then paste the iceServers array their dashboard/API gives you. The file is fetched with cache:no-store at page load; pushing an update reaches every client on next reload.",
+  "_formats": "Either {urls:[...],username,credential} (single relay) or {iceServers:[{urls,username,credential},...]} (multiple). Delete the underscore keys or keep them - unknown keys are ignored.",
+  "urls": ["turn:REPLACE-WITH-YOUR-METERED-SUBDOMAIN.metered.live:3478", "turn:REPLACE-WITH-YOUR-METERED-SUBDOMAIN.metered.live:3478?transport=tcp", "turns:REPLACE-WITH-YOUR-METERED-SUBDOMAIN.metered.live:443?transport=tcp"],
+  "username": "REPLACE_ME",
+  "credential": "REPLACE_ME"
+}
