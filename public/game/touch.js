@@ -70,7 +70,7 @@
     DELETE: "Delete", END: "End", PAGEDOWN: "PageDown",
   };
 
-  // ---- Load P1 key bindings from localStorage config.ini ----
+  // ---- Load P1 key bindings from the boot-time config snapshot ----
   // CRITICAL: Must use FIRST-MATCH-WINS to match the go-ini library's
   // behavior with AllowShadows=true. The engine's Go INI parser treats
   // key names case-insensitively and, when duplicate keys exist (e.g.,
@@ -79,11 +79,30 @@
   // (as a simple loop-overwrite would), it would disagree with the
   // engine on which code to use for each action, causing touch inputs
   // to dispatch the wrong keys.
+  //
+  // CRITICAL #2: Read the SNAPSHOT the play page took at bootEngine()
+  // start (globalThis.__ikemenTouchConfig), NOT live localStorage.
+  // The engine rewrites save/config.ini with its own lowercase defaults
+  // shortly after boot and vfs.js persists that write — reading live
+  // localStorage afterwards yields the engine's DEFAULTS instead of the
+  // bindings it booted with. This race is why touch input was broken in
+  // ONLINE mode (near-instant engine boot wins the race) while LOCAL
+  // mode stayed working (slow boot loses it). The snapshot is the same
+  // value restorePersisted() fed the engine, so both sides parse
+  // byte-identical config — consistent by construction.
   function loadBindings() {
     const bindings = Object.assign({}, DEFAULT_BINDINGS);
     const seen = new Set(); // track which actions we've already bound (first-match-wins)
     try {
-      const raw = localStorage.getItem("ikemen-vfs12:save/config.ini");
+      // NO live-localStorage fallback here, deliberately: a null snapshot
+      // means the engine restored nothing either, so it booted on the
+      // shipped defaults (= DEFAULT_BINDINGS). Falling back to live
+      // localStorage would re-open the race the snapshot exists to close
+      // (the engine's own post-boot config write poisons it mid-session).
+      const raw =
+        typeof globalThis.__ikemenTouchConfig === "string"
+          ? globalThis.__ikemenTouchConfig
+          : null;
       if (!raw) return bindings;
       const text = atob(raw);
       // Extract [Keys_P1] section (case-insensitive section name match)
