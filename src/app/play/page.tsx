@@ -223,7 +223,11 @@ function PlayPageInner() {
   useEffect(() => {
     if (!isTouch || !engineRunning) return;
     const script = document.createElement('script');
-    script.src = '/game/touch.js';
+    // Cache-buster: public/game files are served must-revalidate, but some
+    // mobile browsers / PWA contexts have been observed keeping stale copies.
+    // A versioned URL makes a stale touch.js impossible after a deploy.
+    // IMPORTANT: bump this together with the BUILD constant inside touch.js.
+    script.src = '/game/touch.js?v=2026-10-06.2';
     script.onload = () => {
       const g = globalThis as any;
       if (g.__ikemenTouch?.build) g.__ikemenTouch.build();

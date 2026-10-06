@@ -30,6 +30,12 @@
 "use strict";
 
 (() => {
+  // ---- Build marker ----
+  // Bump when touch.js changes and mirror it in the ?v= cache-buster on the
+  // script tag in src/app/play/page.tsx. Logged on build() so a stale
+  // cached copy of this file is instantly diagnosable from the console.
+  const BUILD = "touch-2026-10-06.2";
+
   // ---- Default P1 bindings (shipped config.ini) ----
   // Used as fallback while the config is loading or if parsing fails.
   const DEFAULT_BINDINGS = {
@@ -413,6 +419,19 @@ html.itc-touch-active #ikemen-canvas {
     // Load bindings from config before building
     BINDINGS = loadBindings();
     updateDirCodes();
+
+    // Diagnostic: one console line that proves which build is running and
+    // which key codes each overlay control will dispatch. If a device ever
+    // serves a stale cached touch.js, its missing/outdated BUILD log makes
+    // that immediately visible instead of looking like a mystery bug.
+    try {
+      const hasSnapshot = typeof globalThis.__ikemenTouchConfig === "string";
+      console.log(
+        "[touch] " + BUILD +
+        " bindings=" + JSON.stringify(BINDINGS) +
+        " snapshot=" + (hasSnapshot ? "ok" : "MISSING")
+      );
+    } catch { /* diagnostics must never break the overlay */ }
 
     const style = document.createElement("style");
     style.id = "ikemen-touch-style";
