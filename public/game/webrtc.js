@@ -56,22 +56,47 @@
     return '';
   }
 
+  // Optional static TURN relay config, shipped as a data file next to the
+  // game (same no-redeploy pattern as netrelay-url.txt):
+  // public/game/turn-creds.json holding either
+  //   {"urls":["turn:host:3478"],"username":"...","credential":"..."}
+  // or {"iceServers":[{urls:[...],username:...}, ...]}.
+  // WHY THIS MATTERS: two devices on the same WiFi often CANNOT link
+  // directly - browsers hide local IPs behind mDNS names (needs multicast,
+  // which many APs block between clients) and same-NAT reflexive paths need
+  // hairpin support (also often missing). Same-PC tabs never hit this, which
+  // is why they always worked. A TURN relay is the only client-side cure,
+  // and it also covers the cross-network (two different WiFi) case.
+  let fileTurn = null;
+  fetch('/game/turn-creds.json', { cache: 'no-store' })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((j) => {
+      if (!j) return;
+      const list = Array.isArray(j.iceServers) ? j.iceServers
+        : (j.urls ? [{ urls: j.urls, username: j.username, credential: j.credential }] : null);
+      if (list && list.length) { fileTurn = list; netLog('TURN config file loaded (' + list.length + ' entries)'); }
+    })
+    .catch(() => { /* absent or bad JSON: STUN-only stays */ });
+
   async function fetchIceServers() {
-    const base = [
+    const ice = [
       { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] },
     ];
-    if (!METERED_APP) return base;
-    try {
-      const res = await fetch(`https://${METERED_APP}.metered.live/api/v1/turn/credentials?apiKey=${METERED_KEY}`);
-      const servers = await res.json();
-      if (Array.isArray(servers) && servers.length) {
-        console.log('[netplay] TURN relay credentials loaded (' + servers.length + ' servers)');
-        return base.concat(servers);
+    if (METERED_APP) {
+      try {
+        const res = await fetch(`https://${METERED_APP}.metered.live/api/v1/turn/credentials?apiKey=${METERED_KEY}`);
+        const servers = await res.json();
+        if (Array.isArray(servers) && servers.length) {
+          netLog('TURN relay credentials loaded (' + servers.length + ' servers)');
+          ice.push(...servers);
+        }
+      } catch (e) {
+        netLog('TURN credential fetch failed, direct-only: ' + e.message);
       }
-    } catch (e) {
-      console.warn('[netplay] TURN credential fetch failed, direct-only:', e.message);
     }
-    return base;
+    if (fileTurn) ice.push(...fileTurn);
+    if (ice.length === 1) netLog('ICE: STUN only - no TURN relay configured');
+    return ice;
   }
 
   let pc = null, dc = null;
@@ -96,7 +121,7 @@
   function netLog(msg) {
     console.log('[netplay]', msg);
     diagLines.push('[' + (performance.now() / 1000).toFixed(1) + 's] ' + msg);
-    if (diagLines.length > 12) diagLines.shift();
+    if (diagLines.length > 20) diagLines.shift();
     renderDiag();
   }
   function renderDiag() {
@@ -343,8 +368,17 @@
   }
 
   async function makePeer() {
-    pc = new RTCPeerConnection({ iceServers: await fetchIceServers() });
+    const ice = await fetchIceServers();
+    netLog('peer connection: ' + ice.length + ' ICE entr' + (ice.length === 1 ? 'y' : 'ies') +
+      (ice.length > 1 ? ' (TURN relay available)' : ' (STUN only - direct paths only)'));
+    pc = new RTCPeerConnection({ iceServers: ice });
     let discTimer = null;
+    // Failed STUN/TURN allocations (dead relay, blocked UDP) surface here;
+    // cap the noise, the first few tell the story.
+    let candErr = 0;
+    pc.onicecandidateerror = (e) => {
+      if (candErr++ < 4) netLog('ice candidate error: ' + (e.url || '?') + ' code ' + e.errorCode + ' ' + (e.errorText || ''));
+    };
     pc.onconnectionstatechange = () => {
       const st = pc.connectionState;
       netLog('connectionState: ' + st);
@@ -361,6 +395,8 @@
           if (pc && pc.connectionState === 'failed') {
             isFailed = true; isClosed = true;
             setStatus('Connection failed. Both players should retry (a VPN or hotspot can help stubborn routers).');
+            netLog('no connection after grace period' + (lastIceSummary ? ' [' + lastIceSummary + ']' : ''));
+            openDiag();
           }
         }, 12000);
       } else if (st === 'disconnected') {
@@ -373,6 +409,7 @@
           if (pc && pc.connectionState === 'disconnected') {
             isFailed = true; isClosed = true;
             setStatus('Connection lost and did not recover. Both players should retry.');
+            openDiag();
           }
         }, 12000);
       } else if (st === 'connected') {
@@ -389,18 +426,64 @@
 
   // Wait for ICE gathering so the offer/answer strings are complete
   // (avoids needing trickle-ICE signaling).
+  // The old 4s cap could cut gathering short on real networks - TURN
+  // allocations take seconds, and with non-trickle signaling a candidate
+  // that was not gathered is never sent. 8s bounds the worst case while
+  // leaving room for one allocation attempt per server.
   function gatherComplete() {
     return new Promise((resolve) => {
-      if (pc.iceGatheringState === 'complete') return resolve();
+      const finish = () => { iceSummary(); resolve(); };
+      if (pc.iceGatheringState === 'complete') return finish();
       const check = () => {
         if (pc.iceGatheringState === 'complete') {
           pc.removeEventListener('icegatheringstatechange', check);
-          resolve();
+          clearTimeout(gTimer);
+          finish();
         }
       };
       pc.addEventListener('icegatheringstatechange', check);
-      setTimeout(resolve, 4000); // fallback: use whatever gathered
+      const gTimer = setTimeout(() => {
+        pc.removeEventListener('icegatheringstatechange', check);
+        netLog('ICE gathering incomplete after 8s - shipping partial candidates');
+        finish();
+      }, 8000);
     });
+  }
+
+  // Count what actually got gathered, straight from the local SDP. The
+  // shape of this line usually explains the whole connection:
+  //   host(N mdns) = browser hid local IPs (normal); the peers then need
+  //                  multicast or a relay to link
+  //   relay 0      = no relay path existed - direct-only, fragile
+  let lastIceSummary = '';
+  function iceSummary() {
+    try {
+      const sdp = (pc.localDescription && pc.localDescription.sdp) || '';
+      const c = { host: 0, mdns: 0, srflx: 0, relay: 0 };
+      for (const line of sdp.split('\n')) {
+        const m = line.match(/^a=candidate:\S+ \d+ \S+ \d+ (\S+) \d+ typ (\S+)/);
+        if (!m) continue;
+        if (m[2] === 'host' && /\.local$/i.test(m[1])) c.mdns++;
+        else if (m[2] in c) c[m[2]]++;
+      }
+      const bits = [];
+      if (c.host) bits.push(c.host + ' host');
+      if (c.mdns) bits.push(c.mdns + ' mdns');
+      if (c.srflx) bits.push(c.srflx + ' srflx');
+      bits.push(c.relay + ' relay');
+      lastIceSummary = bits.join(', ');
+      netLog('ICE gathered: ' + lastIceSummary);
+    } catch { /* diagnostics must never block the flow */ }
+  }
+
+  // Pop the on-screen log open when a connection gives up, so the evidence
+  // is visible on a phone without any developer tools.
+  function openDiag() {
+    if (!diag) return;
+    diagOpen = true;
+    diag.style.maxHeight = '38vh';
+    diag.style.overflowY = 'auto';
+    renderDiag();
   }
 
   const enc = (o) => btoa(JSON.stringify(o));
