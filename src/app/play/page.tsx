@@ -313,6 +313,9 @@ function PlayPageInner() {
       let clickHandler: (() => void) | null = null;
       // Online (net=1) fight config — filled by the preboot park below.
       let netFightCfg: NetFightConfig | null = null;
+      // Set right before go.run() - lets the exit handlers below tell a real
+      // fight (ran for a while, canvas up) apart from a boot-time death.
+      let engineStartAt = 0;
 
       const cleanup = () => {
         if (onKeyDown) window.removeEventListener('keydown', onKeyDown, true);
@@ -664,6 +667,17 @@ function PlayPageInner() {
         // (net=1: the Go runtime + WASM compile started in the online preboot —
         //  reuse them so the fight boots instantly after selection.)
         const go = netMenu ? goRef.current : new (g.Go as any)();
+        // Record the engine's exit code. The shipped wasm_exec.js resolves
+        // run() normally on os.Exit, so without this an engine that dies at
+        // boot is indistinguishable from a finished fight - it used to bounce
+        // the player to the lobby with zero explanation.
+        try {
+          const prevExit = go.exit;
+          go.exit = (code: number) => {
+            g.__ikemenExitCode = code;
+            if (prevExit) prevExit.call(go, code);
+          };
+        } catch { /* diagnostics must never block boot */ }
         // GC settings (tuned based on gctrace data + Claude's analysis):
         // - GOGC=off: Disables automatic GC entirely. GC only runs at our
         //   forced call sites (platformIdleGC at round transitions, pauses,
@@ -762,6 +776,10 @@ function PlayPageInner() {
                 log(`P1 ready: ${char.id}`);
               } else {
                 log(`ERROR: Character "${effP1}" not found in manifest`);
+                // Booting the engine with a path that does not exist makes it
+                // exit silently - which in the online flow bounced the player
+                // to the lobby with no explanation. Fail loudly instead.
+                if (netMode) throw new Error(`Character "${effP1}" is not in the assets manifest - it cannot be loaded for this online match. Both players must pick a fighter that exists in the roster.`);
               }
             }
           }
@@ -785,6 +803,7 @@ function PlayPageInner() {
                 log(`P2 ready: ${char.id}`);
               } else {
                 log(`ERROR: Character "${effP2}" not found in manifest`);
+                if (netMode) throw new Error(`Character "${effP2}" is not in the assets manifest - it cannot be loaded for this online match. Both players must pick a fighter that exists in the roster.`);
               }
             }
           }
@@ -884,8 +903,26 @@ function PlayPageInner() {
         if (isTouch) {
           setTimeout(() => setShowExit(true), 1500);
         }
+        g.__ikemenExitCode = null;
+        engineStartAt = Date.now();
         await go.run(result.instance);
         cleanupCanvasFit();
+
+        // An engine that quits before any picture ever appeared did NOT
+        // finish a fight. The engine calls exit() on fatal netplay errors
+        // (bad attach, peer death during handshake) and wasm_exec resolves
+        // run() normally for it - which used to fall through to the
+        // "Fight complete" path and silently bounce the player to /lobby.
+        // A real fight = canvas existed AND ran for a sensible duration.
+        const engineRan = !!document.querySelector('canvas#ikemen-canvas') && (Date.now() - engineStartAt > 8000);
+        if (netMode && !engineRan) {
+          const exitCode = g.__ikemenExitCode;
+          cleanup();
+          log('ENGINE EXITED BEFORE THE FIGHT STARTED' + (exitCode != null && exitCode !== 0 ? ' (exit code ' + exitCode + ')' : '') + '.');
+          setBootError('The game engine exited before the match started' + (exitCode != null && exitCode !== 0 ? ' (exit code ' + exitCode + ')' : '') +
+            '. The boot log below shows how far it got. If this repeats, both players hard-refresh the page (Ctrl+F5) and retry; make sure both picked a fighter that exists in the roster.');
+          return;
+        }
 
         // Engine exited — fight is over. Read the match result and decide
         // what to do next based on the game mode.
@@ -928,9 +965,21 @@ function PlayPageInner() {
 
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
+        // netMode lives inside the try scope (same reason exitTarget is
+        // computed pre-try) - recompute it here from the URL.
+        const netFlow = (searchParams.get('net') || '') !== '';
         if (msg.includes('Go program has already exited') || msg.includes('unreachable')) {
           cleanup();
-          window.location.href = exitTarget;
+          // Keep the redirect ONLY for a genuine post-fight exit. A trap
+          // before the fight ever showed a picture is a boot crash - in the
+          // online flow it must be reported, not silently bounced to /lobby.
+          const engineRan = !!document.querySelector('canvas#ikemen-canvas') && (Date.now() - engineStartAt > 8000);
+          if (!netFlow || engineRan) {
+            window.location.href = exitTarget;
+            return;
+          }
+          log('ENGINE CRASHED BEFORE THE FIGHT STARTED: ' + msg);
+          setBootError('The game engine crashed before the match started (' + msg + '). The boot log below and the browser console (F12) hold the details - send them along when reporting.');
           return;
         }
         log('BOOT ERROR: ' + msg);
