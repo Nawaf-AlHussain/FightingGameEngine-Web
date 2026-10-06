@@ -280,6 +280,30 @@ function PlayPageInner() {
       // catch block below sits outside the try scope where netMenu lives.
       const exitTarget = (searchParams.get('net') || '') === '1' ? '/lobby' : '/local';
 
+      // ---- Touch-binding config snapshot (touch input root-cause fix) ----
+      // The engine writes its OWN default [Keys_P1] (lowercase "up = UP",
+      // "a = z", ...) to save/config.ini shortly after boot, and vfs.js
+      // persists that write to localStorage. touch.js parses localStorage
+      // with the same first-match-wins rule as the engine, so if it reads
+      // AFTER the write it sees the engine's DEFAULTS instead of the
+      // bindings the engine actually booted with — touch then dispatches
+      // ArrowRight/KeyZ while the engine waits for KeyD/Digit8.
+      //
+      // In local mode the engine boots slowly (WASM compile + VFS), so
+      // touch.js usually builds first and wins the race; in online mode
+      // the engine boots near-instantly (precompiled WASM + prebuilt VFS
+      // from the online preboot) and the write lands BEFORE touch.js
+      // builds — that is exactly why touch broke only in network mode.
+      //
+      // Fix: snapshot the config BEFORE the engine can write, and hand
+      // the snapshot to touch.js. vfs.js restorePersisted() reads the
+      // same value during init, so the engine boots on the same bytes
+      // touch.js parses — consistent by construction, race-proof.
+      try {
+        (globalThis as any).__ikemenTouchConfig =
+          localStorage.getItem('ikemen-vfs12:save/config.ini');
+      } catch { /* private mode — touch.js falls back to its defaults */ }
+
       let onKeyDown: ((e: KeyboardEvent) => void) | null = null;
       let onKeyUp: ((e: KeyboardEvent) => void) | null = null;
       let clickHandler: (() => void) | null = null;
