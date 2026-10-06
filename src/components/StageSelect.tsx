@@ -89,6 +89,10 @@ export default function StageSelect({
   const [cachedIds, setCachedIds] = useState<Set<string>>(new Set());
   // downloadStates: per-stage download progress / status for the UI.
   const [downloadStates, setDownloadStates] = useState<Record<string, DownloadState>>({});
+  // The player pressed FIGHT while the stage was still downloading. Fire
+  // the moment the download lands instead of silently ignoring the press
+  // (before, the player had to know to press FIGHT a second time).
+  const [pendingConfirm, setPendingConfirm] = useState(false);
 
   // Refs that mirror state for use inside stable callbacks / async closures
   // (avoids stale closures without re-creating the triggerDownload callback).
@@ -238,17 +242,35 @@ export default function StageSelect({
   // ---- Confirm current selection (Enter / double-click / FIGHT button) ----
   // Downloads only fire HERE — on confirm — not when the cursor merely
   // lands on a stage. If the stage is already cached the triggerDownload
-  // call is a no-op; otherwise the download runs in the background and
-  // the FIGHT button stays gated on `selectedReady` until it completes.
-  // The user must press ENTER again once the download finishes.
+  // call is a no-op; otherwise the download runs in the background and the
+  // confirm intent is remembered - the match starts automatically the
+  // moment the download lands (no second press needed).
   const handleConfirm = useCallback(() => {
     if (!selectedStage) return;
     if (!selectedStage.bundled) {
       triggerDownload(selectedStage.id);
     }
-    if (!selectedReady) return;
+    if (!selectedReady) {
+      // Still downloading: remember the intent and fire automatically
+      // when the download completes (pending-confirm effect).
+      setPendingConfirm(true);
+      return;
+    }
+    setPendingConfirm(false);
     onSelect(selectedStage.id);
   }, [selectedStage, selectedReady, onSelect, triggerDownload]);
+
+  // Auto-confirm once the pending stage download lands. Guarded against
+  // spectate (the guest has no input here) and cursor moves (confirming
+  // follows the CURRENTLY SELECTED stage only).
+  useEffect(() => {
+    if (spectate || loading || !pendingConfirm) return;
+    if (!selectedStage) { setPendingConfirm(false); return; }
+    if (isReady(selectedStage)) {
+      setPendingConfirm(false);
+      onSelect(selectedStage.id);
+    }
+  }, [spectate, loading, pendingConfirm, selectedStage, isReady, onSelect, downloadStates]);
 
   // ---- Keyboard controls ----
   useEffect(() => {
@@ -460,19 +482,25 @@ export default function StageSelect({
             type="button"
             className="cs__btn-fight"
             onClick={handleConfirm}
-            disabled={spectate || loading || !selectedStage || !selectedReady}
-            aria-disabled={spectate || loading || !selectedStage || !selectedReady}
+            disabled={spectate || loading || !selectedStage}
+            aria-disabled={spectate || loading || !selectedStage}
             title={
               spectate
                 ? 'The host is choosing the stage'
                 : !selectedStage
                 ? 'Select a stage'
                 : !selectedReady
-                ? 'Stage is still downloading — wait for it to finish'
+                ? 'Stage is downloading — the fight starts automatically when it lands'
                 : 'Lock in and fight!'
             }
           >
-            {spectate ? 'WAITING…' : 'FIGHT!'}
+            {spectate
+              ? 'WAITING…'
+              : (selectedStage && !selectedReady
+                  ? (downloadStates[selectedStage.id]?.status === 'downloading'
+                      ? 'DOWNLOADING ' + Math.round(downloadStates[selectedStage.id].progress) + '%…'
+                      : (pendingConfirm ? 'WAITING FOR DOWNLOAD…' : 'DOWNLOAD & FIGHT'))
+                  : 'FIGHT!')}
           </button>
         </div>
       </div>

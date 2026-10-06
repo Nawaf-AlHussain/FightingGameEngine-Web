@@ -166,6 +166,12 @@ export default function CharacterSelect({
   const [cachedIds, setCachedIds] = useState<Set<string>>(new Set());
   // downloadStates: per-character download progress / status for the UI.
   const [downloadStates, setDownloadStates] = useState<Record<string, DownloadState>>({});
+  // Online: the player attempted to lock while their fighter was still
+  // downloading. Remember the intent and complete the lock the moment the
+  // download lands - before this, the LOCK IN button silently disabled
+  // itself and the match could never start unless the player happened to
+  // press it again after the download finished.
+  const [pendingLock, setPendingLock] = useState(false);
 
   // Track if onLockIn has been fired for this lock-in cycle (prevents double fire
   // in StrictMode dev).
@@ -500,6 +506,22 @@ export default function CharacterSelect({
     online.onCursor(ownState.index);
   }, [online, ownState.index]);
 
+  // ---- Online pending lock: complete it when the download lands ----
+  // The player pressed LOCK IN while their fighter was still downloading.
+  // Re-evaluated on every download progress update, so the lock fires
+  // immediately when the character becomes ready.
+  useEffect(() => {
+    if (!online || !pendingLock) return;
+    const own = ownPlayer === 1 ? p1 : p2;
+    const char = roster[own.index];
+    if (!char) { setPendingLock(false); return; }
+    if (isReady(char)) {
+      const setOwn = ownPlayer === 1 ? setP1 : setP2;
+      setOwn(prev => ({ ...prev, locked: true }));
+      setPendingLock(false);
+    }
+  }, [online, pendingLock, ownPlayer, p1.index, p2.index, roster, isReady, downloadStates]);
+
   // ---- Fire onLockIn when both are locked AND both are ready ----
   // (Skipped in online mode — the parent drives the flow via onPick.)
   // Downloads are non-blocking — the user can lock in via keyboard before
@@ -558,9 +580,19 @@ export default function CharacterSelect({
       if (!char) return;
 
       // If character isn't ready (not bundled + not cached), tap/click
-      // triggers a download but doesn't lock.
+      // triggers a download. Online it ALSO moves this machine's cursor
+      // onto the card so the player SEES their pick registered - before
+      // this, the pick silently stayed on the old character and LOCK IN
+      // locked the wrong fighter (or nothing at all).
       if (!isReady(char)) {
-        if (!char.bundled) triggerDownload(char.id);
+        if (!char.bundled) {
+          triggerDownload(char.id);
+          if (online) {
+            const own = ownPlayer === 1 ? p1 : p2;
+            const setOwn = ownPlayer === 1 ? setP1 : setP2;
+            if (own.locked || own.index !== index) setOwn({ index, locked: false });
+          }
+        }
         return;
       }
 
@@ -571,6 +603,7 @@ export default function CharacterSelect({
         const setOwn = ownPlayer === 1 ? setP1 : setP2;
         if (!own.locked) {
           setOwn({ index, locked: true });
+          setPendingLock(false); // direct lock supersedes any pending intent
         } else if (own.index === index) {
           // Tap the locked card again to unlock and re-pick.
           setOwn(prev => ({ ...prev, locked: false }));
@@ -622,15 +655,24 @@ export default function CharacterSelect({
   const handleFightClick = useCallback(() => {
     if (online) {
       const own = ownPlayer === 1 ? p1 : p2;
-      if (!isReady(roster[own.index])) return;
+      const char = roster[own.index];
+      if (!char) return;
       const setOwn = ownPlayer === 1 ? setP1 : setP2;
+      if (!isReady(char)) {
+        // Still downloading: trigger the download, remember the intent -
+        // the pending-lock effect completes the lock when it lands.
+        if (!char.bundled) triggerDownload(char.id);
+        setPendingLock(true);
+        return;
+      }
+      setPendingLock(false);
       setOwn(prev => ({ ...prev, locked: !prev.locked }));
       return;
     }
     if (!bothReady) return;
     setP1(prev => ({ ...prev, locked: true }));
     setP2(prev => ({ ...prev, locked: true }));
-  }, [bothReady, online, ownPlayer, p1, p2, roster, isReady]);
+  }, [bothReady, online, ownPlayer, p1, p2, roster, isReady, triggerDownload]);
 
   // ---- Render helpers ----
   const cardClasses = useCallback(
@@ -986,13 +1028,25 @@ export default function CharacterSelect({
             type="button"
             className="cs__btn-fight"
             onClick={handleFightClick}
-            disabled={online ? !isReady(ownChar) : !bothReady}
-            aria-disabled={online ? !isReady(ownChar) : !bothReady}
+            disabled={online ? false : !bothReady}
+            aria-disabled={online ? false : !bothReady}
             title={online
-              ? (ownState.locked ? 'Unlock to re-pick' : 'Lock in your fighter')
+              ? (ownState.locked
+                  ? 'Unlock to re-pick'
+                  : (ownChar && !isReady(ownChar)
+                      ? 'Fighter is downloading — the lock completes automatically when it lands'
+                      : 'Lock in your fighter'))
               : (bothReady ? 'Lock in and fight!' : 'Both fighters must be downloaded first')}
           >
-            {online ? (ownState.locked ? 'LOCKED ✓' : 'LOCK IN') : 'FIGHT!'}
+            {online
+              ? (ownState.locked
+                  ? 'LOCKED ✓'
+                  : (ownChar && !isReady(ownChar)
+                      ? (downloadStates[ownChar.id]?.status === 'downloading'
+                          ? 'DOWNLOADING ' + Math.round(downloadStates[ownChar.id].progress) + '%…'
+                          : (pendingLock ? 'WAITING FOR DOWNLOAD…' : 'DOWNLOAD & LOCK'))
+                      : 'LOCK IN'))
+              : 'FIGHT!'}
           </button>
         </div>
       </div>
