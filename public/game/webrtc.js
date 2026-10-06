@@ -349,6 +349,7 @@
   function watchTransport() {
     clearInterval(watchTimer);
     let lastLine = '';
+    let lastBuf = -1, stallSamples = 0;
     watchTimer = setInterval(async () => {
       if (!pc || !dc || dc.readyState !== 'open') { clearInterval(watchTimer); return; }
       let path = '?';
@@ -362,6 +363,22 @@
           path = (loc ? loc.candidateType : '?') + '->' + (rem ? rem.candidateType : '?');
         }
       } catch { /* stats unavailable */ }
+      // Zombie-channel watchdog: queued bytes that never drain while the
+      // state machine still reports "connected" = the SCTP association
+      // black-holes one way (field-observed failure mode). Surface it as
+      // a failure so the page stops waiting silently.
+      const buf = dc.bufferedAmount;
+      if (buf > 0 && buf === lastBuf) {
+        stallSamples++;
+        if (stallSamples === 3) {
+          netLog('CHANNEL STALLED: ' + buf + 'B queued, not draining across 3 samples - marking failed');
+          isFailed = true;
+          openDiag();
+        }
+      } else {
+        stallSamples = 0;
+      }
+      lastBuf = buf;
       const line = 'path ' + path + ', send-buffer ' + dc.bufferedAmount + 'B' + (pingSeen ? '' : ', NO peer ping yet');
       if (line !== lastLine) { lastLine = line; netLog(line); }
     }, 3000);
@@ -432,20 +449,44 @@
   // leaving room for one allocation attempt per server.
   function gatherComplete() {
     return new Promise((resolve) => {
-      const finish = () => { iceSummary(); resolve(); };
-      if (pc.iceGatheringState === 'complete') return finish();
-      const check = () => {
-        if (pc.iceGatheringState === 'complete') {
-          pc.removeEventListener('icegatheringstatechange', check);
-          clearTimeout(gTimer);
-          finish();
-        }
-      };
-      pc.addEventListener('icegatheringstatechange', check);
-      const gTimer = setTimeout(() => {
+      let gTimer = null, extTimer = null;
+      const finish = (msg) => {
         pc.removeEventListener('icegatheringstatechange', check);
-        netLog('ICE gathering incomplete after 8s - shipping partial candidates');
-        finish();
+        clearTimeout(gTimer);
+        if (extTimer) clearTimeout(extTimer);
+        iceSummary();
+        if (msg) netLog(msg);
+        resolve();
+      };
+      const check = () => { if (pc.iceGatheringState === 'complete') finish(); };
+      if (pc.iceGatheringState === 'complete') { finish(); return; }
+      pc.addEventListener('icegatheringstatechange', check);
+      // Do we already hold a candidate that can leave this machine?
+      // (srflx = NAT-reflected, relay = TURN). host/mdns candidates are
+      // only usable between tabs on the same device.
+      const routable = () => {
+        try {
+          const sdp = (pc.localDescription && pc.localDescription.sdp) || '';
+          return /typ srflx/.test(sdp) || /typ relay/.test(sdp);
+        } catch (e) { return true; }
+      };
+      // First cap: 8s. With a routable candidate in hand, shipping now
+      // starts the match sooner - gathering the remaining servers adds
+      // nothing the connection needs.
+      gTimer = setTimeout(() => {
+        if (pc.iceGatheringState === 'complete') return; // check() fires
+        if (routable()) {
+          finish('ICE gathering capped at 8s - shipping routable candidates');
+          return;
+        }
+        // Host/mdns only: STUN and TURN allocations are still pending.
+        // On constrained networks TURN alone can take 10s+ (UDP timeouts
+        // before TCP/TLS answers). Shipping a direct-only SDP makes
+        // cross-device matches impossible, so extend ONCE, then ship.
+        netLog('ICE gathering: 8s in, no srflx/relay yet - extending to 15s for TURN');
+        extTimer = setTimeout(() => {
+          finish('ICE gathering capped at 15s - shipping partial candidates');
+        }, 7000);
       }, 8000);
     });
   }
