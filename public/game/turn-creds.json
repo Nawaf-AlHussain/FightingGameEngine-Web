@@ -1,0 +1,9 @@
+{
+  "iceServers": [
+    { "urls": "stun:stun.relay.metered.ca:80" },
+    { "urls": "turn:global.relay.metered.ca:80", "username": "fa07b1a83286a48fb7e42a88", "credential": "mUZBjbZvajbWh4Jk" },
+    { "urls": "turn:global.relay.metered.ca:80?transport=tcp", "username": "fa07b1a83286a48fb7e42a88", "credential": "mUZBjbZvajbWh4Jk" },
+    { "urls": "turn:global.relay.metered.ca:443", "username": "fa07b1a83286a48fb7e42a88", "credential": "mUZBjbZvajbWh4Jk" },
+    { "urls": "turns:global.relay.metered.ca:443?transport=tcp", "username": "fa07b1a83286a48fb7e42a88", "credential": "mUZBjbZvajbWh4Jk" }
+  ]
+}
