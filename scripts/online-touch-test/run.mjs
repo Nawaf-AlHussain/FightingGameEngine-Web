@@ -8,8 +8,16 @@
 //   * local-mode quick-match touch regression (mode=full)
 //
 // Usage:
-//   node run.mjs --base http://localhost:3210 [--mode full|smoke] [--tag name]
+//   node run.mjs --base http://localhost:3210 [--mode full|smoke|mismatch] [--tag name]
 //   BASE=https://... node run.mjs --mode smoke   (live-site verification)
+//
+// mode=mismatch reproduces the cross-device display-mode bug: the host
+// context is seeded with the 4:3 display mode (FightAspect=4,3 -> engine
+// "custom:4:3"), the guest with the 16:9 default (FA=-1,-1 -> "stage").
+// The engine's netplay handshake refuses mismatched fight aspects, which
+// used to kill the fight before it started. The gate asserts the website
+// display-mode sync (host 'go' frame -> guest in-memory config patch)
+// rescues the pairing, then proves the fight is actually live.
 //
 // Touch synthesis: real TouchEvents (Touch + TouchEvent constructors) aimed
 // at the touch.js overlay elements. touch.js only cares about the events, so
@@ -32,7 +40,7 @@ function arg(name, dflt) {
   return i >= 0 && args[i + 1] ? args[i + 1] : dflt;
 }
 const BASE = arg('--base', process.env.BASE || 'http://localhost:3210');
-const MODE = arg('--mode', 'full'); // full | smoke
+const MODE = arg('--mode', 'full'); // full | smoke | mismatch
 const TAG = arg('--tag', MODE);
 const STAMP = new Date().toISOString().replace(/[:.]/g, '-');
 
@@ -57,6 +65,17 @@ const guestCtx = await browser.newContext({
     'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
 });
 const hostCtx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+
+// Display-mode seeds for the mismatch variant (before ANY navigation so
+// vfs.js boot migration sees them — the marker alone drives the config).
+if (MODE === 'mismatch') {
+  await hostCtx.addInitScript(() => {
+    try { localStorage.setItem('ikemen-display-mode', '4:3'); } catch {}
+  });
+  await guestCtx.addInitScript(() => {
+    try { localStorage.setItem('ikemen-display-mode', '16:9'); } catch {}
+  });
+}
 
 const host = await hostCtx.newPage();
 const guest = await guestCtx.newPage();
@@ -306,7 +325,7 @@ await guest.waitForSelector('canvas#ikemen-canvas', { timeout: 90000 });
 console.log('[gate] fight canvas up on both sides; letting round intro pass...');
 
 // [touch] marker must show the NEW build + shipped bindings (cache-bust guard)
-{
+if (MODE !== 'mismatch') {
   const line = guestLogs.find((l) => l.startsWith('[touch] '));
   const pass = !!line && line.includes('touch-2026-10-06.2') &&
     line.includes('"Right":"KeyD"') && line.includes('"A":"Digit8"');
@@ -315,6 +334,26 @@ console.log('[gate] fight canvas up on both sides; letting round intro pass...')
     console.log('  INFO  [touch] marker missing on live (deploy lag?) — bindings asserted via state probes instead');
   } else {
     ok('guest [touch] build+bindings marker', pass, line ? line.slice(0, 160) : 'NO [touch] LOG');
+  }
+}
+
+// ---- mismatch variant: prove the display-mode sync rescued the pairing ----
+if (MODE === 'mismatch') {
+  const okAdoptH = await waitLog(host, hostLogs, 'Display mode: 4:3 (host', 30000);
+  const okAdoptG = await waitLog(guest, guestLogs, 'Display mode: 4:3 (adopted', 30000);
+  ok('host reports synced display mode (4:3, host)', okAdoptH);
+  ok('guest adopted host display mode (4:3)', okAdoptG);
+  // Give the engine handshake a moment, then fail fast on the exact
+  // refusal that used to kill cross-aspect pairings.
+  await host.waitForTimeout(5000);
+  const aspectRefused = [...hostLogs, ...guestLogs].some(
+    (l) => l.includes('fight aspect differs') || l.includes('ENGINE EXITED BEFORE THE FIGHT STARTED')
+  );
+  ok('engine did not refuse the pairing on fight aspect', !aspectRefused);
+  if (!okAdoptH || !okAdoptG || aspectRefused) {
+    dump(hostLogs, 'host'); dump(guestLogs, 'guest');
+    console.error('[gate] FATAL: display-mode sync did not rescue the pairing');
+    process.exit(2);
   }
 }
 
@@ -347,7 +386,8 @@ if (!live) {
   process.exit(2);
 }
 
-// ---- guest touch probes ----
+// ---- guest touch probes (full/smoke only — mismatch stays lean) ----
+if (MODE !== 'mismatch') {
 await hideOverlay(guest);
 // Guest's own character is P2 (right side of its screen).
 const RIGHT = [64, 96, 8, 54];
@@ -415,6 +455,7 @@ const CENTER = [20, 76, 8, 54];
   if (idA !== null) await touchEnd(guest, idA).catch(() => {});
   await guest.waitForTimeout(250);
 }
+} // end MODE !== 'mismatch'
 
 // ================= local regression (full mode) =================
 if (MODE === 'full') {

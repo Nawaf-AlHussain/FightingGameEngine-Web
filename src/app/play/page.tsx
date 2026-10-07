@@ -13,6 +13,7 @@ import { useIsTouchDevice } from '@/lib/use-touch-device';
 import RotateOverlay from '@/components/RotateOverlay';
 import { ErrorState, GameButton } from '@/components/ui';
 import { readFightResult, clearFightResult, processFightResult, getCurrentModeState, markFightStart } from '@/lib/game-modes';
+import { getDisplayModeMarker } from '@/lib/ikemen-config';
 import CharacterSelect from '@/components/CharacterSelect';
 import StageSelect from '@/components/StageSelect';
 
@@ -54,6 +55,19 @@ interface NetFightConfig {
   stage: string;
 }
 
+/**
+ * Display mode synced for an online fight ('4:3' | '16:9').
+ *
+ * The engine's netplay handshake REFUSES peers whose effective fight
+ * aspect differs ("effective fight aspect differs (local=custom:4:3
+ * remote=stage)"): a 4:3-mode host paired with a 16:9 default guest
+ * (the classic PC + phone combo) exited the engine before the fight
+ * started. The host's display mode rides the 'go' control frame and the
+ * guest adopts it via vfs.js ikemenApplyDisplayMode() before the engine
+ * boots — host-authoritative, in-memory only.
+ */
+type NetDisplayMode = '4:3' | '16:9';
+
 function PlayPageInner() {
   const bootRef = useRef<HTMLPreElement>(null);
   const searchParams = useSearchParams();
@@ -81,6 +95,9 @@ function PlayPageInner() {
   const [netError, setNetError] = useState<string | null>(null);
   const netRoleRef = useRef<'host' | 'join'>('host');
   const netResolveRef = useRef<((cfg: NetFightConfig | null) => void) | null>(null);
+  // Display mode synced for this online fight (host: its own choice;
+  // guest: the mode adopted from the host). Logged after the park.
+  const netSyncedModeRef = useRef<NetDisplayMode | null>(null);
   const vfsPromiseRef = useRef<Promise<number> | null>(null);
   const goRef = useRef<any>(null);
   const wasmPromiseRef = useRef<Promise<WebAssembly.WebAssemblyInstantiatedSource> | null>(null);
@@ -107,6 +124,21 @@ function PlayPageInner() {
       const p2 = typeof m.p2 === 'string' ? m.p2 : '';
       const stage = typeof m.stage === 'string' ? m.stage : '';
       if (!p1 || !p2 || !stage) return;
+      // Host-authoritative display-mode sync: the engine's netplay check
+      // refuses mismatched fight aspects, so the guest adopts the host's
+      // display mode (in-memory config patch) BEFORE the engine boots.
+      const dm = m.dm;
+      if (dm === '4:3' || dm === '16:9') {
+        netSyncedModeRef.current = dm;
+        try {
+          const applied = (globalThis as any).ikemenApplyDisplayMode?.(dm);
+          if (applied !== dm) {
+            // Config missing or patch failed — the engine overlay would
+            // report the aspect mismatch; nothing better to do here.
+            console.log('[netplay] host display mode could not be applied:', dm);
+          }
+        } catch { /* engine overlay reports a real mismatch */ }
+      }
       setNetPhase('fight');
       netResolveRef.current?.({ p1, p2, stage });
     }
@@ -152,9 +184,13 @@ function PlayPageInner() {
   const handleNetStage = useCallback((stageId: string) => {
     if (!netMine.id || !netOpp.id) return;
     const cfg: NetFightConfig = { p1: netMine.id, p2: netOpp.id, stage: stageId };
+    // The guest adopts OUR display mode (fight aspects must match for the
+    // engine's netplay check — a 4:3 host cannot pair with a 16:9 guest).
+    const dm: NetDisplayMode = getDisplayModeMarker() ?? '16:9';
+    netSyncedModeRef.current = dm;
     const net = (globalThis as any).ikemenNet;
     try {
-      net?.control?.({ t: 'go', p1: cfg.p1, p2: cfg.p2, stage: stageId });
+      net?.control?.({ t: 'go', p1: cfg.p1, p2: cfg.p2, stage: stageId, dm });
     } catch { /* the poller reports real drops */ }
     setNetPhase('fight');
     netResolveRef.current?.(cfg);
@@ -603,6 +639,13 @@ function PlayPageInner() {
           }
           log(`Online match: P1=${netFightCfg.p1} vs P2=${netFightCfg.p2} (you are ${netRoleRef.current === 'join' ? 'P2/guest' : 'P1/host'})`);
           log(`Stage: ${netFightCfg.stage}`);
+          // Display-mode sync result — the engine's netplay check refuses
+          // mismatched fight aspects, so this line proves the fix ran.
+          if (netSyncedModeRef.current) {
+            log(`Display mode: ${netSyncedModeRef.current} ` + (netRoleRef.current === 'join'
+              ? '(adopted from the host — fight aspects must match online)'
+              : '(host — the guest adopts it)'));
+          }
           installKeyboardGuard();
         }
 

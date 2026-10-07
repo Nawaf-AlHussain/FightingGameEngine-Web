@@ -433,6 +433,84 @@
     return contents.has(vpath) || manifest.has(vpath) || packedIndex.has(vpath);
   };
 
+  // --- Online display-mode sync (host-authoritative) ------------------
+  // The engine's netplay handshake refuses peers whose EFFECTIVE FIGHT
+  // ASPECT differs ("effective fight aspect differs (local=... remote=...)",
+  // engine validateStrictCompatibility): render-resolution differences are
+  // normalized away, but the 4:3 display mode (FightAspect=4,3 ->
+  // "custom:4:3") genuinely differs from the stage-default 16:9 path
+  // (FightAspect=-1,-1 -> "stage"). A 4:3 host paired with a 16:9 guest —
+  // e.g. PC with 4:3 vs phone on the default — exited the engine before
+  // the fight started ("ENGINE EXITED BEFORE THE FIGHT STARTED").
+  //
+  // The website online flow carries the HOST's display mode in the 'go'
+  // control frame; the GUEST applies it to the in-memory save/config.ini
+  // here, before the engine boots. Host-authoritative, mirroring the
+  // engine's own sync:"host" settings convention.
+  //
+  // This applies the SAME rule as the boot migration above, but post-init
+  // and in-memory only: the device's own display-mode marker and persisted
+  // config are untouched. The next local boot migrates from the device's
+  // own marker again, so an adopted mode never leaks into local play.
+  // Returns the applied mode, or null when there was nothing to apply
+  // (no config file / unknown mode).
+  globalThis.ikemenApplyDisplayMode = function (mode) {
+    try {
+      if (mode !== '4:3' && mode !== '16:9') return null;
+      const cfg = contents.get('save/config.ini');
+      if (!cfg) return null;
+      let text = new TextDecoder().decode(cfg);
+      let changed = false;
+      // Same align-or-insert primitive the boot migration uses.
+      const ensureKey = (key, val, section) => {
+        const re = new RegExp('^\\s*' + key + '\\s*=.*$', 'mi');
+        if (re.test(text)) {
+          const cur = new RegExp('^\\s*' + key + '\\s*=\\s*(-?\\d+)\\s*$', 'mi').exec(text);
+          if (!cur || cur[1] !== String(val)) {
+            text = text.replace(re, key.padEnd(20) + '= ' + val);
+            changed = true;
+          }
+          return;
+        }
+        const secRe = new RegExp('^\\[' + section + '\\]\\s*$', 'mi');
+        if (secRe.test(text)) {
+          text = text.replace(secRe, (m) => m + '\n' + key.padEnd(20) + '= ' + val);
+        } else {
+          text += '\n[' + section + ']\n' + key.padEnd(20) + '= ' + val + '\n';
+        }
+        changed = true;
+      };
+      if (mode === '4:3') {
+        // The engine's native 4:3 — exactly what the boot migration writes
+        // for the '4:3' marker (same preset as the Settings UI).
+        ensureKey('GameWidth', 960, 'Video');
+        ensureKey('GameHeight', 720, 'Video');
+        ensureKey('FightAspectWidth', 4, 'Video');
+        ensureKey('FightAspectHeight', 3, 'Video');
+        ensureKey('KeepAspect', 1, 'Video');
+      } else {
+        // 16:9 = stage-default fight aspect.
+        ensureKey('FightAspectWidth', -1, 'Video');
+        ensureKey('FightAspectHeight', -1, 'Video');
+        // A 4:3 canvas letterboxes a 16:9 fight inside itself
+        // (KeepAspect=1) — bump a 4:3 canvas to 1280x720 so the adopted
+        // 16:9 fills it edge-to-edge. Any other resolution is kept.
+        const gw = /^\s*GameWidth\s*=\s*(\d+)\s*$/mi.exec(text);
+        const gh = /^\s*GameHeight\s*=\s*(\d+)\s*$/mi.exec(text);
+        if (gw && gh && Math.abs(+gw[1] / +gh[1] - 4 / 3) < 0.01) {
+          ensureKey('GameWidth', 1280, 'Video');
+          ensureKey('GameHeight', 720, 'Video');
+        }
+      }
+      if (changed) {
+        globalThis.ikemenInjectFile('save/config.ini', new TextEncoder().encode(text));
+      }
+      return mode;
+    } catch (e) {
+      return null;
+    }
+  };
+
   // --- Mods overlay (in-browser modding) ------------------------------
   // User-added files live in IndexedDB and are layered ON TOP of game.pak at
   // load, so a browser-only build (e.g. on itch.io, no server) can gain
