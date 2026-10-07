@@ -3640,18 +3640,22 @@ function main.f_quickMatch(params)
         loadStart('pausemenu=false')
         game()
 
-        -- After game() returns, write the match result to a JS global so
-        -- the React layer can decide what to do next (next fight in arcade,
+        -- After game() returns, hand the match result to the web layer so
+        -- the React side can decide what to do next (next fight in arcade,
         -- survival, time attack — or back to character select).
         -- getWinnerTeam() returns 1 (P1 won), 2 (P2 won), 0 (draw), or -1.
+        -- The engine build has NO js lua bridge: the old js.global write
+        -- PANICKED here on every match end (masked by the page redirect,
+        -- exit code 1, "Go program has already exited" spam). The result
+        -- now rides stdout — vfs.js's log bridge parses __IKEMEN_RESULT
+        -- lines into window.__ikemenMatchResult.
         local winner = getWinnerTeam()
-        js.global['__ikemenMatchResult'] = {
-            winner = tonumber(winner) or -1,
-            mode = params.mode or 'quickvs',
-            p1 = params.p1 or 'kfm',
-            p2 = params.p2 or 'kfm',
-            stage = params.stage or 'stages/stage0-720.def',
-        }
+        print(string.format('__IKEMEN_RESULT winner=%d mode=%s p1=%s p2=%s stage=%s',
+                tonumber(winner) or -1,
+                tostring(params.mode or 'quickvs'),
+                tostring(params.p1 or 'kfm'),
+                tostring(params.p2 or 'kfm'),
+                tostring(params.stage or 'stages/stage0-720.def')))
 
         os.exit()
 end
