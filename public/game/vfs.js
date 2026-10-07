@@ -197,15 +197,51 @@
 
   const decoder = new TextDecoder();
   let stdoutBuf = '', stderrBuf = '';
+
+  // ---- Engine output ring buffer + web-result marker ----
+  // The web layer (play page) shows the engine's OWN last lines when the
+  // engine dies, so a phone-side crash reports its reason ("Panic: ...")
+  // instead of silently bouncing back to character select. Bounded: the
+  // engine is chatty in debug mode.
+  const engineLog = [];
+  globalThis.__ikemenEngineLog = engineLog; // string[], oldest first
+  function emitEngineLine(line, isErr) {
+    if (line.length) {
+      engineLog.push(line);
+      if (engineLog.length > 80) engineLog.splice(0, engineLog.length - 80);
+      // Match-result marker from main.lua (f_quickMatch): this engine build
+      // has no js lua bridge, so the result rides stdout instead of the old
+      // js.global write (which panicked the engine at every match end).
+      if (line.indexOf('__IKEMEN_RESULT ') === 0) {
+        try {
+          const kv = {};
+          for (const p of line.slice('__IKEMEN_RESULT '.length).trim().split(/\s+/)) {
+            const eq = p.indexOf('=');
+            if (eq > 0) kv[p.slice(0, eq)] = p.slice(eq + 1);
+          }
+          const w = Number(kv.winner);
+          globalThis.__ikemenMatchResult = {
+            winner: (Number.isFinite(w) ? w : -1),
+            mode: kv.mode || 'quickvs',
+            p1: kv.p1 || 'kfm',
+            p2: kv.p2 || 'kfm',
+            stage: kv.stage || 'stages/stage0-720.def',
+          };
+        } catch (e) { /* diagnostics must never break the bridge */ }
+      }
+    }
+    (isErr ? console.warn : console.log)(line);
+  }
+
   function writeStd(fd, chunk) {
     if (fd === 1) {
       stdoutBuf += chunk;
       let i;
-      while ((i = stdoutBuf.indexOf('\n')) >= 0) { console.log(stdoutBuf.slice(0, i)); stdoutBuf = stdoutBuf.slice(i + 1); }
+      while ((i = stdoutBuf.indexOf('\n')) >= 0) { emitEngineLine(stdoutBuf.slice(0, i), false); stdoutBuf = stdoutBuf.slice(i + 1); }
     } else {
       stderrBuf += chunk;
       let i;
-      while ((i = stderrBuf.indexOf('\n')) >= 0) { console.warn(stderrBuf.slice(0, i)); stderrBuf = stderrBuf.slice(i + 1); }
+      while ((i = stderrBuf.indexOf('\n')) >= 0) { emitEngineLine(stderrBuf.slice(0, i), true); stderrBuf = stderrBuf.slice(i + 1); }
     }
   }
 

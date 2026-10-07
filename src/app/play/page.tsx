@@ -935,6 +935,23 @@ function PlayPageInner() {
         await go.run(result.instance);
         cleanupCanvasFit();
 
+        // A PANIC in the engine's own output means the engine died on a bug,
+        // not that the fight ended: f_quickMatch exits cleanly (stdout result
+        // marker, then exit), so 'Panic:' is always a real failure. Report it
+        // visibly - local AND online - instead of silently bouncing back to
+        // the select screen, which is exactly what made the "before the match
+        // starts it kicks me back to character select" reports undiagnosable
+        // on phones. The engine's last lines come from the vfs log bridge
+        // (window.__ikemenEngineLog) and include the Panic line itself.
+        const engineTail = ((globalThis as any).__ikemenEngineLog || []) as string[];
+        const panicLine = engineTail.find(l => l.includes('Panic:'));
+        if (panicLine) {
+          cleanup();
+          log('ENGINE PANICKED: ' + panicLine);
+          setBootError('The game engine crashed (' + panicLine.slice(0, 200) + '). Send a screenshot of this screen when reporting — the boot log below shows how far it got.');
+          return;
+        }
+
         // An engine that quits before any picture ever appeared did NOT
         // finish a fight. The engine calls exit() on fatal netplay errors
         // (bad attach, peer death during handshake) and wasm_exec resolves
@@ -997,6 +1014,15 @@ function PlayPageInner() {
         const netFlow = (searchParams.get('net') || '') !== '';
         if (msg.includes('Go program has already exited') || msg.includes('unreachable')) {
           cleanup();
+          // Engine's own output wins: a Panic line is a real engine bug, and
+          // bouncing silently would hide it (the phone report class).
+          const engineTail = ((globalThis as any).__ikemenEngineLog || []) as string[];
+          const panicLine = engineTail.find(l => l.includes('Panic:'));
+          if (panicLine) {
+            log('ENGINE PANICKED: ' + panicLine);
+            setBootError('The game engine crashed (' + panicLine.slice(0, 200) + '). Send a screenshot of this screen when reporting — the boot log below shows how far it got.');
+            return;
+          }
           // Keep the redirect ONLY for a genuine post-fight exit. A trap
           // before the fight ever showed a picture is a boot crash - in the
           // online flow it must be reported, not silently bounced to /lobby.
