@@ -813,39 +813,94 @@
         ensureKey('ZoomActive', 1, 'Config');
         ensureKey('ForceStageAutoZoom', 1, 'Debug');
 
-        // Keyboard bindings for the ENGINE'S OWN menus (NETWORK > HOST GAME
-        // etc. on /play?net=1). Quick-match play never needed them because it
-        // bypasses the engine menu entirely, so configs from before netplay
-        // have no [Keys_P1] section and the menu would be unnavigable. Insert
-        // the ENGINE'S BUILT-IN P1 LAYOUT (arrows + z/x/c + a/s/d — the same
-        // values the engine itself writes back and the touch overlay hardcodes)
-        // ONLY when the section is absent entirely — a section that exists
-        // means the user has remapped, and we must not stomp their bindings.
-        // Values use the engine's MUGEN-style key names ("z", "UP", ...) —
-        // NOT KeyboardEvent.code strings, which the engine's StringToKey does
-        // not understand. The old WASD+8/9/0+I/O/P values inserted here were
-        // dead on arrival: the engine ignores seeded key sections (proven via
-        // keymap-probe.mjs) and its write-back demoted them to shadows.
-        if (!/^\s*\[Keys_P1\]\s*$/mi.test(text)) {
-          text +=
-            '\n[Keys_P1]\n' +
-            'Joystick = -1\n' +   // REQUIRED: missing/0 makes the engine treat P1 as gamepad 0
-            'GUID   = \n' +
-            'Up     = UP\n' +
-            'Down   = DOWN\n' +
-            'Left   = LEFT\n' +
-            'Right  = RIGHT\n' +
-            'A      = z\n' +
-            'B      = x\n' +
-            'C      = c\n' +
-            'X      = a\n' +
-            'Y      = s\n' +
-            'Z      = d\n' +
-            'Start  = RETURN\n' +
-            'D      = q\n' +
-            'W      = w\n' +
-            'Menu   = Not used\n';
+        // CANONICAL KEYMAP ENFORCEMENT (v3, one-time per device).
+        //
+        // The engine parses [Keys_P1]/[Keys_P2] FIRST-MATCH-WINS and honors
+        // those values for fight input (PROVEN live: keymap-probe3.mjs seeded
+        // a distinguishing P1=i/j/k/l map and the engine followed it — KeyJ
+        // moved P1, ArrowRight moved P2; keymap-probe2.mjs confirmed the
+        // write-back echoes the effective map). The OLD shipped/stored
+        // sections carry P1=WASD+8/9/0+I/O/P and P2=ARROWS+1..7, which is the
+        // whole 'dpad dead + XYZ buttons move my character + arrows move the
+        // opponent' bug family: the touch overlay dispatches the canonical
+        // MUGEN layout (dpad=arrows, A/B/C/X/Y/Z=z/x/c/a/s/d), so with the
+        // stale sections first-match the dpad lands on P2's keys and the XYZ
+        // buttons land on P1's WASD movement keys.
+        //
+        // Canonical layout (matches the touch overlay's hardcoded dispatch
+        // and the regenerated game.pak):
+        //   P1: arrows move, A=z B=x C=c X=a Y=s Z=d, Start=RETURN
+        //   P2: i/j/k/l move, A=f B=g C=h X=r Y=t Z=y, Start=RSHIFT
+        // (P2 uses the engine's own built-in cluster — no key collisions
+        // with P1, so two humans on one keyboard still work.)
+        //
+        // ONE-TIME: marker 'ikemen-keymap-v3' guards the rewrite so a user's
+        // later in-engine remaps survive; the marker is only absent on
+        // devices not yet healed (and after storage wipes, where the pak's
+        // canonical copy applies anyway). The rewrite REPLACES the whole
+        // section (and strips duplicates), because the old sections can hold
+        // shadowed duplicate keys whose first-match values are the stale
+        // layout.
+        let keymapMarker = null;
+        try { keymapMarker = localStorage.getItem('ikemen-keymap-v3'); } catch (e) { /* best-effort */ }
+        if (!keymapMarker) {
+          const CANON = {
+            Keys_P1: [
+              'Joystick = -1',   // REQUIRED: missing/0 makes the engine treat P1 as gamepad 0
+              'GUID   = ',
+              'Up     = UP',
+              'Down   = DOWN',
+              'Left   = LEFT',
+              'Right  = RIGHT',
+              'A      = z',
+              'B      = x',
+              'C      = c',
+              'X      = a',
+              'Y      = s',
+              'Z      = d',
+              'Start  = RETURN',
+              'D      = q',
+              'W      = w',
+              'Menu   = ESCAPE',
+            ],
+            Keys_P2: [
+              'Joystick = -1',
+              'GUID   = ',
+              'Up     = i',
+              'Down   = k',
+              'Left   = j',
+              'Right  = l',
+              'A      = f',
+              'B      = g',
+              'C      = h',
+              'X      = r',
+              'Y      = t',
+              'Z      = y',
+              'Start  = RSHIFT',
+              'D      = b',
+              'W      = n',
+              'Menu   = ESCAPE',
+            ],
+          };
+          // Values use the engine's MUGEN-style key names ("z", "UP", ...)
+          // — NOT KeyboardEvent.code strings, which the engine's StringToKey
+          // does not understand.
+          const rewriteSection = (src, name, bodyLines) => {
+            const body = '[' + name + ']\n' + bodyLines.join('\n') + '\n';
+            const re = new RegExp('\\[' + name + '\\][\\s\\S]*?(?=\\n\\[|\\s*$)', 'gi');
+            let first = true;
+            const out = src.replace(re, () => {
+              if (!first) return ''; // strip shadowed duplicate sections
+              first = false;
+              return body;
+            });
+            return first ? out.replace(/\s*$/, '') + '\n\n' + body : out;
+          };
+          text = rewriteSection(text, 'Keys_P1', CANON.Keys_P1);
+          text = rewriteSection(text, 'Keys_P2', CANON.Keys_P2);
           changed = true;
+          try { localStorage.setItem('ikemen-keymap-v3', '1'); } catch (e) { /* best-effort */ }
+          console.log('[vfs] canonical keymap v3 enforced (P1 arrows+zxc/asd, P2 ijkl+fgh/rty)');
         }
 
         if (changed) {
