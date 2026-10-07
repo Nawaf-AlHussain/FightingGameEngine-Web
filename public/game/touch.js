@@ -1,17 +1,40 @@
 // touch.js -- virtual gamepad overlay for touch devices.
 //
 // Based on FightingGameEngine-Fiiight's web/touch.js, adapted for
-// FightingGameEngine-Web's config-driven key mapping.
+// FightingGameEngine-Web.
 //
-// KEY MAPPING IS CONFIG-DRIVEN, NOT HARDCODED.
-// This module reads the P1 key bindings from localStorage
-// ('ikemen-vfs12:save/config.ini' → [Keys_P1] section), the same source
-// the Settings UI and the engine use. If the user rebinds P1 A=F in
-// Settings, the touch "A" button dispatches KeyF.
+// BINDINGS ARE HARDCODED TO THE ENGINE'S BUILT-IN P1 LAYOUT — DELIBERATELY.
 //
-// The engine (engine/src/system_js.go) registers "keydown"/"keyup"
-// listeners on document and reads KeyboardEvent.code. This module
-// dispatches synthetic KeyboardEvents with the configured codes.
+// The wasm engine does NOT read [Keys_P1]/[Keys_P2] from save/config.ini for
+// fight input. Proven empirically (scripts/online-touch-test/keymap-probe.mjs,
+// scenarios A-fresh + B-shipped-seeded): even when config.ini is seeded with a
+// different layout, the engine fights with its built-in defaults and its config
+// write-back PREPENDS those defaults as first-match-wins entries, demoting any
+// seeded values to dead shadows. The engine's built-in P1 layout is:
+//
+//   movement : UP / DOWN / LEFT / RIGHT (arrow keys)
+//   buttons  : A=z  B=x  C=c  X=a  Y=s  Z=d
+//   start    : RETURN
+//
+// which is exactly the classic layout players expect (arrows move P1, the six
+// letter keys are kicks/punches). In NETPLAY the engine drives the local player
+// from the [Keys_P1] section of the in-memory config, and the shipped
+// public/game/ikemen-fs/file/save/config.ini now carries the SAME values — so
+// every input path (local fight, netplay host, netplay guest) agrees with this
+// overlay by construction.
+//
+// Deriving touch bindings by parsing config.ini was the ROOT CAUSE of the
+// "touch controls broken / control the wrong player" bug family: the overlay
+// and the engine resolved [Keys_P1] from different config copies (shipped
+// defaults vs engine write-back vs stale persisted saves), so the overlay
+// dispatched keys the engine had not bound — e.g. touch X dispatched KeyI,
+// which is the engine's built-in P2 UP key, making the OPPONENT jump.
+//
+// If the engine ever starts honoring config key remaps, revisit this mapping.
+//
+// The engine glue registers "keydown"/"keyup" listeners on document and reads
+// KeyboardEvent.code. This module dispatches synthetic KeyboardEvents with the
+// codes above.
 //
 // Layout:
 //   - Circular 8-way D-pad bottom-left (radial hit zones, slide to
@@ -34,108 +57,15 @@
   // Bump when touch.js changes and mirror it in the ?v= cache-buster on the
   // script tag in src/app/play/page.tsx. Logged on build() so a stale
   // cached copy of this file is instantly diagnosable from the console.
-  const BUILD = "touch-2026-10-06.2";
+  const BUILD = "touch-2026-10-07.1";
 
-  // ---- Default P1 bindings (shipped config.ini) ----
-  // Used as fallback while the config is loading or if parsing fails.
-  const DEFAULT_BINDINGS = {
-    Up: "KeyW", Down: "KeyS", Left: "KeyA", Right: "KeyD",
-    A: "Digit8", B: "Digit9", C: "Digit0",
-    X: "KeyI", Y: "KeyO", Z: "KeyP",
-    Start: "KeyU",
-  };
-
-  // ---- INI key → KeyboardEvent.code reverse map ----
-  // Matches INI_KEY_TO_CODE in ikemen-config.ts
-  const INI_KEY_TO_CODE = {
-    a: "KeyA", b: "KeyB", c: "KeyC", d: "KeyD", e: "KeyE", f: "KeyF",
-    g: "KeyG", h: "KeyH", i: "KeyI", j: "KeyJ", k: "KeyK", l: "KeyL",
-    m: "KeyM", n: "KeyN", o: "KeyO", p: "KeyP", q: "KeyQ", r: "KeyR",
-    s: "KeyS", t: "KeyT", u: "KeyU", v: "KeyV", w: "KeyW", x: "KeyX",
-    y: "KeyY", z: "KeyZ",
-    "0": "Digit0", "1": "Digit1", "2": "Digit2", "3": "Digit3", "4": "Digit4",
-    "5": "Digit5", "6": "Digit6", "7": "Digit7", "8": "Digit8", "9": "Digit9",
-    UP: "ArrowUp", DOWN: "ArrowDown", LEFT: "ArrowLeft", RIGHT: "ArrowRight",
-    COMMA: "Comma", PERIOD: "Period", SLASH: "Slash", SEMICOLON: "Semicolon",
-    EQUALS: "Equal", MINUS: "Minus", LBRACKET: "BracketLeft",
-    RBRACKET: "BracketRight", BACKSLASH: "Backslash", BACKQUOTE: "Backquote",
-    QUOTE: "Quote",
-    RETURN: "Enter", ESCAPE: "Escape", BACKSPACE: "Backspace",
-    TAB: "Tab", SPACE: "Space",
-    KP_0: "Numpad0", KP_1: "Numpad1", KP_2: "Numpad2", KP_3: "Numpad3",
-    KP_4: "Numpad4", KP_5: "Numpad5", KP_6: "Numpad6", KP_7: "Numpad7",
-    KP_8: "Numpad8", KP_9: "Numpad9",
-    KP_DIVIDE: "NumpadDivide", KP_MULTIPLY: "NumpadMultiply",
-    KP_MINUS: "NumpadSubtract", KP_PLUS: "NumpadAdd",
-    KP_ENTER: "NumpadEnter", KP_PERIOD: "NumpadDecimal",
-    KP_EQUALS: "NumpadEqual",
-    F1: "F1", F2: "F2", F3: "F3", F4: "F4", F5: "F5", F6: "F6",
-    F7: "F7", F8: "F8", F9: "F9", F10: "F10", F11: "F11", F12: "F12",
-    PRINTSCREEN: "PrintScreen", SCROLLLOCK: "ScrollLock", PAUSE: "Pause",
-    INSERT: "Insert", HOME: "Home", PAGEUP: "PageUp",
-    DELETE: "Delete", END: "End", PAGEDOWN: "PageDown",
-  };
-
-  // ---- Load P1 key bindings from the boot-time config snapshot ----
-  // CRITICAL: Must use FIRST-MATCH-WINS to match the go-ini library's
-  // behavior with AllowShadows=true. The engine's Go INI parser treats
-  // key names case-insensitively and, when duplicate keys exist (e.g.,
-  // "up = UP" from an engine write and "Up = w" from a Settings UI
-  // write), the FIRST value wins. If touch.js used last-match-wins
-  // (as a simple loop-overwrite would), it would disagree with the
-  // engine on which code to use for each action, causing touch inputs
-  // to dispatch the wrong keys.
-  //
-  // CRITICAL #2: Read the SNAPSHOT the play page took at bootEngine()
-  // start (globalThis.__ikemenTouchConfig), NOT live localStorage.
-  // The engine rewrites save/config.ini with its own lowercase defaults
-  // shortly after boot and vfs.js persists that write — reading live
-  // localStorage afterwards yields the engine's DEFAULTS instead of the
-  // bindings it booted with. This race is why touch input was broken in
-  // ONLINE mode (near-instant engine boot wins the race) while LOCAL
-  // mode stayed working (slow boot loses it). The snapshot is the same
-  // value restorePersisted() fed the engine, so both sides parse
-  // byte-identical config — consistent by construction.
-  function loadBindings() {
-    const bindings = Object.assign({}, DEFAULT_BINDINGS);
-    const seen = new Set(); // track which actions we've already bound (first-match-wins)
-    try {
-      // NO live-localStorage fallback here, deliberately: a null snapshot
-      // means the engine restored nothing either, so it booted on the
-      // shipped defaults (= DEFAULT_BINDINGS). Falling back to live
-      // localStorage would re-open the race the snapshot exists to close
-      // (the engine's own post-boot config write poisons it mid-session).
-      const raw =
-        typeof globalThis.__ikemenTouchConfig === "string"
-          ? globalThis.__ikemenTouchConfig
-          : null;
-      if (!raw) return bindings;
-      const text = atob(raw);
-      // Extract [Keys_P1] section (case-insensitive section name match)
-      const m = text.match(/\[Keys_P1\]([\s\S]*?)(?:\n\[|$)/i);
-      if (!m) return bindings;
-      const lines = m[1].trim().split("\n");
-      for (const line of lines) {
-        const eq = line.indexOf("=");
-        if (eq === -1) continue;
-        const key = line.slice(0, eq).trim();
-        const val = line.slice(eq + 1).trim();
-        // Match case-insensitively against the binding names.
-        // FIRST match wins (matches go-ini's AllowShadows behavior).
-        for (const action of Object.keys(bindings)) {
-          if (seen.has(action)) continue; // already bound — skip
-          if (key.toLowerCase() === action.toLowerCase() && INI_KEY_TO_CODE[val]) {
-            bindings[action] = INI_KEY_TO_CODE[val];
-            seen.add(action);
-          }
-        }
-      }
-    } catch { /* localStorage unavailable or parse error — use defaults */ }
-    return bindings;
-  }
-
-  // ---- Current bindings (loaded once at init) ----
-  let BINDINGS = DEFAULT_BINDINGS;
+  // ---- P1 bindings = the engine's built-in layout (see header) ----
+  const BINDINGS = Object.freeze({
+    Up: "ArrowUp", Down: "ArrowDown", Left: "ArrowLeft", Right: "ArrowRight",
+    A: "KeyZ", B: "KeyX", C: "KeyC",
+    X: "KeyA", Y: "KeyS", Z: "KeyD",
+    Start: "Enter",
+  });
 
   // ---- KeyboardEvent.code → .key character for text input ----
   function codeToKeyChar(code) {
@@ -416,8 +346,6 @@ html.itc-touch-active #ikemen-canvas {
   function build() {
     if (root) return;
 
-    // Load bindings from config before building
-    BINDINGS = loadBindings();
     updateDirCodes();
 
     // Diagnostic: one console line that proves which build is running and
@@ -425,12 +353,7 @@ html.itc-touch-active #ikemen-canvas {
     // serves a stale cached touch.js, its missing/outdated BUILD log makes
     // that immediately visible instead of looking like a mystery bug.
     try {
-      const hasSnapshot = typeof globalThis.__ikemenTouchConfig === "string";
-      console.log(
-        "[touch] " + BUILD +
-        " bindings=" + JSON.stringify(BINDINGS) +
-        " snapshot=" + (hasSnapshot ? "ok" : "MISSING")
-      );
+      console.log("[touch] " + BUILD + " bindings=" + JSON.stringify(BINDINGS));
     } catch { /* diagnostics must never break the overlay */ }
 
     const style = document.createElement("style");

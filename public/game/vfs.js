@@ -817,31 +817,34 @@
         // etc. on /play?net=1). Quick-match play never needed them because it
         // bypasses the engine menu entirely, so configs from before netplay
         // have no [Keys_P1] section and the menu would be unnavigable. Insert
-        // the site's canonical defaults (same as the touch overlay and the
-        // settings KEYS tab) ONLY when the section is absent entirely — a
-        // section that exists means the user has remapped, and we must not
-        // stomp their bindings. Values use the engine's MUGEN-style key names
-        // ("w", "8", "UP", ...) — NOT KeyboardEvent.code strings, which the
-        // engine's StringToKey does not understand.
+        // the ENGINE'S BUILT-IN P1 LAYOUT (arrows + z/x/c + a/s/d — the same
+        // values the engine itself writes back and the touch overlay hardcodes)
+        // ONLY when the section is absent entirely — a section that exists
+        // means the user has remapped, and we must not stomp their bindings.
+        // Values use the engine's MUGEN-style key names ("z", "UP", ...) —
+        // NOT KeyboardEvent.code strings, which the engine's StringToKey does
+        // not understand. The old WASD+8/9/0+I/O/P values inserted here were
+        // dead on arrival: the engine ignores seeded key sections (proven via
+        // keymap-probe.mjs) and its write-back demoted them to shadows.
         if (!/^\s*\[Keys_P1\]\s*$/mi.test(text)) {
           text +=
             '\n[Keys_P1]\n' +
             'Joystick = -1\n' +   // REQUIRED: missing/0 makes the engine treat P1 as gamepad 0
             'GUID   = \n' +
-            'Up     = w\n' +
-            'Down   = s\n' +
-            'Left   = a\n' +
-            'Right  = d\n' +
-            'A      = 8\n' +
-            'B      = 9\n' +
-            'C      = 0\n' +
-            'X      = i\n' +
-            'Y      = o\n' +
-            'Z      = p\n' +
-            'Start  = u\n' +
+            'Up     = UP\n' +
+            'Down   = DOWN\n' +
+            'Left   = LEFT\n' +
+            'Right  = RIGHT\n' +
+            'A      = z\n' +
+            'B      = x\n' +
+            'C      = c\n' +
+            'X      = a\n' +
+            'Y      = s\n' +
+            'Z      = d\n' +
+            'Start  = RETURN\n' +
             'D      = q\n' +
-            'W      = e\n' +
-            'Menu   = ESCAPE\n';
+            'W      = w\n' +
+            'Menu   = Not used\n';
           changed = true;
         }
 

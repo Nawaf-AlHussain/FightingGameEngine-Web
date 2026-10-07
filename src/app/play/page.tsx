@@ -253,8 +253,10 @@ function PlayPageInner() {
 
   // ---- Load vanilla JS touch overlay on touch devices when engine starts ----
   // touch.js is a self-contained IIFE that creates its own DOM (circular D-pad
-  // + two-arc action buttons + START/ESC pills). It reads P1 key bindings from
-  // localStorage config.ini and dispatches synthetic KeyboardEvents. No React
+  // + two-arc action buttons + START/ESC pills). Bindings are hardcoded to the
+  // engine's built-in P1 layout (arrows + z/x/c/a/s/d — see touch.js header;
+  // the engine ignores config.ini key sections, and config-derived bindings
+  // were the root cause of the wrong-player touch bug family). No React
   // dependency — simpler and more reliable than the old React TouchControls.
   useEffect(() => {
     if (!isTouch || !engineRunning) return;
@@ -263,7 +265,7 @@ function PlayPageInner() {
     // mobile browsers / PWA contexts have been observed keeping stale copies.
     // A versioned URL makes a stale touch.js impossible after a deploy.
     // IMPORTANT: bump this together with the BUILD constant inside touch.js.
-    script.src = '/game/touch.js?v=2026-10-06.2';
+    script.src = '/game/touch.js?v=2026-10-07.1';
     script.onload = () => {
       const g = globalThis as any;
       if (g.__ikemenTouch?.build) g.__ikemenTouch.build();
@@ -320,29 +322,11 @@ function PlayPageInner() {
       // catch block below sits outside the try scope where netMenu lives.
       const exitTarget = (searchParams.get('net') || '') === '1' ? '/lobby' : '/local';
 
-      // ---- Touch-binding config snapshot (touch input root-cause fix) ----
-      // The engine writes its OWN default [Keys_P1] (lowercase "up = UP",
-      // "a = z", ...) to save/config.ini shortly after boot, and vfs.js
-      // persists that write to localStorage. touch.js parses localStorage
-      // with the same first-match-wins rule as the engine, so if it reads
-      // AFTER the write it sees the engine's DEFAULTS instead of the
-      // bindings the engine actually booted with — touch then dispatches
-      // ArrowRight/KeyZ while the engine waits for KeyD/Digit8.
-      //
-      // In local mode the engine boots slowly (WASM compile + VFS), so
-      // touch.js usually builds first and wins the race; in online mode
-      // the engine boots near-instantly (precompiled WASM + prebuilt VFS
-      // from the online preboot) and the write lands BEFORE touch.js
-      // builds — that is exactly why touch broke only in network mode.
-      //
-      // Fix: snapshot the config BEFORE the engine can write, and hand
-      // the snapshot to touch.js. vfs.js restorePersisted() reads the
-      // same value during init, so the engine boots on the same bytes
-      // touch.js parses — consistent by construction, race-proof.
-      try {
-        (globalThis as any).__ikemenTouchConfig =
-          localStorage.getItem('ikemen-vfs12:save/config.ini');
-      } catch { /* private mode — touch.js falls back to its defaults */ }
+      // NOTE: no touch-binding config snapshot here anymore. touch.js no
+      // longer parses config.ini — the engine ignores config key sections for
+      // fight input (proven via keymap-probe.mjs), so the overlay hardcodes
+      // the engine's built-in P1 layout instead. Parsing config copies was
+      // the root cause of touch dispatching keys the engine had not bound.
 
       let onKeyDown: ((e: KeyboardEvent) => void) | null = null;
       let onKeyUp: ((e: KeyboardEvent) => void) | null = null;

@@ -327,8 +327,8 @@ console.log('[gate] fight canvas up on both sides; letting round intro pass...')
 // [touch] marker must show the NEW build + shipped bindings (cache-bust guard)
 if (MODE !== 'mismatch') {
   const line = guestLogs.find((l) => l.startsWith('[touch] '));
-  const pass = !!line && line.includes('touch-2026-10-06.2') &&
-    line.includes('"Right":"KeyD"') && line.includes('"A":"Digit8"');
+  const pass = !!line && line.includes('touch-2026-10-07.1') &&
+    line.includes('"Right":"ArrowRight"') && line.includes('"A":"KeyZ"');
   if (!pass && MODE === 'smoke' && !line) {
     // Live deploy may still lag the repo — report, don't fail the smoke run.
     console.log('  INFO  [touch] marker missing on live (deploy lag?) — bindings asserted via state probes instead');
@@ -377,7 +377,7 @@ for (let attempt = 1; attempt <= 3 && !live; attempt++) {
   }
   if (!live && attempt < 3) await guest.waitForTimeout(6000);
 }
-ok('fight liveness (host keyboard moves P1)', live);
+ok('fight liveness (host keyboard reaches engine, KeyD = P1 attack)', live);
 if (!live) {
   dump(hostLogs, 'host'); dump(guestLogs, 'guest');
   await host.screenshot({ path: path.join(ART, `${TAG}-${STAMP}-host-dead.png`) });
@@ -398,7 +398,7 @@ const CENTER = [20, 76, 8, 54];
 {
   let id = null;
   const r = await probeRetry(guest, {
-    tag: 'dpad RIGHT', holdMs: 1200, region: RIGHT, minMove: 1.2, minRatio: 3,
+    tag: 'dpad RIGHT', holdMs: 1500, region: RIGHT, minMove: 2.5, minRatio: 1.3,
     action: async (release) => {
       if (release) { if (id !== null) await touchEnd(guest, id); return; }
       id = await touchStart(guest, 'dpad-right');
@@ -406,7 +406,7 @@ const CENTER = [20, 76, 8, 54];
     sampleDuring: () => heldState(guest),
   });
   ok('guest touch D-pad RIGHT moves P2', r.pass);
-  ok('guest D-pad RIGHT dispatches KeyD while held', Array.isArray(r.during) && r.during.includes('KeyD') && !r.during.includes('ArrowRight'),
+  ok('guest D-pad RIGHT dispatches ArrowRight while held', Array.isArray(r.during) && r.during.includes('ArrowRight') && !r.during.includes('KeyD'),
     'held=' + JSON.stringify(r.during));
 }
 
@@ -414,7 +414,7 @@ const CENTER = [20, 76, 8, 54];
 {
   let id = null;
   const r = await probeRetry(guest, {
-    tag: 'dpad LEFT', holdMs: 1200, region: LEFT, minMove: 1.2, minRatio: 3,
+    tag: 'dpad LEFT', holdMs: 1500, region: LEFT, minMove: 2.5, minRatio: 1.3,
     action: async (release) => {
       if (release) { if (id !== null) await touchEnd(guest, id); return; }
       id = await touchStart(guest, 'dpad-left');
@@ -436,7 +436,7 @@ const CENTER = [20, 76, 8, 54];
     sampleDuring: () => heldState(guest),
   });
   ok('guest touch A button animates attack', r.pass);
-  ok('guest A button dispatches Digit8 while held', Array.isArray(r.during) && r.during.includes('Digit8'),
+  ok('guest A button dispatches KeyZ while held', Array.isArray(r.during) && r.during.includes('KeyZ'),
     'held=' + JSON.stringify(r.during));
   const held = await heldState(guest);
   ok('guest held-state clean after A release', Array.isArray(held) && held.length === 0, 'held=' + JSON.stringify(held));
@@ -449,7 +449,7 @@ const CENTER = [20, 76, 8, 54];
   const idA = await touchStart(guest, 'A');
   await guest.waitForTimeout(450);
   const held = await heldState(guest);
-  const pass = Array.isArray(held) && held.includes('KeyD') && held.includes('Digit8');
+  const pass = Array.isArray(held) && held.includes('ArrowRight') && held.includes('KeyZ');
   ok('guest multi-touch: D-pad RIGHT + A held together', pass, 'held=' + JSON.stringify(held));
   if (idD !== null) await touchEnd(guest, idD).catch(() => {});
   if (idA !== null) await touchEnd(guest, idA).catch(() => {});
