@@ -70,6 +70,44 @@ interface NetFightConfig {
  */
 type NetDisplayMode = '4:3' | '16:9';
 
+/**
+ * WASM heap ceiling (GOMEMLIMIT) for the engine's Go runtime.
+ *
+ * WHY THIS EXISTS — the "phone page restarts" crash: the engine boots with
+ * GOGC=off (no automatic GC mid-round — a desktop smoothness optimization),
+ * so the WASM linear memory grows until GOMEMLIMIT forces a collection.
+ * With the 800MiB ceiling the engine was ALLOWED to balloon to ~800MB of
+ * WASM heap ON TOP OF the JS-side footprint in the same tab (game.pak
+ * ~11MB + background-prefetched menu assets ~18MB + the 23MB WASM binary +
+ * injected character/stage files — some roster picks are 40-100MB — plus
+ * WebGL textures sharing the phone's RAM). Android Chrome and iOS Safari
+ * kill the renderer when the tab crosses what the OS tolerates — the user
+ * sees the page reload: the intermittent "sometimes my phone restarts the
+ * page" report. Which characters are picked (median 11MB vs 102MB
+ * EX_janemba) and how long the round runs is why it only happens SOMETIMES.
+ *
+ * On memory-constrained / mobile devices the ceiling drops to 400MiB: GC
+ * still does not run mid-round (smoothness preserved — it only fires when
+ * the heap actually approaches the limit, i.e. 1-2 late-round collections
+ * instead of none), but the tab's peak stays inside a phone's budget.
+ * Desktop keeps the tuned 800MiB behavior byte-for-byte.
+ *
+ * Device signal: navigator.deviceMemory (approx GB, Chrome/Android —
+ * capped at 8). Safari/Firefox don't expose it; there the mobile-UA +
+ * touch heuristic covers phones (including iOS, whose per-page limit is
+ * the strictest). SSR-safe: the page prerenders without navigator.
+ */
+const WASM_HEAP_LIMIT_MIB = ((): number => {
+  if (typeof navigator === 'undefined') return 800;
+  const dm = (navigator as unknown as { deviceMemory?: number }).deviceMemory;
+  const mobileUA = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+  const mobileTouch = mobileUA && (navigator.maxTouchPoints || 0) > 0;
+  const constrained =
+    (typeof dm === 'number' && dm > 0 && dm <= 4) ||
+    (dm === undefined && mobileTouch);
+  return constrained ? 400 : 800;
+})();
+
 function PlayPageInner() {
   const bootRef = useRef<HTMLPreElement>(null);
   const searchParams = useSearchParams();
@@ -594,7 +632,7 @@ function PlayPageInner() {
           await loadScript('/game/wasm_exec.js');
           if (cancelled) return;
           const goPre = new (g.Go as any)();
-          goPre.env = { GOGC: 'off', GOMEMLIMIT: '800MiB' };
+          goPre.env = { GOGC: 'off', GOMEMLIMIT: WASM_HEAP_LIMIT_MIB + 'MiB' };
           goRef.current = goPre;
           wasmPromiseRef.current = WebAssembly.instantiateStreaming(
             originalFetch('/game/ikemen.wasm', { cache: 'no-cache' }),
@@ -719,16 +757,26 @@ function PlayPageInner() {
         //   - GOGC=50: 200ms pause every ~4s (worse — more frequent)
         //   - GOGC=off: 0 automatic pauses, only forced ones at round transitions
         //
-        //   Safety: GOMEMLIMIT=800MiB remains as backstop. A 60s round
-        //   generates ~200MB garbage — well under 800MB. platformIdleGC()
-        //   runs between rounds to collect before garbage accumulates.
+        //   Safety: GOMEMLIMIT remains as backstop (see WASM_HEAP_LIMIT_MIB:
+        //   800MiB desktop / 400MiB mobile guard). A 60s round generates
+        //   ~200MB garbage — well under the desktop ceiling. On phones the
+        //   800MiB ceiling let the tab grow past what Android Chrome/iOS
+        //   Safari tolerate: the OS killed the renderer and the page
+        //   "restarted" (intermittent — depends on character size and round
+        //   length). The constrained ceiling forces 1-2 late-round
+        //   collections instead of none; mid-round smoothness is unchanged
+        //   because GC still does not run between the forced sites until the
+        //   limit is actually approached.
         //
         //   lines disappear and only (forced) ones remain.
         if (!netMenu) {
           go.env = {
             GOGC: 'off',
-            GOMEMLIMIT: '800MiB',
+            GOMEMLIMIT: WASM_HEAP_LIMIT_MIB + 'MiB',
           };
+          if (WASM_HEAP_LIMIT_MIB < 800) {
+            log('Engine GC: GOGC=off, GOMEMLIMIT=' + WASM_HEAP_LIMIT_MIB + 'MiB (mobile memory guard — prevents phone tab kills)');
+          }
         }
 
         const wasmUrl = '/game/ikemen.wasm';
