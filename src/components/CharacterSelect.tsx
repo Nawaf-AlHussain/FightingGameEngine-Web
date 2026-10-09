@@ -13,6 +13,7 @@ import {
   getRosterSources,
   charRef,
   splitCharRef,
+  portraitUrl,
   DEFAULT_SOURCE,
   isCharacterCached,
   type CharacterInfo,
@@ -40,6 +41,8 @@ interface LocalCharacter {
   shortName: string;
   sizeMB: number;
   bundled: boolean;
+  /** Browser URL of the big-portrait PNG @ 256px (undefined = letter tile). */
+  portrait?: string;
 }
 
 interface CharacterSelectProps {
@@ -101,6 +104,8 @@ const BUNDLED_CHARS: LocalCharacter[] = [
     shortName: 'KFM',
     sizeMB: 0,
     bundled: true,
+    // NOTE: the bundled kfm.sff ships a solid-black placeholder at group
+    // 9000, so there is no usable portrait — this card keeps its letter tile.
   },
 ];
 
@@ -219,6 +224,7 @@ export default function CharacterSelect({
           shortName: c.displayName.slice(0, 12),
           sizeMB: c.sizeMB,
           bundled: false,
+          portrait: portraitUrl(c),
         }));
         const infoMap: Record<string, CharacterInfo> = {};
         for (const c of chars) infoMap[charRef(c)] = c;
@@ -490,6 +496,14 @@ export default function CharacterSelect({
   const p2Name = online && ownPlayer !== 2
     ? oppName
     : (isProgressionMode ? 'AUTO-GENERATED' : (p2Char?.displayName ?? '—'));
+  // VS bar portraits — mirror the name derivation (opponent's live pick in
+  // online mode; no portrait for auto-generated progression opponents).
+  const p1Portrait = online && ownPlayer !== 1
+    ? roster[oppIndexResolved]?.portrait
+    : p1Char?.portrait;
+  const p2Portrait = online && ownPlayer !== 2
+    ? roster[oppIndexResolved]?.portrait
+    : (isProgressionMode ? undefined : p2Char?.portrait);
   // For progression modes, only P1 needs to be ready (P2 is auto-generated).
   const bothReady = isProgressionMode
     ? isReady(p1Char)
@@ -916,6 +930,7 @@ export default function CharacterSelect({
           label={p1Label}
           name={p1Name}
           locked={dP1.locked}
+          portrait={p1Portrait}
         />
         <span className="cs__vs">{isProgressionMode ? '→' : 'VS'}</span>
         <PlayerTag
@@ -923,6 +938,7 @@ export default function CharacterSelect({
           label={p2Label}
           name={p2Name}
           locked={dP2.locked}
+          portrait={p2Portrait}
         />
       </div>
 
@@ -1001,6 +1017,9 @@ export default function CharacterSelect({
                   <div className="cs__card-fallback">
                     {char.displayName.charAt(0).toUpperCase()}
                   </div>
+                  {char.portrait && (
+                    <PortraitImg src={char.portrait} className="cs__card-img" />
+                  )}
                   {isP1Here && (
                     <div
                       className={`cs__card-cursor cs__cursor--p1${p1LockedHere ? ' cs__cursor--locked' : ''}`}
@@ -1125,16 +1144,34 @@ export default function CharacterSelect({
 // PlayerTag subcomponent
 // ---------------------------------------------------------------------------
 
+/** Portrait image with fade-in on load (CSS shows it once .loaded is set;
+ *  the letter fallback underneath stays visible until then). */
+function PortraitImg({ src, className }: { src: string; className?: string }) {
+  const [loaded, setLoaded] = useState(false);
+  return (
+    <img
+      src={src}
+      alt=""
+      loading="lazy"
+      decoding="async"
+      className={`${className ?? ''}${loaded ? ' loaded' : ''}`}
+      onLoad={() => setLoaded(true)}
+    />
+  );
+}
+
 function PlayerTag({
   side,
   label,
   name,
   locked,
+  portrait,
 }: {
   side: 'p1' | 'p2';
   label: string;
   name: string;
   locked: boolean;
+  portrait?: string;
 }) {
   const classes = [
     'cs__player-tag',
@@ -1145,6 +1182,7 @@ function PlayerTag({
     .join(' ');
   return (
     <div className={classes}>
+      {portrait && <PortraitImg src={portrait} className="cs__player-tag-portrait" />}
       <div className="cs__player-tag-label">{label}</div>
       <div className="cs__player-tag-name">{name}</div>
       <div className="cs__player-tag-status">

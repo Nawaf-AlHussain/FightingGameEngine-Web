@@ -19,6 +19,7 @@ import {
   isCharacterCached,
   isStageCached,
   charRef,
+  portraitUrl,
   type CharacterInfo,
   type StageInfo,
 } from '@/lib/character-downloader';
@@ -48,10 +49,29 @@ interface SlotState {
   status: SlotStatus;
   progress: number;
   displayName: string;
+  /** Browser URL of the big-portrait PNG @ 256px (undefined = no image). */
+  portrait?: string;
 }
 
 const BUNDLED_STAGE_ID = 'stages/stage0-720.def';
 const BUNDLED_CHAR_ID = 'kfm';
+// NOTE: the bundled kfm.sff ships a solid-black placeholder at group 9000,
+// so the bundled character has no portrait — its slot keeps name-only.
+
+/** Portrait image with fade-in on load. */
+function MatchPrepPortrait({ src }: { src: string }) {
+  const [loaded, setLoaded] = useState(false);
+  return (
+    <img
+      src={src}
+      alt=""
+      loading="lazy"
+      decoding="async"
+      className={`match-prep__portrait${loaded ? ' loaded' : ''}`}
+      onLoad={() => setLoaded(true)}
+    />
+  );
+}
 
 type SlotSetter = Dispatch<SetStateAction<SlotState>>;
 
@@ -175,9 +195,12 @@ function MatchPrepInner() {
       const charName = (id: string) => charById.get(id)?.displayName ?? id;
       const stageName = (id: string) =>
         id === BUNDLED_STAGE_ID ? 'Training Stage' : stageById.get(id)?.displayName ?? id;
+      // Portraits (bundled chars have no usable portrait — see note above)
+      const charPortrait = (id: string) =>
+        id === BUNDLED_CHAR_ID ? undefined : portraitUrl(charById.get(id));
 
-      setP1Slot({ status: p1 === BUNDLED_CHAR_ID ? 'bundled' : 'checking', progress: 0, displayName: charName(p1) });
-      setP2Slot({ status: p2 === BUNDLED_CHAR_ID ? 'bundled' : 'checking', progress: 0, displayName: charName(p2) });
+      setP1Slot({ status: p1 === BUNDLED_CHAR_ID ? 'bundled' : 'checking', progress: 0, displayName: charName(p1), portrait: charPortrait(p1) });
+      setP2Slot({ status: p2 === BUNDLED_CHAR_ID ? 'bundled' : 'checking', progress: 0, displayName: charName(p2), portrait: charPortrait(p2) });
       setStageSlot({ status: stage === BUNDLED_STAGE_ID ? 'bundled' : 'checking', progress: 0, displayName: stageName(stage) });
 
       const jobs: Promise<void>[] = [];
@@ -278,6 +301,15 @@ function MatchPrepInner() {
             <div className="match-prep__player-label">
               {isWatch ? 'CPU 1' : 'PLAYER 1'}
             </div>
+            <div className="match-prep__portrait-box">
+              {p1Slot.portrait ? (
+                <MatchPrepPortrait src={p1Slot.portrait} />
+              ) : (
+                <span className="match-prep__portrait-fallback">
+                  {p1Slot.displayName.charAt(0).toUpperCase()}
+                </span>
+              )}
+            </div>
             <div className="match-prep__player-name">{p1Slot.displayName}</div>
             <div className="match-prep__player-status">{renderSlotStatus(p1Slot)}</div>
           </div>
@@ -287,6 +319,15 @@ function MatchPrepInner() {
           <div className="match-prep__player match-prep__player--p2">
             <div className="match-prep__player-label">
               {isProgression ? 'NEXT OPPONENT' : isWatch ? 'CPU 2' : 'PLAYER 2'}
+            </div>
+            <div className="match-prep__portrait-box">
+              {p2Slot.portrait ? (
+                <MatchPrepPortrait src={p2Slot.portrait} />
+              ) : (
+                <span className="match-prep__portrait-fallback">
+                  {p2Slot.displayName.charAt(0).toUpperCase()}
+                </span>
+              )}
             </div>
             <div className="match-prep__player-name">{p2Slot.displayName}</div>
             <div className="match-prep__player-status">{renderSlotStatus(p2Slot)}</div>

@@ -596,6 +596,23 @@ button {
   white-space: nowrap;
 }
 
+/* VS bar portrait thumb (big-portrait PNG @ 256px shown small) */
+.cs__player-tag-portrait {
+  width: 42px;
+  height: 42px;
+  object-fit: contain;
+  background: var(--black);
+  border: 1px solid var(--gray-dark);
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.25s;
+}
+.cs__player-tag-portrait.loaded { opacity: 1; }
+.cs__player-tag--p1 .cs__player-tag-portrait { border-left: 3px solid var(--p1-color); }
+.cs__player-tag--p2 .cs__player-tag-portrait { border-right: 3px solid var(--p2-color); }
+.cs__player-tag--locked--p1 .cs__player-tag-portrait { border-color: var(--p1-color); }
+.cs__player-tag--locked--p2 .cs__player-tag-portrait { border-color: var(--p2-color); }
+
 .cs__vs {
   font-size: 1.5rem;
   font-weight: 900;
@@ -1290,6 +1307,7 @@ body.fighting {
   .cs__player-tag-label { font-size: 0.55rem; }
   .cs__player-tag-name { font-size: 0.65rem; }
   .cs__player-tag-status { font-size: 0.5rem; }
+  .cs__player-tag-portrait { width: 34px; height: 34px; }
 }
 
 /* ---- Landscape phones (short height) ---- */
@@ -2360,6 +2378,40 @@ body.fighting {
   font-style: italic;
   text-transform: uppercase;
   color: var(--white);
+}
+
+/* VS portraits — the 256px big-portrait PNGs, the showpiece of this screen */
+.match-prep__portrait-box {
+  width: 180px;
+  height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--gray-dark);
+  overflow: hidden;
+}
+.match-prep__player--p1 .match-prep__portrait-box { border-left: 3px solid var(--p1-color); }
+.match-prep__player--p2 .match-prep__portrait-box { border-right: 3px solid var(--p2-color); }
+.match-prep__portrait {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.match-prep__portrait.loaded { opacity: 1; }
+/* Letter tile when a character has no extracted portrait */
+.match-prep__portrait-fallback {
+  font-size: 3.2rem;
+  font-weight: 900;
+  font-style: italic;
+  color: var(--gray);
+  opacity: 0.6;
+}
+@media (max-width: 560px) {
+  .match-prep__portrait-box { width: 118px; height: 118px; }
+  .match-prep__vs { gap: 1rem; }
 }
 .match-prep__vs-text {
   font-size: 2rem;
