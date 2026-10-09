@@ -47,6 +47,7 @@ export async function GET(
       ogg: 'audio/ogg', wav: 'audio/wav', mp3: 'audio/mpeg',
       ttf: 'font/ttf', otf: 'font/otf', st: 'text/plain',
       dat: 'application/octet-stream', txt: 'text/plain',
+      png: 'image/png',
     };
 
     return new NextResponse(buffer, {

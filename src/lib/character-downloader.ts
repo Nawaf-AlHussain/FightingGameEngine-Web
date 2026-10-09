@@ -51,6 +51,10 @@ export interface CharacterInfo {
   bundled: boolean;
   cdnBase: string;
   files: string[];
+  /** Repo-root-relative path of the pre-extracted big-portrait PNG @ 256px
+   *  ("portraits/charsMARVEL/Beast.png"). Optional — chars without an
+   *  extracted portrait fall back to a letter tile in the UI. */
+  portrait?: string;
 }
 
 export interface RosterSource {
@@ -87,6 +91,16 @@ export function splitCharRef(ref: string): { source: string; id: string } {
   const i = ref.indexOf('/');
   if (i <= 0) return { source: DEFAULT_SOURCE, id: ref };
   return { source: ref.slice(0, i), id: ref.slice(i + 1) };
+}
+
+/**
+ * Browser URL for a character's big-portrait PNG, served through the same
+ * CDN proxy as game files (the manifest stores an Assets-repo-relative
+ * path). Undefined when the character has no extracted portrait.
+ */
+export function portraitUrl(char: { portrait?: string } | undefined | null): string | undefined {
+  if (!char?.portrait) return undefined;
+  return `${CDN_PROXY_BASE}${char.portrait}`;
 }
 
 export interface StageInfo {
