@@ -775,6 +775,14 @@ function PlayPageInner() {
             if (lose) lose.loseContext();
           }
         }
+        if (!soft) {
+          // No WebGL2 at all (not even software) — the engine's glfw-js
+          // context would never come up and the engine would die inside the
+          // boot window, which the local flow used to report by silently
+          // bouncing back to character select (the Huawei Chrome report).
+          // Fail here with the actual reason instead.
+          throw new Error('This browser cannot create a WebGL2 context, so the game engine cannot start. In Chrome: Settings > System > "Use graphics acceleration" must be ON, and chrome://gpu must list WebGL2. Update the browser or its GPU drivers, then retry.');
+        }
 
         // --- 6. Resolution is controlled by Settings UI / localStorage ---
         // Previously, /play set globalThis.ikemenAspect here, and vfs.js
@@ -1051,45 +1059,51 @@ function PlayPageInner() {
         await go.run(result.instance);
         cleanupCanvasFit();
 
-        // A PANIC in the engine's own output means the engine died on a bug,
-        // not that the fight ended: f_quickMatch exits cleanly (stdout result
-        // marker, then exit), so 'Panic:' is always a real failure. Report it
-        // visibly - local AND online - instead of silently bouncing back to
-        // the select screen, which is exactly what made the "before the match
-        // starts it kicks me back to character select" reports undiagnosable
-        // on phones. The engine's last lines come from the vfs log bridge
-        // (window.__ikemenEngineLog) and include the Panic line itself.
+        // The engine's own output decides whether run() resolving means
+        // "fight ended" or "engine died". Report deaths visibly - local AND
+        // online - instead of silently bouncing back to the select screen,
+        // which is exactly what made the "before the match starts it kicks
+        // me back to character select" reports undiagnosable on phones.
+        // 'Panic:' = Go panic; 'fatal error:' = Go RUNTIME death (out of
+        // memory, deadlock, ...) printed to stderr WITHOUT a panic line —
+        // the OOM-class boot deaths (Huawei Chrome report) only match the
+        // second pattern. Both come through the vfs log bridge
+        // (window.__ikemenEngineLog), which captures stdout AND stderr.
         const engineTail = ((globalThis as any).__ikemenEngineLog || []) as string[];
-        const panicLine = engineTail.find(l => l.includes('Panic:'));
-        if (panicLine) {
+        const crashLine = engineTail.find(l => l.includes('Panic:') || l.includes('fatal error:'));
+        if (crashLine) {
           cleanup();
-          log('ENGINE PANICKED: ' + panicLine);
-          setBootError('The game engine crashed (' + panicLine.slice(0, 200) + '). Send a screenshot of this screen when reporting — the boot log below shows how far it got.');
+          log('ENGINE CRASHED: ' + crashLine);
+          setBootError('The game engine crashed (' + crashLine.slice(0, 200) + '). Send a screenshot of this screen when reporting — the boot log below shows how far it got.');
           return;
         }
 
         // An engine that quits before any picture ever appeared did NOT
-        // finish a fight. The engine calls exit() on fatal netplay errors
-        // (bad attach, peer death during handshake) and wasm_exec resolves
-        // run() normally for it - which used to fall through to the
-        // "Fight complete" path and silently bounce the player to /lobby.
-        // A real fight = canvas existed AND ran for a sensible duration.
+        // finish a fight. The engine calls exit() on fatal errors (no GL,
+        // bad netplay attach, peer death during handshake) and wasm_exec
+        // resolves run() normally for it - which used to fall through to
+        // the "Fight complete" path for LOCAL fights and silently bounce
+        // the player to /local (= character select; the Huawei Chrome
+        // report), while online got the error screen. A real fight = canvas
+        // existed AND ran for a sensible duration, OR a result marker was
+        // written (an ultra-short but genuinely finished fight reports it).
+        const fightResult = readFightResult();
         const engineRan = !!document.querySelector('canvas#ikemen-canvas') && (Date.now() - engineStartAt > 8000);
-        if (netMode && !engineRan) {
+        if (!engineRan && !fightResult) {
           const exitCode = g.__ikemenExitCode;
           cleanup();
           log('ENGINE EXITED BEFORE THE FIGHT STARTED' + (exitCode != null && exitCode !== 0 ? ' (exit code ' + exitCode + ')' : '') + '.');
+          const tail = engineTail.slice(-4).join(' | ').slice(0, 240);
           setBootError('The game engine exited before the match started' + (exitCode != null && exitCode !== 0 ? ' (exit code ' + exitCode + ')' : '') +
-            '. The boot log below shows how far it got. If this repeats, both players hard-refresh the page (Ctrl+F5) and retry; make sure both picked a fighter that exists in the roster.');
+            (tail ? '. Engine output: ' + tail : '') +
+            '. The boot log below shows how far it got. If this repeats, send a screenshot when reporting' + (netMode ? '; both players should also hard-refresh the page (Ctrl+F5) and retry.' : '.'));
           return;
         }
 
         // Engine exited — fight is over. Read the match result and decide
         // what to do next based on the game mode.
-        cleanup();
-
-        const fightResult = readFightResult();
         clearFightResult();
+        cleanup();
 
         if (fightResult && qmode !== 'quickvs' && qmode !== 'training') {
           // Progression mode — process the result and advance
@@ -1125,25 +1139,24 @@ function PlayPageInner() {
 
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        // netMode lives inside the try scope (same reason exitTarget is
-        // computed pre-try) - recompute it here from the URL.
-        const netFlow = (searchParams.get('net') || '') !== '';
         if (msg.includes('Go program has already exited') || msg.includes('unreachable')) {
           cleanup();
-          // Engine's own output wins: a Panic line is a real engine bug, and
-          // bouncing silently would hide it (the phone report class).
+          // Engine's own output wins: a Panic line (or a Go runtime 'fatal
+          // error:') is a real engine bug, and bouncing silently would hide
+          // it (the phone report class).
           const engineTail = ((globalThis as any).__ikemenEngineLog || []) as string[];
-          const panicLine = engineTail.find(l => l.includes('Panic:'));
-          if (panicLine) {
-            log('ENGINE PANICKED: ' + panicLine);
-            setBootError('The game engine crashed (' + panicLine.slice(0, 200) + '). Send a screenshot of this screen when reporting — the boot log below shows how far it got.');
+          const crashLine = engineTail.find(l => l.includes('Panic:') || l.includes('fatal error:'));
+          if (crashLine) {
+            log('ENGINE CRASHED: ' + crashLine);
+            setBootError('The game engine crashed (' + crashLine.slice(0, 200) + '). Send a screenshot of this screen when reporting — the boot log below shows how far it got.');
             return;
           }
-          // Keep the redirect ONLY for a genuine post-fight exit. A trap
-          // before the fight ever showed a picture is a boot crash - in the
-          // online flow it must be reported, not silently bounced to /lobby.
+          // Keep the redirect ONLY for a genuine post-fight exit (the fight
+          // actually ran). A trap before the fight ever showed a picture is
+          // a boot crash - it must be reported, not silently bounced to
+          // /local or /lobby (the Huawei Chrome report class).
           const engineRan = !!document.querySelector('canvas#ikemen-canvas') && (Date.now() - engineStartAt > 8000);
-          if (!netFlow || engineRan) {
+          if (engineRan) {
             window.location.href = exitTarget;
             return;
           }
