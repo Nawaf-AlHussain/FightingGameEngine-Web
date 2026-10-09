@@ -15,6 +15,16 @@
 const ASSETS_MANIFEST_URL = '/api/assets-manifest';
 const CDN_PROXY_BASE = '/api/cdn/';
 
+// The classic roster folder. Characters in any other chars* folder
+// (charsMARVEL, charsDC, ...) get a source-qualified selection reference
+// ("charsMARVEL/Wolverine") so CDN fetches, cache keys and lookups can
+// never collide across universes.
+//
+// ENGINE CONSTRAINT: the engine (main.lua f_quickMatch -> addChar) always
+// builds the VFS path as chars/<id>/<id>.def. So no matter which source
+// folder files are DOWNLOADED from, they are always INJECTED into the VFS
+// at chars/<id>/ and the engine is handed the plain id.
+
 import {
   cacheCharacter,
   cacheStage,
@@ -31,6 +41,9 @@ export { isCharacterCached, isStageCached, getCachedCharacterIds, getCachedStage
 
 export interface CharacterInfo {
   id: string;
+  /** Which chars* folder this character comes from ("chars", "charsMARVEL", ...).
+   *  Missing/undefined on legacy manifests = default "chars". */
+  source?: string;
   displayName: string;
   author: string;
   description: string;
@@ -38,6 +51,42 @@ export interface CharacterInfo {
   bundled: boolean;
   cdnBase: string;
   files: string[];
+}
+
+export interface RosterSource {
+  /** Folder name in the Assets repo ("chars", "charsMARVEL", ...). */
+  id: string;
+  /** Human label ("Default", "MARVEL", "DC", ...). */
+  label: string;
+}
+
+export const DEFAULT_SOURCE = 'chars';
+
+/** Derive a display label for a source folder. */
+export function rosterSourceLabel(source: string): string {
+  if (source === DEFAULT_SOURCE) return 'Default';
+  const suffix = source.toLowerCase().startsWith(DEFAULT_SOURCE)
+    ? source.slice(DEFAULT_SOURCE.length)
+    : source;
+  return (suffix || source).toUpperCase();
+}
+
+/**
+ * Selection reference for a character: the plain folder id for the default
+ * source ("Wolverine"), or "<source>/<id>" for any other source
+ * ("charsMARVEL/Wolverine"). Plain ids keep refs identical to pre-multi-source
+ * URLs/session state, so existing bookmarks and IndexedDB caches keep working.
+ */
+export function charRef(c: { id: string; source?: string }): string {
+  const source = c.source || DEFAULT_SOURCE;
+  return source === DEFAULT_SOURCE ? c.id : `${source}/${c.id}`;
+}
+
+/** Split a selection reference back into { source, id }. */
+export function splitCharRef(ref: string): { source: string; id: string } {
+  const i = ref.indexOf('/');
+  if (i <= 0) return { source: DEFAULT_SOURCE, id: ref };
+  return { source: ref.slice(0, i), id: ref.slice(i + 1) };
 }
 
 export interface StageInfo {
@@ -53,6 +102,7 @@ export interface StageInfo {
 
 interface AssetsManifest {
   version: number;
+  sources?: RosterSource[];
   characters: CharacterInfo[];
   stages: StageInfo[];
 }
@@ -84,6 +134,36 @@ export async function getCharacters(): Promise<CharacterInfo[]> {
 }
 
 /**
+ * Get the distinct roster sources (character folders) in the manifest.
+ * Prefers the manifest's own "sources" array (written by update-manifest.py
+ * v3); falls back to deriving from the characters themselves (legacy
+ * manifests therefore yield exactly one source: "chars").
+ */
+export async function getRosterSources(): Promise<RosterSource[]> {
+  const manifest = await fetchAssetsManifest();
+  if (manifest.sources && manifest.sources.length > 0) {
+    return manifest.sources;
+  }
+  const seen: RosterSource[] = [];
+  for (const c of manifest.characters) {
+    const id = c.source || DEFAULT_SOURCE;
+    if (!seen.some(s => s.id === id)) {
+      seen.push({ id, label: rosterSourceLabel(id) });
+    }
+  }
+  return seen;
+}
+
+/**
+ * Find a character in the manifest by selection reference
+ * (see charRef / splitCharRef).
+ */
+export async function findCharacterByRef(ref: string): Promise<CharacterInfo | undefined> {
+  const manifest = await fetchAssetsManifest();
+  return manifest.characters.find(c => charRef(c) === ref);
+}
+
+/**
  * Get the list of available stages.
  */
 export async function getStages(): Promise<StageInfo[]> {
@@ -108,6 +188,10 @@ export async function downloadCharacter(
   const total = files.length;
   const failed: string[] = [];
 
+  // Fetch from the character's OWN source folder (chars, charsMARVEL, ...),
+  // but inject into the engine's fixed chars/ namespace (see note above).
+  const source = char.source || DEFAULT_SOURCE;
+
   onProgress?.(0, `Downloading ${char.displayName}...`);
 
   // Download in batches of 6 to avoid overwhelming the browser
@@ -116,7 +200,7 @@ export async function downloadCharacter(
     const batch = files.slice(i, i + BATCH_SIZE);
 
     await Promise.all(batch.map(async (filename) => {
-      const url = CDN_PROXY_BASE + 'chars/' + char.id + '/' + filename;
+      const url = CDN_PROXY_BASE + source + '/' + char.id + '/' + filename;
       // Character files go into chars/<id>/ in the VFS
       const vpath = `chars/${char.id}/${filename}`;
 
@@ -257,8 +341,12 @@ export async function downloadCharacterToCache(
   char: CharacterInfo,
   onProgress?: (pct: number, msg: string) => void
 ): Promise<void> {
+  // Cache key includes the source so chars/Wolverine and
+  // charsMARVEL/Wolverine can never shadow each other.
+  const cacheKey = charRef(char);
+
   // Check if already cached
-  if (await isCharacterCached(char.id, char.files)) {
+  if (await isCharacterCached(cacheKey, char.files)) {
     onProgress?.(100, `${char.displayName} cached`);
     return;
   }
@@ -269,13 +357,15 @@ export async function downloadCharacterToCache(
   const failed: string[] = [];
   const downloadedFiles: Record<string, Uint8Array> = {};
 
+  const source = char.source || DEFAULT_SOURCE;
+
   onProgress?.(0, `Downloading ${char.displayName}...`);
 
   const BATCH_SIZE = 6;
   for (let i = 0; i < files.length; i += BATCH_SIZE) {
     const batch = files.slice(i, i + BATCH_SIZE);
     await Promise.all(batch.map(async (filename) => {
-      const url = CDN_PROXY_BASE + 'chars/' + char.id + '/' + filename;
+      const url = CDN_PROXY_BASE + source + '/' + char.id + '/' + filename;
       try {
         const res = await fetch(url, { cache: 'force-cache' });
         if (!res.ok) {
@@ -303,7 +393,7 @@ export async function downloadCharacterToCache(
   }
 
   // All files downloaded — safe to cache.
-  await cacheCharacter(char.id, downloadedFiles);
+  await cacheCharacter(cacheKey, downloadedFiles);
   onProgress?.(100, `${char.displayName} ready`);
 }
 
@@ -362,20 +452,24 @@ export async function downloadStageToCache(
 
 /**
  * Inject a character's cached files into the IKEMEN VFS.
+ * `ref` is a selection reference (see charRef / splitCharRef) — also used
+ * as the IndexedDB cache key. Files are ALWAYS injected at chars/<id>/
+ * because the engine builds that path itself.
  * Returns true if successful, false if not cached.
  */
-export async function injectCachedCharacter(charId: string): Promise<boolean> {
+export async function injectCachedCharacter(ref: string): Promise<boolean> {
   const g = globalThis as any;
-  const cached = await getCachedCharacter(charId);
+  const cached = await getCachedCharacter(ref);
   if (!cached) return false;
 
+  const { id } = splitCharRef(ref);
   for (const [filename, data] of Object.entries(cached.files)) {
-    const vpath = `chars/${charId}/${filename}`;
+    const vpath = `chars/${id}/${filename}`;
     if (g.ikemenInjectFile) {
       g.ikemenInjectFile(vpath, data);
     }
   }
-  console.log(`[cache] Injected ${Object.keys(cached.files).length} files for character: ${charId}`);
+  console.log(`[cache] Injected ${Object.keys(cached.files).length} files for character: ${ref} -> chars/${id}/`);
   return true;
 }
 
