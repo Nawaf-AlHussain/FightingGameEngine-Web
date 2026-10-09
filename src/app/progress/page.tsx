@@ -11,7 +11,7 @@ import {
   MODE_RULES,
   type ModeState,
 } from '@/lib/game-modes';
-import { getCharacters, getStages } from '@/lib/character-downloader';
+import { getCharacters, getStages, charRef } from '@/lib/character-downloader';
 
 /**
  * /progress — between-fights screen for Arcade, Survival, and Time Attack.
@@ -55,7 +55,7 @@ export default function ProgressPage() {
         const [chars, stages] = await Promise.all([getCharacters(), getStages()]);
         if (cancelled) return;
         const names: Record<string, string> = {};
-        for (const c of chars) names[c.id] = c.displayName;
+        for (const c of chars) names[charRef(c)] = c.displayName;
         setCharNames(names);
         const stg = stages.find(x => x.id === state.stageId);
         setStageName(stg?.displayName ?? null);

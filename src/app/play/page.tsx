@@ -8,6 +8,8 @@ import {
   getStageDefPath,
   injectCachedCharacter,
   injectCachedStage,
+  charRef,
+  splitCharRef,
 } from '@/lib/character-downloader';
 import { useIsTouchDevice } from '@/lib/use-touch-device';
 import RotateOverlay from '@/components/RotateOverlay';
@@ -770,11 +772,14 @@ function PlayPageInner() {
         // IMPORTANT: addChar() expects just the character ID, NOT the full path.
         // (net=1: the roster comes from the website select flow, not the URL —
         // both sides download the agreed fighters here, same as net=direct.)
+        // effP1/effP2 are selection REFERENCES ("Wolverine" or
+        // "charsMARVEL/Wolverine") — the ENGINE always gets the plain id
+        // (it builds chars/<id>/<id>.def internally).
         const effP1 = netFightCfg ? netFightCfg.p1 : p1;
         const effP2 = netFightCfg ? netFightCfg.p2 : p2;
         const effStage = netFightCfg ? netFightCfg.stage : stage;
-        let p1Path = effP1;
-        let p2Path = effP2;
+        let p1Path = splitCharRef(effP1).id;
+        let p2Path = splitCharRef(effP2).id;
         let stagePath = effStage;
 
         const isBundledChar = (id: string) => id === 'kfm';
@@ -789,11 +794,11 @@ function PlayPageInner() {
             const injected = await injectCachedCharacter(effP1);
             if (injected) {
               log(`P1 loaded from cache: ${effP1}`);
-              p1Path = effP1;
+              p1Path = splitCharRef(effP1).id;
             } else {
               log(`P1 not in cache, downloading...`);
               const manifest = await fetchAssetsManifest();
-              const char = manifest.characters.find(c => c.id === effP1);
+              const char = manifest.characters.find(c => charRef(c) === effP1);
               if (char) {
                 log(`Downloading P1: ${char.displayName} (~${char.sizeMB} MB)...`);
                 await downloadCharacter(char, (pct, msg) => {
@@ -816,11 +821,11 @@ function PlayPageInner() {
             const injected = await injectCachedCharacter(effP2);
             if (injected) {
               log(`P2 loaded from cache: ${effP2}`);
-              p2Path = effP2;
+              p2Path = splitCharRef(effP2).id;
             } else {
               log(`P2 not in cache, downloading...`);
               const manifest = await fetchAssetsManifest();
-              const char = manifest.characters.find(c => c.id === effP2);
+              const char = manifest.characters.find(c => charRef(c) === effP2);
               if (char) {
                 log(`Downloading P2: ${char.displayName} (~${char.sizeMB} MB)...`);
                 await downloadCharacter(char, (pct, msg) => {

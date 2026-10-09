@@ -10,8 +10,13 @@ import {
   downloadCharacterToCache,
   getCachedCharacterIds,
   getCharacters,
+  getRosterSources,
+  charRef,
+  splitCharRef,
+  DEFAULT_SOURCE,
   isCharacterCached,
   type CharacterInfo,
+  type RosterSource,
 } from '@/lib/character-downloader';
 
 // ---------------------------------------------------------------------------
@@ -118,6 +123,9 @@ const DIFFICULTIES: { id: Difficulty; label: string }[] = [
 // Number of columns in the character grid (must match .cs__grid in game.css).
 const GRID_COLS = 10;
 
+// localStorage key persisting the chosen roster source across visits.
+const ROSTER_SOURCE_KEY = 'ikemen-roster-source';
+
 interface CursorState {
   index: number;
   locked: boolean;
@@ -135,9 +143,13 @@ export default function CharacterSelect({
 }: CharacterSelectProps) {
   // Roster state
   const [roster, setRoster] = useState<LocalCharacter[]>(BUNDLED_CHARS);
-  // Full CharacterInfo objects keyed by id (needed for downloadCharacterToCache,
-  // which requires the manifest entry with `files`, `cdnBase`, etc.).
+  // Full CharacterInfo objects keyed by selection reference (needed for
+  // downloadCharacterToCache, which requires the manifest entry with
+  // `files`, `cdnBase`, etc.).
   const [characterInfos, setCharacterInfos] = useState<Record<string, CharacterInfo>>({});
+  // Roster sources (chars* folders in the Assets repo) + the active one.
+  const [sources, setSources] = useState<RosterSource[]>([]);
+  const [activeSource, setActiveSource] = useState<string>(DEFAULT_SOURCE);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   // Bumped by the RETRY button to re-run the roster fetch (spec Section 33:
@@ -195,20 +207,33 @@ export default function CharacterSelect({
     let cancelled = false;
     setLoading(true);
     setError(null);
-    getCharacters()
-      .then((chars: CharacterInfo[]) => {
+    Promise.all([getCharacters(), getRosterSources()])
+      .then(([chars, rosterSources]: [CharacterInfo[], RosterSource[]]) => {
         if (cancelled) return;
+        // LocalCharacter.id IS the selection reference: plain folder id for
+        // the default source ("Wolverine"), "<source>/<id>" otherwise
+        // ("charsMARVEL/Wolverine"). Bundled chars keep their plain ids.
         const cdnChars: LocalCharacter[] = chars.map(c => ({
-          id: c.id,
+          id: charRef(c),
           displayName: c.displayName,
           shortName: c.displayName.slice(0, 12),
           sizeMB: c.sizeMB,
           bundled: false,
         }));
         const infoMap: Record<string, CharacterInfo> = {};
-        for (const c of chars) infoMap[c.id] = c;
+        for (const c of chars) infoMap[charRef(c)] = c;
         setCharacterInfos(infoMap);
         setRoster([...BUNDLED_CHARS, ...cdnChars]);
+        setSources(rosterSources);
+        // Restore the persisted source choice; fall back to the default if
+        // it no longer exists (folder renamed/removed upstream).
+        const saved = typeof window !== 'undefined' ? localStorage.getItem(ROSTER_SOURCE_KEY) : null;
+        if (saved && rosterSources.some(s => s.id === saved)) {
+          setActiveSource(saved);
+        } else {
+          setActiveSource(DEFAULT_SOURCE);
+          if (saved) localStorage.removeItem(ROSTER_SOURCE_KEY);
+        }
         setLoading(false);
       })
       .catch((err: unknown) => {
@@ -412,6 +437,20 @@ export default function CharacterSelect({
     setP2(prev => ({ ...prev, locked: false }));
     lockInFiredRef.current = false;
   }, [mode]);
+
+  // ---- Roster source switch: reset cursors/locks (grid contents change) ----
+  const handleSourceChange = useCallback((sourceId: string) => {
+    setActiveSource(sourceId);
+    try {
+      localStorage.setItem(ROSTER_SOURCE_KEY, sourceId);
+    } catch {
+      // localStorage unavailable (private mode) — selection still works,
+      // it just won't persist across visits.
+    }
+    setP1({ index: 0, locked: false });
+    setP2({ index: 0, locked: false });
+    lockInFiredRef.current = false;
+  }, []);
 
   // ---- "Ready" check: a character is ready if bundled or cached ----
   const isReady = useCallback((c?: LocalCharacter): boolean => {
@@ -765,12 +804,20 @@ export default function CharacterSelect({
     ? 'PREPARING DOWNLOADS…'
     : 'SELECT FIGHTERS';
 
-  // Filter roster by search query (preserves original indices for cursor positioning)
-  const filteredRoster = searchQuery
-    ? roster
-        .map((char, index) => ({ char, index }))
-        .filter(({ char }) => char.displayName.toLowerCase().includes(searchQuery.toLowerCase()))
-    : roster.map((char, index) => ({ char, index }));
+  // Filter roster by active source + search query (preserves original
+  // indices for cursor positioning). Bundled chars (KFM) live in game.pak,
+  // not in any source folder — they show in every universe.
+  const sourceFilter = (char: LocalCharacter) =>
+    char.bundled || splitCharRef(char.id).source === activeSource;
+
+  const filteredRoster = roster
+    .map((char, index) => ({ char, index }))
+    .filter(({ char }) => sourceFilter(char))
+    .filter(({ char }) =>
+      searchQuery
+        ? char.displayName.toLowerCase().includes(searchQuery.toLowerCase())
+        : true
+    );
 
   return (
     <main className="cs bg-grid" tabIndex={0}>
@@ -784,7 +831,7 @@ export default function CharacterSelect({
             ? 'LOADING ROSTER…'
             : error
             ? 'COULD NOT LOAD CHARACTER LIST'
-            : `${roster.length} CHARACTERS AVAILABLE`}
+            : `${filteredRoster.length} CHARACTERS AVAILABLE`}
         </div>
         {error && (
           <div className="cs__roster-error">
@@ -839,6 +886,26 @@ export default function CharacterSelect({
       {!online && (
         <div className="cs__mode-desc">
           {MODES.find(m => m.id === mode)?.description}
+        </div>
+      )}
+
+      {/* Roster source picker — which chars* folder the grid shows.
+          Rendered BEFORE the character grid; hidden when the manifest only
+          has the default source (so nothing changes for classic rosters). */}
+      {!loading && !error && sources.length > 1 && (
+        <div className="cs__difficulty-bar" aria-label="Roster source">
+          <span>ROSTER</span>
+          {sources.map(s => (
+            <button
+              key={s.id}
+              type="button"
+              className={`cs__diff-btn${activeSource === s.id ? ' cs__diff-btn--active' : ''}`}
+              onClick={() => handleSourceChange(s.id)}
+              title={`Characters from the ${s.id}/ folder`}
+            >
+              {s.label.toUpperCase()}
+            </button>
+          ))}
         </div>
       )}
 

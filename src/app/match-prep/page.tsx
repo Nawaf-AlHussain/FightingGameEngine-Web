@@ -18,6 +18,7 @@ import {
   downloadStageToCache,
   isCharacterCached,
   isStageCached,
+  charRef,
   type CharacterInfo,
   type StageInfo,
 } from '@/lib/character-downloader';
@@ -166,7 +167,8 @@ function MatchPrepInner() {
       }
       if (cancelled) return;
 
-      const charById = new Map(chars.map(c => [c.id, c]));
+      // Keyed by selection reference ("Wolverine" / "charsMARVEL/Wolverine")
+      const charById = new Map(chars.map(c => [charRef(c), c]));
       const stageById = new Map(stages.map(s => [s.id, s]));
 
       // Display names (fall back to raw IDs when the manifest is unavailable)
