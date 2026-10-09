@@ -371,6 +371,12 @@ function PlayPageInner() {
       let onKeyDown: ((e: KeyboardEvent) => void) | null = null;
       let onKeyUp: ((e: KeyboardEvent) => void) | null = null;
       let clickHandler: (() => void) | null = null;
+      // Deferred lazy-asset warmup timers (see scheduleVfsPrefetch below).
+      let prefetchPoll: ReturnType<typeof setInterval> | null = null;
+      let prefetchTimer: ReturnType<typeof setTimeout> | null = null;
+      // Canvas-fitter teardown, assigned once installCanvasFit() runs below
+      // (inside the try block - this outer handle lets cleanup() reach it).
+      let canvasFitCleanup: (() => void) | null = null;
       // Online (net=1) fight config — filled by the preboot park below.
       let netFightCfg: NetFightConfig | null = null;
       // Set right before go.run() - lets the exit handlers below tell a real
@@ -381,6 +387,12 @@ function PlayPageInner() {
         if (onKeyDown) window.removeEventListener('keydown', onKeyDown, true);
         if (onKeyUp) window.removeEventListener('keyup', onKeyUp, true);
         if (clickHandler) document.removeEventListener('click', clickHandler);
+        // The canvas fitter used to be torn down only after a SUCCESSFUL
+        // go.run() - every boot failure / engine panic leaked its resize,
+        // visualViewport resize/scroll listeners and the rAF canvas poll.
+        if (canvasFitCleanup) canvasFitCleanup();
+        if (prefetchPoll) { clearInterval(prefetchPoll); prefetchPoll = null; }
+        if (prefetchTimer) { clearTimeout(prefetchTimer); prefetchTimer = null; }
       };
 
       const log = (msg: string) => {
@@ -507,6 +519,7 @@ function PlayPageInner() {
         };
 
         const cleanupCanvasFit = installCanvasFit();
+        canvasFitCleanup = cleanupCanvasFit;
         const qmode = searchParams.get('qmode') || 'quickvs'; // progression mode
         // Netplay modes (both use the WebRTC bridge - public/game/webrtc.js,
         // engine netplay_js.go):
@@ -581,26 +594,75 @@ function PlayPageInner() {
         });
 
         // --- 2. Patch VFS fetch base URL ---
-        const originalFetch = window.fetch;
+        // Idempotent by marker: an in-realm re-boot (StrictMode double-mount,
+        // hot reload) used to wrap ANOTHER rewriting layer around the
+        // previous patch, stacking fetch closures for the lifetime of the
+        // realm. Patch once; later boots reuse the recorded ORIGINAL fetch
+        // so the wasm/CDN fetches below still bypass the rewrite.
+        const originalFetch: typeof window.fetch =
+          (window.fetch as any).__ikemenOriginal || window.fetch;
         const VFS_FILE_PREFIX = './ikemen-fs/file/';
         const VFS_MANIFEST_URL = './ikemen-fs/manifest.json';
         const STATIC_FILE_BASE = '/game/ikemen-fs/file/';
         const STATIC_MANIFEST = '/game/ikemen-fs/manifest.json';
 
-        window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-          const url = typeof input === 'string' ? input : input.toString();
+        if (!(window.fetch as any).__ikemenPatched) {
+          const patchedFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+            const url = typeof input === 'string' ? input : input.toString();
 
-          if (url.startsWith(VFS_FILE_PREFIX)) {
-            const vpath = url.slice(VFS_FILE_PREFIX.length);
-            const rewritten = STATIC_FILE_BASE + vpath;
-            return originalFetch(rewritten, init);
-          }
+            if (url.startsWith(VFS_FILE_PREFIX)) {
+              const vpath = url.slice(VFS_FILE_PREFIX.length);
+              const rewritten = STATIC_FILE_BASE + vpath;
+              return originalFetch(rewritten, init);
+            }
 
-          if (url === VFS_MANIFEST_URL || url.startsWith('./ikemen-fs/manifest.json')) {
-            return originalFetch(STATIC_MANIFEST, init);
-          }
+            if (url === VFS_MANIFEST_URL || url.startsWith('./ikemen-fs/manifest.json')) {
+              return originalFetch(STATIC_MANIFEST, init);
+            }
 
-          return originalFetch(input, init);
+            return originalFetch(input, init);
+          };
+          (patchedFetch as any).__ikemenOriginal = originalFetch;
+          (patchedFetch as any).__ikemenPatched = true;
+          window.fetch = patchedFetch;
+        }
+
+        // --- 2b. Deferred warmup of the lazy VFS set (boot-window fix) ---
+        // vfs.js no longer prefetches its ~18MB lazy menu/UI set inside
+        // ikemenVfsInit — that download used to race the .pak, WASM compile
+        // and character injection inside the boot window (the phone
+        // first-start refresh family). The boot page starts it once the
+        // engine is actually up: first canvas frame + 2s grace, with a
+        // canvas-gated fallback so a missed frame signal still warms late
+        // instead of never. A boot that never produced a canvas (failure)
+        // never warms - no wasted megabytes on a dead page. cleanup()
+        // revokes both timers.
+        let vfsPrefetchStarted = false;
+        const startVfsPrefetch = () => {
+          if (vfsPrefetchStarted || cancelled) return;
+          vfsPrefetchStarted = true;
+          if (prefetchPoll) { clearInterval(prefetchPoll); prefetchPoll = null; }
+          if (prefetchTimer) { clearTimeout(prefetchTimer); prefetchTimer = null; }
+          try {
+            const p = (g.ikemenVfsPrefetch as any)?.();
+            log('VFS: warming menu/UI assets in the background...');
+            if (p && typeof p.catch === 'function') p.catch(() => {});
+          } catch { /* warmup must never break the fight */ }
+        };
+        const scheduleVfsPrefetch = () => {
+          if (vfsPrefetchStarted) return;
+          if (prefetchPoll) clearInterval(prefetchPoll);
+          prefetchPoll = setInterval(() => {
+            if (document.querySelector('canvas#ikemen-canvas')) {
+              if (prefetchPoll) { clearInterval(prefetchPoll); prefetchPoll = null; }
+              prefetchTimer = setTimeout(startVfsPrefetch, 2000);
+            }
+          }, 250);
+          prefetchTimer = setTimeout(() => {
+            // Fallback: only if the engine really booted (canvas exists) but
+            // the frame watcher above somehow missed it.
+            if (document.querySelector('canvas#ikemen-canvas')) startVfsPrefetch();
+          }, 20000);
         };
 
         // ---- ONLINE MODE (net=1): website flow, zero engine menus ----
@@ -974,6 +1036,7 @@ function PlayPageInner() {
 
         // --- 11. Run the engine ---
         setEngineRunning(true);
+        scheduleVfsPrefetch();
         // Mark fight start time for Time Attack duration tracking.
         // Must be called right before go.run() so it measures the actual
         // fight duration, not the engine boot time. Not meaningful for

@@ -68,9 +68,18 @@ const allFiles = walkDir(dataRoot);
 const filePaths = Object.keys(allFiles);
 console.log(`Found ${filePaths.length} files total`);
 
+// Byte-identical duplicates that must NOT ship in the lazy set. The loose
+// data/system.snd is an exact copy (md5 4125a458...) of the motif's
+// data/ikemen1/system.snd, and nothing references it: the motif resolves
+// `snd = system.snd` relative to its own directory. Listing it cost 3.51MB
+// of download + retained heap on EVERY boot for nothing. vfs.js
+// (resolveDataAlias) aliases any bare data/system.snd request to the motif
+// copy, so excluding it here is fully transparent.
+const LAZY_EXCLUDE = new Set(['data/system.snd']);
+
 // Split into essential (go into .pak) and lazy (individual files)
 const essentialPaths = filePaths.filter(isEssential).sort();
-const lazyPaths = filePaths.filter(f => !isEssential(f)).sort();
+const lazyPaths = filePaths.filter(f => !isEssential(f) && !LAZY_EXCLUDE.has(f)).sort();
 
 console.log(`Essential (in .pak): ${essentialPaths.length} files`);
 console.log(`Lazy (individual): ${lazyPaths.length} files`);

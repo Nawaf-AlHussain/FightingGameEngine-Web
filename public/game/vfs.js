@@ -136,6 +136,17 @@
   // blanked every lifebar/menu font on the engine's own screens.
   function resolveDataAlias(vpath) {
     if (contents.has(vpath) || manifest.has(vpath) || dirs.has(vpath)) return vpath;
+    // The packed build used to ship a byte-identical copy of the motif's
+    // system.snd loose under data/ (md5 4125a458..., 3.51MB): nothing
+    // references it - the motif resolves `snd = system.snd` relative to its
+    // own directory - yet the lazy manifest fetched + retained it on EVERY
+    // boot. It is no longer in the manifest (generate-pak.js excludes it);
+    // alias any bare data/system.snd request to the motif copy that IS
+    // shipped, so even a legacy/hypothetical open keeps working.
+    if (vpath === 'data/system.snd' &&
+        (manifest.has('data/ikemen1/system.snd') || contents.has('data/ikemen1/system.snd'))) {
+      return 'data/ikemen1/system.snd';
+    }
     if (vpath.startsWith('data/')) return vpath;
     const aliased = 'data/' + vpath;
     if (contents.has(aliased) || manifest.has(aliased) || dirs.has(aliased)) return aliased;
@@ -1022,30 +1033,15 @@
 
     await Promise.all(preloadList.map(p => fetchFile(p).catch(() => {})));
 
-    // Warm the cache in the background: without this, the first use of any
-    // file mid-fight (a sound effect, a hit spark sheet) or in the engine's
-    // own menus (system.sff, menu fonts) blocks the game loop on a network
-    // fetch - felt as a random tiny freeze. Limited concurrency so
-    // boot-critical fetches still win the bandwidth race. Runs for BOTH
-    // packed and unpacked builds (packed builds ship their lazy set as
-    // individual files too).
-    {
-      const pending = [...manifest.keys()];
-      const totalBytes = pending.reduce((n, p) => n + (manifest.get(p) || 0), 0);
-      let doneBytes = 0;
-      const workers = Array.from({ length: 4 }, async () => {
-        while (pending.length) {
-          const vpath = pending.shift();
-          const size = manifest.get(vpath) || 0;
-          if (!contents.has(vpath)) {
-            await fetchFile(vpath).catch(() => {});
-          }
-          doneBytes += size;
-          if (onProgress) onProgress(doneBytes, totalBytes);
-        }
-      });
-      Promise.all(workers).then(() => console.log('[vfs] background prefetch complete'));
-    }
+    // NOTE: the lazy-set prefetch used to start right here, inside
+    // ikemenVfsInit - which put ~18MB of menu/UI downloads (system.sff,
+    // system.snd, fonts) into the same window as the .pak download, WASM
+    // compile and character injection. On phones that stacked a network +
+    // heap spike on top of the boot spike (the first-start refresh family,
+    // fixed in 13b1fad). The prefetch now lives in
+    // globalThis.ikemenVfsPrefetch below; the boot page starts it once the
+    // engine is actually up. Anything the engine needs earlier is still
+    // fetched on demand by open() -> fetchFile.
 
     // Combined Build ID: shipped manifest + every browser-side mod's bytes +
     // the effective theme. The boot page displays it and the netplay
@@ -1104,5 +1100,34 @@
     };
 
     return Object.keys(data.files).length;
+  };
+
+  // Background warmup of the remaining (lazy) manifest set: without it, the
+  // first use of any unfetched file mid-fight (a sound effect, a hit spark
+  // sheet) or in the engine's own menus (system.sff, menu fonts) blocks the
+  // game loop on a network fetch - felt as a random tiny freeze. Limited
+  // concurrency so fight-critical fetches still win the bandwidth race.
+  // Runs for BOTH packed and unpacked builds (packed builds ship their lazy
+  // set as individual files). Deliberately NOT started by ikemenVfsInit -
+  // the boot page calls this once the engine is up, keeping the megabytes
+  // out of the boot memory/bandwidth window. Safe to call more than once:
+  // already-fetched files are skipped and concurrent fetches dedupe
+  // through the `fetching` map.
+  globalThis.ikemenVfsPrefetch = function (onProgress) {
+    const pending = [...manifest.keys()];
+    const totalBytes = pending.reduce((n, p) => n + (manifest.get(p) || 0), 0);
+    let doneBytes = 0;
+    const workers = Array.from({ length: 4 }, async () => {
+      while (pending.length) {
+        const vpath = pending.shift();
+        const size = manifest.get(vpath) || 0;
+        if (!contents.has(vpath)) {
+          await fetchFile(vpath).catch(() => {});
+        }
+        doneBytes += size;
+        if (onProgress) onProgress(doneBytes, totalBytes);
+      }
+    });
+    return Promise.all(workers).then(() => console.log('[vfs] background prefetch complete'));
   };
 })();

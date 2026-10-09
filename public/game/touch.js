@@ -268,6 +268,11 @@ html.itc-touch-active #ikemen-canvas {
   // ---- Multi-touch routing ----
   // touch identifier → { move(touch)?, end() }
   const activeTouches = new Map();
+  // blur/visibilitychange "release everything" handlers. Built in build(),
+  // removed in destroy() — they used to be added as inline closures, leaking
+  // one blur + one visibilitychange listener per build/destroy cycle.
+  let panicHandler = null;
+  let visHandler = null;
 
   function onRootTouchMove(e) {
     let handled = false;
@@ -411,14 +416,16 @@ html.itc-touch-active #ikemen-canvas {
     window.addEventListener("touchend", onRootTouchEnd, { passive: true });
     window.addEventListener("touchcancel", onRootTouchEnd, { passive: true });
 
-    // Release all held keys when the tab loses focus
-    const panic = () => {
+    // Release all held keys when the tab loses focus. Handlers live on the
+    // module scope so destroy() can remove them (never inline closures).
+    panicHandler = () => {
       activeTouches.clear();
       releaseAll();
       clearVisualPressed();
     };
-    window.addEventListener("blur", panic);
-    document.addEventListener("visibilitychange", () => { if (document.hidden) panic(); });
+    visHandler = () => { if (document.hidden && panicHandler) panicHandler(); };
+    window.addEventListener("blur", panicHandler);
+    document.addEventListener("visibilitychange", visHandler);
   }
 
   function clearVisualPressed() {
@@ -439,6 +446,10 @@ html.itc-touch-active #ikemen-canvas {
     window.removeEventListener("touchmove", onRootTouchMove);
     window.removeEventListener("touchend", onRootTouchEnd);
     window.removeEventListener("touchcancel", onRootTouchEnd);
+    if (panicHandler) window.removeEventListener("blur", panicHandler);
+    if (visHandler) document.removeEventListener("visibilitychange", visHandler);
+    panicHandler = null;
+    visHandler = null;
   }
 
   // ---- Public API ----
