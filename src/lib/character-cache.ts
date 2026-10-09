@@ -1,11 +1,19 @@
 // IndexedDB caching layer for character/stage files.
-// Stores downloaded files as Uint8Array in IndexedDB so they persist
-// across sessions — no re-downloading on repeat visits.
+// Stores downloaded files in IndexedDB so they persist across sessions —
+// no re-downloading on repeat visits.
+//
+// Values are stored as Blob whenever possible (new writes — see
+// downloadCharacterToCache): a Blob's payload lives off the JS heap
+// (browser-managed, disk-backed), so accumulating a whole character as a
+// map of Blobs costs almost no renderer memory, and the IDB put serializes
+// Blob handles by reference instead of copying megabytes through the
+// structured-clone buffer. Legacy records written before this change hold
+// Uint8Array values — readers accept both (see CachedFileData).
 //
 // Database structure:
 //   DB: "ikemen-cache"
-//   Store: "chars" — key: characterId, value: { files: Map<filename, Uint8Array>, timestamp }
-//   Store: "stages" — key: stageId, value: { files: Map<filename, Uint8Array>, timestamp }
+//   Store: "chars" — key: characterId, value: { files: Map<filename, Blob|Uint8Array>, timestamp }
+//   Store: "stages" — key: stageId, value: { files: Map<filename, Blob|Uint8Array>, timestamp }
 
 const DB_NAME = 'ikemen-cache';
 const DB_VERSION = 1;
@@ -33,14 +41,18 @@ function openDB(): Promise<IDBDatabase> {
 
 // --- Cache entry types ---
 
+/** A cached file's payload: Blob for records written by current code,
+ *  Uint8Array for records written before the Blob switch. */
+export type CachedFileData = Blob | Uint8Array;
+
 export interface CachedAsset {
-  files: Record<string, Uint8Array>; // filename → file data
+  files: Record<string, CachedFileData>; // filename → file data
   timestamp: number;
 }
 
 // --- Character caching ---
 
-export async function cacheCharacter(id: string, files: Record<string, Uint8Array>): Promise<void> {
+export async function cacheCharacter(id: string, files: Record<string, CachedFileData>): Promise<void> {
   try {
     const db = await openDB();
     const tx = db.transaction(CHAR_STORE, 'readwrite');
@@ -90,7 +102,7 @@ export async function isCharacterCached(id: string, requiredFiles?: string[]): P
 
 // --- Stage caching ---
 
-export async function cacheStage(id: string, files: Record<string, Uint8Array>): Promise<void> {
+export async function cacheStage(id: string, files: Record<string, CachedFileData>): Promise<void> {
   try {
     const db = await openDB();
     const tx = db.transaction(STAGE_STORE, 'readwrite');
