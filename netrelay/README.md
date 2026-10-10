@@ -1,14 +1,24 @@
 # netrelay — WebRTC signaling relay for netplay
 
-A single-file Deno server that lets two players connect **directly** to each
+A single-file server that lets two players connect **directly** to each
 other (P2P WebRTC data channels) for online matches, using a short room code
 instead of copying giant base64 blobs between browsers.
+
+**Production today: [`cloudflare/`](./cloudflare/) — Cloudflare Workers free
+tier.** The Deno Deploy version below was the original and remains usable
+for local dev, but its free tier suspends the whole app when WebSocket
+wall-clock allowances are exceeded (503 USAGE_EXCEEDED), which is why the
+production lobby moved.
 
 The relay is ONLY involved during the handshake: it swaps the two SDP offer/
 answer blobs, then steps out of the way. All game traffic (lockstep input
 stream, handshake ping, build-hash check) flows peer-to-peer over
 `RTCDataChannel`s created by `public/game/webrtc.js`. Game data never touches
 this server.
+
+The Cloudflare deployment also speaks the **ranked queue** protocol
+(`?queue=1&build=...`) that `webrtc.js` ships with — matchmaking bucketed by
+Build ID + netcode, so only byte-identical clients are paired.
 
 ## Protocol (implemented exactly as `public/game/webrtc.js` expects)
 

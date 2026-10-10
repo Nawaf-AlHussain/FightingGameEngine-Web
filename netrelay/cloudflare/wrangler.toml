@@ -1,0 +1,24 @@
+# FGE netplay signaling relay — Cloudflare Workers free tier
+name = "fge-netplay"
+main = "worker.js"
+compatibility_date = "2025-05-05"
+account_id = "41ef76d45bc9a2ee09be3e942213141e"
+workers_dev = true
+
+# Free-plan Durable Objects must be SQLite-backed (new_sqlite_classes).
+[[durable_objects.bindings]]
+name = "ROOM"
+class_name = "RoomDO"
+
+[[durable_objects.bindings]]
+name = "QUEUE"
+class_name = "QueueDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RoomDO", "QueueDO"]
+
+# Optional: ranked-queue identity verification (anti-impersonation).
+# POST {name, code} -> {ok:true}. Leave unset to accept any display name.
+# [vars]
+# IDENTITY_VERIFY_URL = "https://example.com/mugen/identity/verify"

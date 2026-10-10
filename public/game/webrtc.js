@@ -56,6 +56,151 @@
     return '';
   }
 
+  // ---------- QR / deep-link pairing (scan-to-join) ----------
+  // The host's room panel renders a QR of <origin>/play?net=1&join=CODE&p=PASS
+  // (see roomHost). The guest scans it with any phone camera app (opens the
+  // site, skips the role screen, auto-joins) or taps "Scan QR" in the join
+  // panel and points their camera at the host's screen. Room codes are 6
+  // chars - QR-sized; the manual offer/answer blobs are kilobytes, which is
+  // why QR only assists the room flow.
+  const AUTO = (() => {
+    try {
+      const q = new URLSearchParams(location.search);
+      const join = (q.get('join') || '').trim().toLowerCase();
+      if (!/^[a-z0-9]{4,16}$/.test(join)) return null;
+      return { join, pass: (q.get('p') || '').trim() };
+    } catch (e) { return null; }
+  })();
+
+  // Deep-link auto-join is in flight. The engine asks for its own connection
+  // when it boots (start('join')) - a resetState() there would tear down the
+  // session that is still negotiating, so re-entry is held off until the
+  // flow settles (connected, denied, host left, or manual fallback).
+  let joinBusy = false;
+
+  // Deep link a friend can open / scan: straight into the join flow.
+  function joinLink(code, pass) {
+    const u = new URL('/play', location.origin);
+    u.searchParams.set('net', '1');
+    u.searchParams.set('join', code);
+    if (pass) u.searchParams.set('p', pass);
+    return u.toString();
+  }
+
+  // Vendored helper libs load on demand (qrcode.min.js 20KB, jsqr.min.js
+  // 130KB) - pages that never touch QR never pay for them.
+  const scriptCache = {};
+  function loadScriptOnce(src) {
+    if (scriptCache[src]) return scriptCache[src];
+    scriptCache[src] = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = src;
+      s.onload = resolve;
+      s.onerror = () => { delete scriptCache[src]; reject(new Error('failed to load ' + src)); };
+      document.head.appendChild(s);
+    });
+    return scriptCache[src];
+  }
+
+  // Render text as a QR canvas (qrcode-generator, MIT, vendored).
+  async function qrCanvas(text, px) {
+    await loadScriptOnce('/game/vendor/qrcode.min.js');
+    const make = globalThis.qrcode;
+    if (!make) throw new Error('encoder unavailable');
+    const qr = make(0, 'M');
+    qr.addData(text);
+    qr.make();
+    const n = qr.getModuleCount();
+    const cell = Math.max(2, Math.floor(px / n));
+    const c = document.createElement('canvas');
+    c.width = c.height = cell * n;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, c.width, c.height);
+    ctx.fillStyle = '#000';
+    for (let r = 0; r < n; r++) {
+      for (let col = 0; col < n; col++) {
+        if (qr.isDark(r, col)) ctx.fillRect(col * cell, r * cell, cell, cell);
+      }
+    }
+    return c;
+  }
+
+  // Camera scanner overlay: decodes with jsQR (MIT, vendored) until a deep
+  // link or bare room code appears, then fills the join form and fires it.
+  async function scanQrInto(codeInp, passInp, joinBtn) {
+    let stream = null;
+    let raf = 0;
+    const overlay = el('div',
+      'position:fixed;inset:0;z-index:1001;background:#000d;display:flex;' +
+      'flex-direction:column;align-items:center;justify-content:center;gap:10px');
+    // Keep camera taps/keys away from the engine, which listens document-wide.
+    for (const t of ['mousedown', 'mouseup', 'click', 'dblclick', 'keydown', 'keyup', 'wheel', 'touchstart', 'touchmove', 'touchend']) {
+      overlay.addEventListener(t, (e) => e.stopPropagation());
+    }
+    const video = el('video', 'width:min(92vw,480px);max-height:60vh;border:1px solid #444;border-radius:8px;background:#000');
+    video.setAttribute('playsinline', ''); // iOS Safari: never hijack to fullscreen
+    video.muted = true;
+    const msg = el('div', 'color:#eee;font:13px monospace;text-align:center', "Point the camera at the host's QR code...");
+    const stopBtn = el('button',
+      'background:#333;color:#eee;border:1px solid #666;border-radius:4px;' +
+      'padding:6px 14px;font:13px monospace;cursor:pointer', 'Cancel');
+    overlay.appendChild(video); overlay.appendChild(msg); overlay.appendChild(stopBtn);
+    document.body.appendChild(overlay);
+    const cleanup = () => {
+      cancelAnimationFrame(raf);
+      try { if (stream) stream.getTracks().forEach((t) => t.stop()); } catch (e) { /* gone */ }
+      overlay.remove();
+    };
+    stopBtn.onclick = cleanup;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+      video.srcObject = stream;
+      await video.play();
+      await loadScriptOnce('/game/vendor/jsqr.min.js');
+      const decode = globalThis.jsQR;
+      if (!decode) throw new Error('decoder unavailable');
+      const c = document.createElement('canvas');
+      const ctx = c.getContext('2d', { willReadFrequently: true });
+      const tick = () => {
+        if (!stream || !stream.active) return;
+        if (video.videoWidth > 0) {
+          const w = 480, h = Math.max(1, Math.round(video.videoHeight * w / video.videoWidth));
+          c.width = w; c.height = h;
+          ctx.drawImage(video, 0, 0, w, h);
+          let hit = null;
+          try { hit = decode(ctx.getImageData(0, 0, w, h).data, w, h); } catch (e) { /* frame skipped */ }
+          if (hit && hit.data) {
+            const raw = String(hit.data).trim();
+            // Accept the full deep link OR a bare room code; ignore anything else.
+            let code = null, pass = '';
+            const murl = raw.match(/join=([a-z0-9]{4,16})/i);
+            if (murl) {
+              code = murl[1].toLowerCase();
+              const mp = raw.match(/[?&]p=([^&\s]+)/i);
+              if (mp) { try { pass = decodeURIComponent(mp[1]); } catch (e2) { pass = mp[1]; } }
+            } else if (/^[a-z0-9]{4,16}$/.test(raw)) {
+              code = raw;
+            }
+            if (code) {
+              cleanup();
+              codeInp.value = code;
+              if (passInp && pass) passInp.value = pass;
+              setStatus('QR scanned: ' + code);
+              if (joinBtn) joinBtn.click();
+              return;
+            }
+          }
+        }
+        raf = requestAnimationFrame(tick);
+      };
+      raf = requestAnimationFrame(tick);
+    } catch (e) {
+      cleanup();
+      setStatus('Camera unavailable (' + e.message + ') - type the room code instead.');
+    }
+  }
+
   // Optional static TURN relay config, shipped as a data file next to the
   // game (same no-redeploy pattern as netrelay-url.txt):
   // public/game/turn-creds.json holding either
@@ -282,6 +427,7 @@
     pingSeen = false; pingFilterArmed = true;
     dc.onopen = () => {
       isConnected = true;
+      joinBusy = false; // session established; engine re-entry may attach normally
       netLog('data channel OPEN');
       try { dc.send(PING); netLog('handshake ping sent'); } catch (e) { netLog('ping send FAILED: ' + e.message); }
       // send our build hash once computed (may still be in flight)
@@ -688,6 +834,7 @@
   }
 
   function switchToManual(ui, mode, note) {
+    joinBusy = false;
     try { if (pc) pc.close(); } catch { /* fresh one below */ }
     pc = null;
     ui.clearBody();
@@ -721,6 +868,24 @@
               const s = getSelection(); s.removeAllRanges(); s.addRange(r);
               document.execCommand('copy'); s.removeAllRanges();
               setStatus('Code copied.');
+            });
+            // Scan-to-join: renders the deep-link QR (friend's camera opens
+            // the site already joining this room - zero typing).
+            ui.mkBtn('Show QR', async (ev) => {
+              const btn = ev && ev.target;
+              if (btn) btn.disabled = true;
+              try {
+                const img = await qrCanvas(joinLink(m.code, passInp.value.trim()), 232);
+                img.style.cssText = 'margin-top:8px;display:block;margin-left:auto;margin-right:auto;' +
+                  'image-rendering:pixelated;border:6px solid #fff;border-radius:4px;box-sizing:border-box';
+                panel.appendChild(img);
+                panel.appendChild(el('div', 'margin-top:4px;color:#886;font-size:11px;text-align:center',
+                  'Friend scans this to join instantly'));
+                setStatus('Waiting for your friend to join...');
+              } catch (e) {
+                setStatus('QR unavailable (' + e.message + ') - the plain code still works.');
+              }
+              if (btn) btn.disabled = false;
             });
             if (passInp.value.trim()) panel.appendChild(el('div', 'margin-top:6px;color:#886', "Don't forget to tell them the password too."));
             setStatus('Waiting for your friend to join...');
@@ -763,7 +928,7 @@
   }
 
   function roomJoin(ui, url) {
-    const codeInp = ui.mkInput("Your friend's room code:", 'e.g. spicy-tiger-42');
+    const codeInp = ui.mkInput("Your friend's room code:", 'e.g. wkq4vz (or scan their QR)');
     const passInp = ui.mkInput('Room password (if they set one):', '');
     let ws = null;
     const joinBtn = ui.mkBtn('Join room', () => {
@@ -795,10 +960,11 @@
             releaseSignal(ws);
           } else if (m.t === 'deny') {
             ws.__done = true;
+            joinBusy = false;
             joinBtn.disabled = false;
             setStatus(friendlyDeny(m.reason));
           } else if (m.t === 'bye') {
-            if (!isConnected) { joinBtn.disabled = false; setStatus('The host left the room.'); }
+            if (!isConnected) { joinBusy = false; joinBtn.disabled = false; setStatus('The host left the room.'); }
           }
         } catch (err) {
           netLog('room join error: ' + err.message);
@@ -807,16 +973,34 @@
       };
       ws.onclose = () => {
         if (!ws.__done && !joined) {
+          joinBusy = false;
           joinBtn.disabled = false;
           switchToManual(ui, 'join', 'Lobby server unreachable - using manual connect instead.');
+        } else if (!ws.__done) {
+          // Socket dropped after joining but before the handshake resolved
+          // (network blip): free the guard so a retry can happen.
+          joinBusy = false;
         }
       };
     });
+    // Scan QR (camera) - offered wherever a browser can grant the camera;
+    // otherwise the code box + deep links cover the flow.
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      ui.mkBtn('Scan QR', () => scanQrInto(codeInp, passInp, joinBtn));
+    }
+    // Deep link (from the host's QR / a shared link): prefill and fire.
+    if (AUTO) {
+      codeInp.value = AUTO.join;
+      if (AUTO.pass) passInp.value = AUTO.pass;
+      joinBusy = true;
+      setStatus('Joining from link: ' + AUTO.join + '...');
+      setTimeout(() => { try { joinBtn.click(); } catch (e) { joinBusy = false; } }, 0);
+    }
     ui.mkBtn('Manual connect instead', () => {
       if (ws) { ws.__done = true; try { ws.close(); } catch { /* fine */ } }
       switchToManual(ui, 'join');
     });
-    setStatus('Type the room code your friend gave you.');
+    setStatus(AUTO ? 'Joining from link...' : 'Type the room code your friend gave you.');
   }
 
   function startHost() {
@@ -988,6 +1172,12 @@
         hidePanel();
         return;
       }
+      // A deep-link auto-join is still negotiating (the engine just booted
+      // and asked for its connection): keep the in-flight session.
+      if (mode === 'join' && joinBusy) {
+        netLog('join already in progress (deep link) - keeping it');
+        return;
+      }
       resetState();
       netLog(mode === 'host' ? 'hosting - generating offer'
         : mode === 'queue' ? 'entering ranked match queue'
@@ -1128,6 +1318,7 @@
       try { if (dc) dc.close(); } catch {}
       try { if (pc) pc.close(); } catch {}
       isClosed = true; isConnected = false;
+      joinBusy = false;
       netLog('session closed');
       hidePanel();
       setTimeout(hideDiag, 8000); // leave the log up briefly after teardown

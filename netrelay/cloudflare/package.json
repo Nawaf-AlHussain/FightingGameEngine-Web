@@ -1,0 +1,12 @@
+{
+  "name": "fge-netplay-cloudflare",
+  "private": true,
+  "description": "Deploy helper for the FGE netplay signaling relay on Cloudflare Workers (free tier). See README.md.",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail"
+  },
+  "dependencies": {
+    "wrangler": "^4.149.0"
+  }
+}
