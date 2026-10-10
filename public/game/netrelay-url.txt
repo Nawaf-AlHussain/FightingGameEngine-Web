@@ -1,1 +1,1 @@
-wss://fightinggameengine-web.nawaf-alhussain.deno.net/ws
+wss://fge-netplay.nawaf-alhussain.workers.dev/ws

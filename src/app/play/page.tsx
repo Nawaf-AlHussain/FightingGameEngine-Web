@@ -291,6 +291,18 @@ function PlayPageInner() {
     }
   }, [netPhase, netRole, netMine.locked, netOpp.locked]);
 
+  // ---- Deep link (the host's QR / a shared link): /play?net=1&join=CODE ----
+  // Skip the role screen and drive the bridge straight into joining.
+  // webrtc.js reads the same URL params and prefills (and auto-fires) the
+  // room panel, so the scanned guest touches nothing at all.
+  const autoJoinCode = (searchParams.get('join') || '').trim().toLowerCase();
+  useEffect(() => {
+    if (!isNetFlow || !autoJoinCode || netPhase !== 'role') return;
+    const t = setTimeout(() => { handleNetRolePick('join'); }, 300);
+    return () => clearTimeout(t);
+  }, [isNetFlow, autoJoinCode, netPhase, handleNetRolePick]);
+
+
   // ---- Load vanilla JS touch overlay on touch devices when engine starts ----
   // touch.js is a self-contained IIFE that creates its own DOM (circular D-pad
   // + two-arc action buttons + START/ESC pills). Bindings are hardcoded to the
