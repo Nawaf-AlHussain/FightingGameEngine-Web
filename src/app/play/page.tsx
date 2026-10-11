@@ -394,6 +394,17 @@ function PlayPageInner() {
       // Set right before go.run() - lets the exit handlers below tell a real
       // fight (ran for a while, canvas up) apart from a boot-time death.
       let engineStartAt = 0;
+      // Graphics-death tripwire: a WebGL context loss (GPU driver reset /
+      // GPU-memory exhaustion - the Huawei Chrome failure class) can kill the
+      // engine WITHOUT a Go panic line, so the exit paths below would
+      // silently bounce the player to the select screen. The engine creates
+      // its own canvas, so this listens on document in the capture phase
+      // (context-lost does not bubble, but capture still reaches it).
+      let glContextLost = false;
+      const onContextLost = (ev: Event) => {
+        glContextLost = true;
+        ev.preventDefault(); // let the engine attempt whatever restore it wants
+      };
 
       const cleanup = () => {
         if (onKeyDown) window.removeEventListener('keydown', onKeyDown, true);
@@ -405,6 +416,7 @@ function PlayPageInner() {
         if (canvasFitCleanup) canvasFitCleanup();
         if (prefetchPoll) { clearInterval(prefetchPoll); prefetchPoll = null; }
         if (prefetchTimer) { clearTimeout(prefetchTimer); prefetchTimer = null; }
+        document.removeEventListener('webglcontextlost', onContextLost, true);
       };
 
       const log = (msg: string) => {
@@ -1068,6 +1080,8 @@ function PlayPageInner() {
         }
         g.__ikemenExitCode = null;
         engineStartAt = Date.now();
+        glContextLost = false;
+        document.addEventListener('webglcontextlost', onContextLost, true);
         await go.run(result.instance);
         cleanupCanvasFit();
 
@@ -1101,8 +1115,28 @@ function PlayPageInner() {
         // written (an ultra-short but genuinely finished fight reports it).
         const fightResult = readFightResult();
         const engineRan = !!document.querySelector('canvas#ikemen-canvas') && (Date.now() - engineStartAt > 8000);
+        // A genuinely finished fight always exits 0 (clean main return or a
+        // menu Quit). os.Exit(nonzero) or a lost WebGL context is an engine
+        // death even when a picture had been on screen for a while - report
+        // it instead of silently bouncing. This closes the LAST silent path
+        // of the Huawei Chrome report class: an engine dying after the
+        // canvas is up (past the 8s engineRan heuristic) without printing a
+        // Go panic line.
+        const exitCode = g.__ikemenExitCode;
+        const engineDied = (exitCode != null && exitCode !== 0) || glContextLost;
+        if (engineDied && !fightResult) {
+          cleanup();
+          const why = glContextLost
+            ? 'the WebGL graphics context was lost (GPU driver reset or GPU memory exhaustion)'
+            : 'the engine exited abnormally (exit code ' + exitCode + ')';
+          const tail = engineTail.slice(-4).join(' | ').slice(0, 240);
+          log('ENGINE DIED: ' + why);
+          setBootError('The game engine died: ' + why +
+            (tail ? '. Engine output: ' + tail : '') +
+            '. The boot log below shows how far it got - send a screenshot when reporting.');
+          return;
+        }
         if (!engineRan && !fightResult) {
-          const exitCode = g.__ikemenExitCode;
           cleanup();
           log('ENGINE EXITED BEFORE THE FIGHT STARTED' + (exitCode != null && exitCode !== 0 ? ' (exit code ' + exitCode + ')' : '') + '.');
           const tail = engineTail.slice(-4).join(' | ').slice(0, 240);
@@ -1168,12 +1202,19 @@ function PlayPageInner() {
           // a boot crash - it must be reported, not silently bounced to
           // /local or /lobby (the Huawei Chrome report class).
           const engineRan = !!document.querySelector('canvas#ikemen-canvas') && (Date.now() - engineStartAt > 8000);
-          if (engineRan) {
+          // `g` lives inside the try scope - read the exit code off globalThis
+          // directly (the go.exit wrapper records it there).
+          const exitCode = (globalThis as any).__ikemenExitCode;
+          const engineDied = (exitCode != null && exitCode !== 0) || glContextLost;
+          if (engineRan && !engineDied) {
             window.location.href = exitTarget;
             return;
           }
-          log('ENGINE CRASHED BEFORE THE FIGHT STARTED: ' + msg);
-          setBootError('The game engine crashed before the match started (' + msg + '). The boot log below and the browser console (F12) hold the details - send them along when reporting.');
+          const why = engineDied
+            ? (glContextLost ? 'graphics context lost' : 'exit code ' + exitCode)
+            : msg;
+          log('ENGINE CRASHED: ' + why);
+          setBootError('The game engine crashed (' + why + '). The boot log below and the browser console (F12) hold the details - send them along when reporting.');
           return;
         }
         log('BOOT ERROR: ' + msg);
