@@ -97,18 +97,6 @@ interface DownloadState {
 // Constants
 // ---------------------------------------------------------------------------
 
-const BUNDLED_CHARS: LocalCharacter[] = [
-  {
-    id: 'kfm',
-    displayName: 'Kung Fu Man',
-    shortName: 'KFM',
-    sizeMB: 0,
-    bundled: true,
-    // NOTE: the bundled kfm.sff ships a solid-black placeholder at group
-    // 9000, so there is no usable portrait — this card keeps its letter tile.
-  },
-];
-
 const MODES: { id: GameMode; label: string; description: string; p2Label: string; progression: boolean }[] = [
   { id: 'vs-ai',      label: 'VS CPU',       description: 'Fight a single match against the CPU.',                  p2Label: 'CPU',              progression: false },
   { id: 'vs-player',  label: 'VS PLAYER',    description: 'Fight a single match against another player.',           p2Label: 'P2',               progression: false },
@@ -147,7 +135,9 @@ export default function CharacterSelect({
   online = null,
 }: CharacterSelectProps) {
   // Roster state
-  const [roster, setRoster] = useState<LocalCharacter[]>(BUNDLED_CHARS);
+  // The roster is the CDN manifest only — the engine ships no bundled
+  // characters anymore (kfm was removed).
+  const [roster, setRoster] = useState<LocalCharacter[]>([]);
   // Full CharacterInfo objects keyed by selection reference (needed for
   // downloadCharacterToCache, which requires the manifest entry with
   // `files`, `cdnBase`, etc.).
@@ -229,7 +219,7 @@ export default function CharacterSelect({
         const infoMap: Record<string, CharacterInfo> = {};
         for (const c of chars) infoMap[charRef(c)] = c;
         setCharacterInfos(infoMap);
-        setRoster([...BUNDLED_CHARS, ...cdnChars]);
+        setRoster(cdnChars);
         setSources(rosterSources);
         // Restore the persisted source choice; fall back to the default if
         // it no longer exists (folder renamed/removed upstream).

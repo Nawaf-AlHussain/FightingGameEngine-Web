@@ -125,8 +125,9 @@ export default function LocalPlayPage() {
         // Fetch roster to generate opponent ladder.
         // Opponents come from the SAME roster source the player picked in
         // (e.g. picking from charsMARVEL generates MARVEL opponents).
-        // Bundled-only fallback keeps the ladder working if the CDN fails.
-        let rosterCharIds: string[] = ['kfm'];
+        // There is no bundled fallback character anymore — if the CDN fetch
+        // fails the roster stays empty and startMode() throws a clear error.
+        let rosterCharIds: string[] = [];
         try {
           const chars = await getCharacters();
           const p1Source = splitCharRef(lockIn.p1Id).source;
@@ -136,7 +137,7 @@ export default function LocalPlayPage() {
           if (pool.length < 2) pool = chars;
           rosterCharIds = pool.map(charRef);
         } catch {
-          // Fallback to kfm only
+          // Empty roster — startMode() below fails loudly (no kfm fallback).
         }
 
         const progressionMode = lockIn.mode as ProgressionMode;

@@ -191,8 +191,9 @@
  ; }
  ;
  ;Insert your characters below.
+ ;(The engine ships no bundled characters anymore — the website select
+ ; screens resolve fighters from the assets CDN and pass them via -qp1/-qp2.)
 
-kfm, stages/stage0-720.def
 randomselect
 
 ;-------------------------------------------------------------------------------
@@ -263,15 +264,8 @@ randomselect
  ; stages/mybg.def, order=3
  ;
  ;Insert your stages below.
-
-stages/stage1.def
-stages/stage3d.def
-stages/stage3d_outline.def
-stages/stageZ.def
-stages/interactivestage.def
-stages/kfm.def
-stages/stage0.def
-stages/stage0-720.def
+ ;(No bundled stages anymore — stages come from the assets CDN and are
+ ; passed per-fight via -qstage.)
 
 ;-------------------------------------------------------------------------------
 [Options]

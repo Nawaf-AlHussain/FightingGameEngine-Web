@@ -73,7 +73,14 @@ export default function ProgressPage() {
     if (countdown <= 0) {
       if (!navigatedRef.current) {
         navigatedRef.current = true;
-        const url = buildNextFightUrl(state, state.stageId || 'stages/stage0-720.def');
+        if (!state.stageId) {
+          // Old/corrupt session without a stage: there is no bundled fallback
+          // stage anymore, so the ladder cannot continue — reset to /local.
+          clearModeState();
+          navigate('/local');
+          return;
+        }
+        const url = buildNextFightUrl(state, state.stageId);
         navigate(url);
       }
       return;
@@ -89,8 +96,14 @@ export default function ProgressPage() {
 
   const handleNext = () => {
     if (!state || navigatedRef.current) return;
+    if (!state.stageId) {
+      // No bundled fallback stage anymore — restart the ladder from /local.
+      clearModeState();
+      navigate('/local');
+      return;
+    }
     navigatedRef.current = true;
-    const url = buildNextFightUrl(state, state.stageId || 'stages/stage0-720.def');
+    const url = buildNextFightUrl(state, state.stageId);
     navigate(url);
   };
 

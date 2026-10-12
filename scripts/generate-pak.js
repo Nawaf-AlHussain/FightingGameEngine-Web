@@ -44,7 +44,8 @@ function walkDir(dir, base = '') {
 function isEssential(f) {
   if (f === 'save/config.ini') return true;
   if (f.startsWith('external/script/')) return true;
-  if (f.startsWith('chars/kfm/')) return true;
+  // NOTE: no bundled characters/stages anymore (kfm + the training stage were
+  // removed) — fighters and stages are injected/downloaded from the CDN.
   if (f.startsWith('stages/')) return true;
   if (f.startsWith('data/fight')) return true;
   if (f.startsWith('data/common')) return true;

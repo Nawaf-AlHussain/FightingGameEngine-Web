@@ -23,7 +23,7 @@ import StageSelect from '@/components/StageSelect';
 // bypassing the laggy menu (F-026) using the smooth game() path.
 //
 // How it works:
-// 1. React reads match params from URL (?p1=kfm&p2=kfm&stage=...&p2ai=5)
+// 1. React reads match params from URL (?p1=<char>&p2=<char>&stage=<stage>&p2ai=5)
 // 2. Loads vfs.js, downloads any non-bundled characters from CDN
 // 3. Injects them into the VFS
 // 4. Boots the engine with -qp1/-qp2/-qstage CLI flags
@@ -440,9 +440,16 @@ function PlayPageInner() {
 
       try {
         // --- Read match parameters from URL ---
-        const p1 = searchParams.get('p1') || 'kfm';
-        const p2 = searchParams.get('p2') || 'kfm';
-        const stage = searchParams.get('stage') || 'stages/stage0-720.def';
+        // Nothing is bundled in game.pak anymore (kfm + the training stage
+        // were removed from the engine), so every fight must name both
+        // fighters and a stage. net=1 resolves its roster later via the
+        // lobby select flow, so it is exempt from this check.
+        const p1 = searchParams.get('p1') || '';
+        const p2 = searchParams.get('p2') || '';
+        const stage = searchParams.get('stage') || '';
+        if (searchParams.get('net') !== '1' && (!p1 || !p2 || !stage)) {
+          throw new Error('Missing match parameters - /play needs ?p1=<char>&p2=<char>&stage=<stage-id>. Start a fight from the select screen instead of typing this URL by hand.');
+        }
         const p2ai = searchParams.get('p2ai'); // null = human, number = AI level
         const p1ai = searchParams.get('p1ai') || '0'; // 0 = human, >0 = AI level
         const training = searchParams.get('training') || '0';
@@ -906,10 +913,10 @@ function PlayPageInner() {
 
         if (cancelled) return;
 
-        // --- 8. Download non-bundled characters/stages from CDN ---
-        // KFM and stage0-720 are bundled in game.pak — skip download.
-        // Other characters are injected from IndexedDB cache (if available)
-        // or downloaded as fallback.
+        // --- 8. Inject characters/stage from cache or CDN ---
+        // Nothing is bundled in game.pak anymore (kfm + the training stage
+        // were removed from the engine) — every character and stage is
+        // injected from the IndexedDB cache or downloaded from the CDN.
         //
         // IMPORTANT: addChar() expects just the character ID, NOT the full path.
         // (net=1: the roster comes from the website select flow, not the URL —
@@ -924,8 +931,10 @@ function PlayPageInner() {
         let p2Path = splitCharRef(effP2).id;
         let stagePath = effStage;
 
-        const isBundledChar = (id: string) => id === 'kfm';
-        const isBundledStage = (s: string) => s === 'stages/stage0-720.def';
+        // No bundled fast-path anymore: the predicates stay (as always-false)
+        // so the cache/download branches below read unchanged.
+        const isBundledChar = (_id: string) => false;
+        const isBundledStage = (_s: string) => false;
 
         if (!isBundledChar(effP1) || !isBundledChar(effP2) || !isBundledStage(effStage)) {
           // Try to inject from IndexedDB cache first (instant)
@@ -1002,8 +1011,10 @@ function PlayPageInner() {
                 log(`Stage ready: ${stagePath}`);
               }
             } else {
-              log(`ERROR: Stage "${stage}" not found in manifest, using default`);
-              stagePath = 'stages/stage0-720.def';
+              log(`ERROR: Stage "${effStage}" not found in the assets manifest`);
+              // There is no bundled fallback stage anymore - fail loudly
+              // instead of pointing the engine at a file that does not exist.
+              throw new Error(`Stage "${effStage}" is not in the assets manifest. Pick a stage from the stage list.`);
             }
           }
         }
