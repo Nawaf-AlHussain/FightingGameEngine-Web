@@ -144,7 +144,7 @@ export function startMode(
   playerChar: string,
   rosterCharIds: string[],
   difficulty: number = 5,
-  stageId: string = 'stages/stage0-720.def',
+  stageId: string,
 ): ModeState {
   // Filter out the player's character from possible opponents
   const possibleOpponents = rosterCharIds.filter(id => id !== playerChar);
@@ -175,9 +175,11 @@ export function startMode(
       break;
   }
 
-  // Ensure we have at least 1 opponent (fallback to kfm if roster is empty)
+  // Roster too small to build a ladder — there is no bundled fallback
+  // character anymore, so this is a hard error (the UI gates progression
+  // on a non-empty roster; this guards direct calls).
   if (opponents.length === 0) {
-    opponents = ['kfm'];
+    throw new Error('Roster is empty - download at least one opponent character to play progression modes.');
   }
 
   const state: ModeState = {
@@ -245,8 +247,8 @@ export function readFightResult(): FightResult | null {
     return {
       winner: result.winner ?? -1,
       mode: result.mode ?? 'quickvs',
-      p1: result.p1 ?? 'kfm',
-      p2: result.p2 ?? 'kfm',
+      p1: result.p1 ?? '',
+      p2: result.p2 ?? '',
     };
   } catch {
     return null;

@@ -52,16 +52,6 @@ interface DownloadState {
 // Constants
 // ---------------------------------------------------------------------------
 
-const BUNDLED_STAGES: LocalStage[] = [
-  {
-    id: 'stages/stage0-720.def',
-    displayName: 'Training Stage',
-    description: 'Bundled · No download required',
-    sizeMB: 0,
-    bundled: true,
-  },
-];
-
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -73,7 +63,9 @@ export default function StageSelect({
   spectate = false,
   spectateNote = '',
 }: StageSelectProps) {
-  const [stages, setStages] = useState<LocalStage[]>(BUNDLED_STAGES);
+  // The stage list is the CDN manifest only — the engine ships no bundled
+  // stages anymore (the training stage was removed).
+  const [stages, setStages] = useState<LocalStage[]>([]);
   // Full StageInfo objects keyed by id (needed for downloadStageToCache,
   // which requires the manifest entry with `files`, `cdnBase`, etc.).
   const [stageInfos, setStageInfos] = useState<Record<string, StageInfo>>({});
@@ -119,7 +111,6 @@ export default function StageSelect({
         for (const s of cdnStages) infoMap[s.id] = s;
         setStageInfos(infoMap);
         const merged: LocalStage[] = [
-          ...BUNDLED_STAGES,
           ...cdnStages.map(s => ({
             id: s.id,
             displayName: s.displayName,

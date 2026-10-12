@@ -43,7 +43,7 @@ import {
  * URL params are the same as /play — this screen forwards them.
  */
 
-type SlotStatus = 'checking' | 'ready' | 'bundled' | 'downloading' | 'error';
+type SlotStatus = 'checking' | 'ready' | 'downloading' | 'error';
 
 interface SlotState {
   status: SlotStatus;
@@ -52,11 +52,6 @@ interface SlotState {
   /** Browser URL of the big-portrait PNG @ 256px (undefined = no image). */
   portrait?: string;
 }
-
-const BUNDLED_STAGE_ID = 'stages/stage0-720.def';
-const BUNDLED_CHAR_ID = 'kfm';
-// NOTE: the bundled kfm.sff ships a solid-black placeholder at group 9000,
-// so the bundled character has no portrait — its slot keeps name-only.
 
 /** Portrait image with fade-in on load. */
 function MatchPrepPortrait({ src }: { src: string }) {
@@ -79,9 +74,12 @@ function MatchPrepInner() {
   const { navigate } = useWipeNavigation();
   const searchParams = useSearchParams();
 
-  const p1 = searchParams.get('p1') || BUNDLED_CHAR_ID;
-  const p2 = searchParams.get('p2') || BUNDLED_CHAR_ID;
-  const stage = searchParams.get('stage') || BUNDLED_STAGE_ID;
+  // Nothing is bundled anymore — every slot must be named by the URL.
+  // Missing params resolve to empty ids whose slots land in 'error'
+  // (FIGHT stays gated) instead of silently fighting Kung Fu Man.
+  const p1 = searchParams.get('p1') || '';
+  const p2 = searchParams.get('p2') || '';
+  const stage = searchParams.get('stage') || '';
   const qmode = searchParams.get('qmode') || 'quickvs';
 
   const [modeState, setModeState] = useState<ModeState | null>(null);
@@ -97,9 +95,9 @@ function MatchPrepInner() {
   const navigatedRef = useRef(false);
 
   const allReady =
-    (p1Slot.status === 'ready' || p1Slot.status === 'bundled') &&
-    (p2Slot.status === 'ready' || p2Slot.status === 'bundled') &&
-    (stageSlot.status === 'ready' || stageSlot.status === 'bundled');
+    p1Slot.status === 'ready' &&
+    p2Slot.status === 'ready' &&
+    stageSlot.status === 'ready';
 
   // ---- Build the /play URL with the same params ----
   const playUrl = useCallback(() => {
@@ -183,7 +181,7 @@ function MatchPrepInner() {
         [chars, stages] = await Promise.all([getCharacters(), getStages()]);
       } catch {
         // Manifest fetch failed — cannot verify or download anything.
-        // Non-bundled slots below fall into 'error' with a retry path.
+        // The slots below fall into 'error' with a retry path.
       }
       if (cancelled) return;
 
@@ -193,31 +191,28 @@ function MatchPrepInner() {
 
       // Display names (fall back to raw IDs when the manifest is unavailable)
       const charName = (id: string) => charById.get(id)?.displayName ?? id;
-      const stageName = (id: string) =>
-        id === BUNDLED_STAGE_ID ? 'Training Stage' : stageById.get(id)?.displayName ?? id;
-      // Portraits (bundled chars have no usable portrait — see note above)
-      const charPortrait = (id: string) =>
-        id === BUNDLED_CHAR_ID ? undefined : portraitUrl(charById.get(id));
+      const stageName = (id: string) => stageById.get(id)?.displayName ?? id;
+      const charPortrait = (id: string) => portraitUrl(charById.get(id));
 
-      setP1Slot({ status: p1 === BUNDLED_CHAR_ID ? 'bundled' : 'checking', progress: 0, displayName: charName(p1), portrait: charPortrait(p1) });
-      setP2Slot({ status: p2 === BUNDLED_CHAR_ID ? 'bundled' : 'checking', progress: 0, displayName: charName(p2), portrait: charPortrait(p2) });
-      setStageSlot({ status: stage === BUNDLED_STAGE_ID ? 'bundled' : 'checking', progress: 0, displayName: stageName(stage) });
+      setP1Slot({ status: 'checking', progress: 0, displayName: charName(p1), portrait: charPortrait(p1) });
+      setP2Slot({ status: 'checking', progress: 0, displayName: charName(p2), portrait: charPortrait(p2) });
+      setStageSlot({ status: 'checking', progress: 0, displayName: stageName(stage) });
 
       const jobs: Promise<void>[] = [];
 
-      if (p1 !== BUNDLED_CHAR_ID) {
+      {
         const info = charById.get(p1);
         if (info) jobs.push(ensureCharacter(p1, info, setP1Slot));
         else setP1Slot(s => ({ ...s, status: 'error' })); // not in manifest — /play will report details
       }
 
-      if (p2 !== BUNDLED_CHAR_ID) {
+      {
         const info = charById.get(p2);
         if (info) jobs.push(ensureCharacter(p2, info, setP2Slot));
         else setP2Slot(s => ({ ...s, status: 'error' }));
       }
 
-      if (stage !== BUNDLED_STAGE_ID) {
+      {
         const info = stageById.get(stage);
         if (info) jobs.push(ensureStage(stage, info, setStageSlot));
         else setStageSlot(s => ({ ...s, status: 'error' }));
@@ -270,8 +265,6 @@ function MatchPrepInner() {
   // ---- Readiness badge per slot ----
   const renderSlotStatus = (slot: SlotState) => {
     switch (slot.status) {
-      case 'bundled':
-        return <span style={{ color: 'var(--green)' }}>BUNDLED</span>;
       case 'ready':
         return <span style={{ color: 'var(--green)' }}>✓ READY</span>;
       case 'checking':
