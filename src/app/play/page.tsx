@@ -7,9 +7,11 @@ import {
   downloadAndInjectStage,
   downloadCharacterToCache,
   downloadStageToCache,
+  getCachedCharacterFiles,
+  getCachedStageFiles,
   getStageDefPath,
-  injectCachedCharacter,
-  injectCachedStage,
+  injectCharacterFiles,
+  injectStageFiles,
   charRef,
   splitCharRef,
 } from '@/lib/character-downloader';
@@ -110,6 +112,102 @@ const WASM_HEAP_LIMIT_MIB = ((): number => {
   return constrained ? 400 : 800;
 })();
 
+// Captured BEFORE the VFS fetch rewrite is installed (boot time), so the
+// wasm/manifest fetches below always bypass the VFS patch — the same
+// guarantee the boot path's originalFetch used to provide.
+const moduleFetch: typeof fetch =
+  typeof window !== 'undefined'
+    ? window.fetch.bind(window)
+    : (globalThis as any).fetch;
+
+// ---- Module-scope engine runtime (local-mode mirror of the net=1 preboot) --
+// This chunk evaluates the moment the browser parses it — BEFORE React
+// hydration, before any effect. Kicking the manifest fetch + wasm download
+// + compile there overlaps the ~5.3 MB engine download with hydration and
+// the boot log's own work instead of serializing behind them. The singleton
+// is shared by EVERY boot path (local, net=1, net=direct), so the engine is
+// fetched + compiled exactly once per page load no matter which flow runs
+// or how often React remounts (StrictMode-safe by construction).
+interface EngineRuntime {
+  go: any;
+  wasmPromise: Promise<WebAssembly.WebAssemblyInstantiatedSource>;
+}
+let engineRuntimePromise: Promise<EngineRuntime> | null = null;
+
+// The manifest is its OWN singleton so the .pak load can start as soon as
+// the manifest is known — without waiting for the wasm compile to finish
+// (pak and wasm must download in parallel; that overlap is the single
+// biggest boot-window win).
+let manifestPromiseSingleton: Promise<{ stamp?: string }> | null = null;
+function ensureAssetManifest(): Promise<{ stamp?: string }> {
+  if (!manifestPromiseSingleton) {
+    // no-store (war story: some middleboxes ignore revalidation).
+    manifestPromiseSingleton = moduleFetch('/game/ikemen-fs/manifest.json', { cache: 'no-store' })
+      .then(r => {
+        if (!r.ok) throw new Error('asset manifest HTTP ' + r.status);
+        return r.json() as Promise<{ stamp?: string }>;
+      });
+    manifestPromiseSingleton.catch(() => {});
+  }
+  return manifestPromiseSingleton;
+}
+
+function ensureEngineRuntime(): Promise<EngineRuntime> {
+  if (engineRuntimePromise) return engineRuntimePromise;
+  engineRuntimePromise = (async (): Promise<EngineRuntime> => {
+    // wasm_exec.js defines the Go class — required before instantiation.
+    // Preloaded at module scope below, so this is usually instant.
+    await loadScript('/game/wasm_exec.js');
+    const g = globalThis as any;
+    const manifestData = await ensureAssetManifest();
+    const go = new g.Go();
+    go.env = {
+      GOGC: 'off',
+      GOMEMLIMIT: WASM_HEAP_LIMIT_MIB + 'MiB',
+    };
+    // Record the engine's exit code. The shipped wasm_exec.js resolves
+    // run() normally on os.Exit, so without this an engine that dies at
+    // boot is indistinguishable from a finished fight - it used to bounce
+    // the player to the lobby with zero explanation.
+    try {
+      const prevExit = go.exit;
+      go.exit = (code: number) => {
+        (globalThis as any).__ikemenExitCode = code;
+        if (prevExit) prevExit.call(go, code);
+      };
+    } catch { /* diagnostics must never block boot */ }
+    const wasmPromise = instantiateIkemenWasm(
+      moduleFetch,
+      go,
+      manifestData.stamp || '',
+      (s: string) => console.log('[boot]', s),
+    );
+    // A visitor who bounces off /play before any boot awaits the runtime
+    // must not produce unhandled-rejection noise; real awaiters still see
+    // the failure through their own await.
+    wasmPromise.catch(() => {});
+    return { go, wasmPromise };
+  })();
+  engineRuntimePromise.catch(() => {});
+  return engineRuntimePromise;
+}
+
+// Preload the boot scripts while React hydrates: the <link>s go in at chunk
+// evaluation, so by the time the boot effect runs, both files are already in
+// the memory cache and loadScript() resolves without a fresh round-trip.
+// (Both scripts are shared by every boot path — including net=1's preboot.)
+if (typeof document !== 'undefined') {
+  for (const preloaded of ['/game/vfs.js', '/game/wasm_exec.js']) {
+    if (!document.querySelector(`link[rel="preload"][href="${preloaded}"]`)) {
+      const link = document.createElement('link');
+      link.rel = 'preload';
+      link.as = 'script';
+      link.href = preloaded;
+      document.head.appendChild(link);
+    }
+  }
+}
+
 function PlayPageInner() {
   const bootRef = useRef<HTMLPreElement>(null);
   const searchParams = useSearchParams();
@@ -141,8 +239,6 @@ function PlayPageInner() {
   // guest: the mode adopted from the host). Logged after the park.
   const netSyncedModeRef = useRef<NetDisplayMode | null>(null);
   const vfsPromiseRef = useRef<Promise<number> | null>(null);
-  const goRef = useRef<any>(null);
-  const wasmPromiseRef = useRef<Promise<WebAssembly.WebAssemblyInstantiatedSource> | null>(null);
 
   // ---- Incoming website-level control frames from the opponent ----
   // (IKWS frames over the bridge data channel — selection sync, pre-boot.)
@@ -732,16 +828,15 @@ function PlayPageInner() {
           window.fetch = patchedFetch;
         }
 
-        // --- 2a. Kick off the asset manifest fetch (concurrent with everything) ---
-        // The manifest carries the per-export content stamp that version-stamps
-        // the wasm/pak URLs for immutable HTTP caching. Fetched with no-store
-        // (war story: some middleboxes ignore revalidation), then awaited just
-        // before the wasm/VFS start — the script loads below overlap with it.
-        const manifestPromise = originalFetch(STATIC_MANIFEST, { cache: 'no-store' })
-          .then(r => {
-            if (!r.ok) throw new Error('asset manifest HTTP ' + r.status);
-            return r.json() as Promise<{ stamp?: string }>;
-          });
+        // --- 2a. Engine runtime (module-scope singleton, kicked at chunk
+        // evaluation) + parallel VFS script load ---
+        // The manifest fetch and the 5.3 MB wasm download/compile have been
+        // running since before hydration — usually already resolved here.
+        // vfs.js is only needed for ikemenVfsInit, so its load overlaps the
+        // runtime's remaining wasm work (these two loaded SERIALLY before,
+        // costing a full extra script round-trip on every boot).
+        const runtimePromise = ensureEngineRuntime();
+        const vfsScriptPromise = loadScript('/game/vfs.js');
 
         // --- 2b. Deferred warmup of the lazy VFS set (boot-window fix) ---
         // vfs.js no longer prefetches its ~18MB lazy menu/UI set inside
@@ -789,10 +884,13 @@ function PlayPageInner() {
         // and the host picked the stage.
         if (netMenu) {
           log('Online mode: loading game data...');
-          await loadScript('/game/vfs.js');
+          await vfsScriptPromise;
           if (cancelled) return;
-          // Stamp source for the immutable wasm/pak URLs (kicked off at 2a).
-          const manifestData = await manifestPromise;
+          // Stamp source for the immutable wasm/pak URLs. Only the MANIFEST
+          // is awaited here — the runtime's wasm download/compile keeps
+          // running concurrently, so the .pak starts immediately (exactly
+          // the overlap the old preboot had, plus a module-scope head start).
+          const manifestData = await ensureAssetManifest();
           if (cancelled) return;
           g.ikemenAssetStamp = manifestData.stamp || '';
           // Start the .pak load NOW: the netplay build check exchanges a
@@ -810,15 +908,12 @@ function PlayPageInner() {
             },
             manifestData
           );
-          // Warm the WASM compile while the players are in the lobby and
-          // the select screens — the fight then starts near-instantly.
-          log('Loading Go WASM runtime...');
-          await loadScript('/game/wasm_exec.js');
-          if (cancelled) return;
-          const goPre = new (g.Go as any)();
-          goPre.env = { GOGC: 'off', GOMEMLIMIT: WASM_HEAP_LIMIT_MIB + 'MiB' };
-          goRef.current = goPre;
-          wasmPromiseRef.current = instantiateIkemenWasm(originalFetch, goPre, manifestData.stamp || '', log);
+          // The wasm compile started at module scope (the local-mode mirror
+          // of this preboot) — it is already warming while the players are
+          // in the lobby and the select screens.
+          // Sanity-touch the runtime: resolves once the module-scope wasm
+          // compile is done (the fight boot below reuses the same singleton).
+          await runtimePromise;
           log('Loading netplay bridge...');
           await loadScript('/game/webrtc.js');
           if (cancelled) return;
@@ -850,11 +945,13 @@ function PlayPageInner() {
           installKeyboardGuard();
         }
 
-        // --- 3. Load VFS (must load BEFORE wasm_exec.js) ---
-        // (net=1 already loaded it in the online preboot above.)
+        // --- 3. VFS script (kicked off at 2a, overlapped with the runtime) ---
+        // (net=1 awaited it in the online preboot above; both scripts are
+        // standalone IIFEs, so only the USAGE order matters: vfs.js before
+        // ikemenVfsInit, wasm_exec.js before `new Go()` — both preserved.)
         if (!netMenu) {
           log('Loading virtual filesystem...');
-          await loadScript('/game/vfs.js');
+          await vfsScriptPromise;
           if (cancelled) return;
         }
 
@@ -866,13 +963,8 @@ function PlayPageInner() {
           if (cancelled) return;
         }
 
-        // --- 4. Load wasm_exec.js (Go's WASM runtime) ---
-        // (net=1 already loaded it in the preboot above.)
-        if (!netMenu) {
-          log('Loading Go WASM runtime...');
-          await loadScript('/game/wasm_exec.js');
-          if (cancelled) return;
-        }
+        // --- 4. wasm_exec.js — already loaded by the module-scope runtime
+        // (its load overlaps the VFS script instead of trailing it).
 
         // --- 5. WebGL2 hardware check ---
         const strict = document.createElement('canvas');
@@ -914,69 +1006,17 @@ function PlayPageInner() {
         //   Parallel:   max(.pak, WASM)      = 5s
         log(netMenu ? 'Finalizing engine boot...' : 'Loading game.pak + ikemen.wasm in parallel...');
 
-        // Start WASM fetch immediately (don't await yet — runs in background)
-        // go.argv is set later (after CDN downloads) with resolved character paths
-        // (net=1: the Go runtime + WASM compile started in the online preboot —
-        //  reuse them so the fight boots instantly after selection.)
-        const go = netMenu ? goRef.current : new (g.Go as any)();
-        // Record the engine's exit code. The shipped wasm_exec.js resolves
-        // run() normally on os.Exit, so without this an engine that dies at
-        // boot is indistinguishable from a finished fight - it used to bounce
-        // the player to the lobby with zero explanation.
-        try {
-          const prevExit = go.exit;
-          go.exit = (code: number) => {
-            g.__ikemenExitCode = code;
-            if (prevExit) prevExit.call(go, code);
-          };
-        } catch { /* diagnostics must never block boot */ }
-        // GC settings (tuned based on gctrace data + Claude's analysis):
-        // - GOGC=off: Disables automatic GC entirely. GC only runs at our
-        //   forced call sites (platformIdleGC at round transitions, pauses,
-        //   match load). This eliminates mid-round GC pauses.
-        //
-        //   Why this works: GC trace data showed pause duration (~200ms) is
-        //   proportional to live heap size (51MB), NOT GC frequency. GOGC
-        //   only controls when GC triggers, not how long it takes. So:
-        //   - GOGC=100: 200ms pause every ~8s (automatic)
-        //   - GOGC=50: 200ms pause every ~4s (worse — more frequent)
-        //   - GOGC=off: 0 automatic pauses, only forced ones at round transitions
-        //
-        //   Safety: GOMEMLIMIT remains as backstop (see WASM_HEAP_LIMIT_MIB:
-        //   800MiB desktop / 400MiB mobile guard). A 60s round generates
-        //   ~200MB garbage — well under the desktop ceiling. On phones the
-        //   800MiB ceiling let the tab grow past what Android Chrome/iOS
-        //   Safari tolerate: the OS killed the renderer and the page
-        //   "restarted" (intermittent — depends on character size and round
-        //   length). The constrained ceiling forces 1-2 late-round
-        //   collections instead of none; mid-round smoothness is unchanged
-        //   because GC still does not run between the forced sites until the
-        //   limit is actually approached.
-        //
-        //   lines disappear and only (forced) ones remain.
-        if (!netMenu) {
-          go.env = {
-            GOGC: 'off',
-            GOMEMLIMIT: WASM_HEAP_LIMIT_MIB + 'MiB',
-          };
-          if (WASM_HEAP_LIMIT_MIB < 800) {
-            log('Engine GC: GOGC=off, GOMEMLIMIT=' + WASM_HEAP_LIMIT_MIB + 'MiB (mobile memory guard — prevents phone tab kills)');
-          }
-        }
-
-        // Asset manifest (kicked off at 2a, overlapped with the script loads):
-        // provides the content stamp for the immutable wasm/pak URLs and is
-        // passed into vfs init so it is fetched exactly once per boot.
-        const manifestData = await manifestPromise;
+        // Asset manifest (fetched at module scope): provides the content
+        // stamp for the immutable wasm/pak URLs and is passed into vfs init
+        // so it is fetched exactly once per boot.
+        const manifestData = await ensureAssetManifest();
         if (cancelled) return;
         g.ikemenAssetStamp = manifestData.stamp || '';
 
-        const wasmPromise = netMenu
-          ? wasmPromiseRef.current!
-          : instantiateIkemenWasm(originalFetch, go, manifestData.stamp || '', log);
-
-        // Start VFS (.pak) load — updates progress as it streams
-        // (net=1: already started in the preboot — reuse the promise)
+        // Start VFS (.pak) load FIRST — it downloads while the module-scope
+        // runtime finishes the wasm compile (net=1: already started in the
+        // preboot — reuse the promise).
+        // (go.argv is set later, after CDN downloads, with resolved paths.)
         const vfsPromise = netMenu
           ? vfsPromiseRef.current!
           : (g.ikemenVfsInit as any)(
@@ -989,6 +1029,18 @@ function PlayPageInner() {
               },
               manifestData
             );
+
+        // Runtime (Go instance + wasm promise) comes from the module-scope
+        // singleton — the download/compile have been running since chunk
+        // evaluation, and the exit-code recorder + GC env are already
+        // installed there.
+        const runtime = await runtimePromise;
+        const go = runtime.go;
+        if (!netMenu && WASM_HEAP_LIMIT_MIB < 800) {
+          log('Engine GC: GOGC=off, GOMEMLIMIT=' + WASM_HEAP_LIMIT_MIB + 'MiB (mobile memory guard — prevents phone tab kills)');
+        }
+
+        const wasmPromise = runtime.wasmPromise;
 
         // Await both in parallel
         const [result, nFiles] = await Promise.all([wasmPromise, vfsPromise]);
@@ -1022,13 +1074,22 @@ function PlayPageInner() {
         const isBundledStage = (_s: string) => false;
 
         if (!isBundledChar(effP1) || !isBundledChar(effP2) || !isBundledStage(effStage)) {
-          // Try to inject from IndexedDB cache first (instant)
+          // PARALLEL READ: pull all three IndexedDB records in ONE round-trip
+          // (they used to be three serial ~record-size structured clones).
+          // Records are Blob-backed and off-heap, so holding all three at
+          // once is free; the injection loops below stay strictly SERIAL —
+          // one file materialized at a time (phone-memory rule).
           log('Loading characters from cache...');
+          const [p1Files, p2Files, stageFiles] = await Promise.all([
+            isBundledChar(effP1) ? Promise.resolve(null) : getCachedCharacterFiles(effP1),
+            isBundledChar(effP2) ? Promise.resolve(null) : getCachedCharacterFiles(effP2),
+            isBundledStage(effStage) ? Promise.resolve(null) : getCachedStageFiles(effStage),
+          ]);
+          if (cancelled) return;
 
-          // P1: try cache, fallback to download
+          // P1: inject from the in-hand record, fallback to download
           if (!isBundledChar(effP1)) {
-            const injected = await injectCachedCharacter(effP1);
-            if (injected) {
+            if (p1Files && await injectCharacterFiles(effP1, p1Files)) {
               log(`P1 loaded from cache: ${effP1}`);
               p1Path = splitCharRef(effP1).id;
             } else {
@@ -1054,10 +1115,9 @@ function PlayPageInner() {
             }
           }
 
-          // P2: try cache, fallback to download
+          // P2: inject from the in-hand record, fallback to download
           if (!isBundledChar(effP2)) {
-            const injected = await injectCachedCharacter(effP2);
-            if (injected) {
+            if (p2Files && await injectCharacterFiles(effP2, p2Files)) {
               log(`P2 loaded from cache: ${effP2}`);
               p2Path = splitCharRef(effP2).id;
             } else {
@@ -1078,18 +1138,22 @@ function PlayPageInner() {
             }
           }
 
-          // Stage: try cache, fallback to download
+          // Stage: inject from the in-hand record, fallback to download.
+          // The cache HIT path needs no manifest at all (the .def file is
+          // resolved from the record's own file list — same rule
+          // getStageDefPath applies); only the miss path fetches it.
           if (!isBundledStage(effStage)) {
-            // For stages, the URL param is the stage ID (e.g. 'DU_Campus')
-            // not the full path. We need to find it in the manifest.
-            const manifest = await fetchAssetsManifest();
-            const stg = manifest.stages.find(s => s.id === effStage);
-            if (stg) {
-              const stageInjected = await injectCachedStage(stg.id);
-              if (stageInjected) {
-                log(`Stage loaded from cache: ${stg.id}`);
-                stagePath = getStageDefPath(stg);
-              } else {
+            if (stageFiles && await injectStageFiles(effStage, stageFiles)) {
+              log(`Stage loaded from cache: ${effStage}`);
+              const defFile = Object.keys(stageFiles).find(f => f.endsWith('.def'));
+              stagePath = 'stages/' + (defFile || `${effStage}.def`);
+            } else {
+              log(`Stage not in cache, resolving...`);
+              // For stages, the URL param is the stage ID (e.g. 'DU_Campus')
+              // not the full path. We need to find it in the manifest.
+              const manifest = await fetchAssetsManifest();
+              const stg = manifest.stages.find(s => s.id === effStage);
+              if (stg) {
                 log(`Downloading stage: ${stg.displayName} (~${stg.sizeMB} MB)...`);
                 // Cache-first fallback: persists to IndexedDB AND injects.
                 await downloadAndInjectStage(stg, (pct, msg) => {
@@ -1097,12 +1161,12 @@ function PlayPageInner() {
                 });
                 stagePath = getStageDefPath(stg);
                 log(`Stage ready: ${stagePath}`);
+              } else {
+                log(`ERROR: Stage "${effStage}" not found in the assets manifest`);
+                // There is no bundled fallback stage anymore - fail loudly
+                // instead of pointing the engine at a file that does not exist.
+                throw new Error(`Stage "${effStage}" is not in the assets manifest. Pick a stage from the stage list.`);
               }
-            } else {
-              log(`ERROR: Stage "${effStage}" not found in the assets manifest`);
-              // There is no bundled fallback stage anymore - fail loudly
-              // instead of pointing the engine at a file that does not exist.
-              throw new Error(`Stage "${effStage}" is not in the assets manifest. Pick a stage from the stage list.`);
             }
           }
         }
@@ -1501,14 +1565,27 @@ export default function PlayPage() {
 }
 
 function loadScript(src: string): Promise<void> {
-  return new Promise((resolve, reject) => {
+  const existing = scriptPromises.get(src);
+  if (existing) return existing;
+  const promise = new Promise<void>((resolve, reject) => {
     const script = document.createElement('script');
     script.src = src;
     script.onload = () => resolve();
-    script.onerror = () => reject(new Error('Failed to load: ' + src));
+    script.onerror = () => {
+      scriptPromises.delete(src); // allow a retry on a later boot
+      reject(new Error('Failed to load: ' + src));
+    };
     document.head.appendChild(script);
   });
+  scriptPromises.set(src, promise);
+  return promise;
 }
+
+// Script-loader promise cache: every /play boot path (local, net=1,
+// net=direct, module-scope runtime) shares ONE load per src, so a re-entrant
+// boot can never double-execute a script (a second wasm_exec.js execution
+// would clobber the Go class and orphan the running instance).
+const scriptPromises = new Map<string, Promise<void>>();
 
 // Instantiate the engine WASM over the cheapest wire path:
 //   1. /game/ikemen.wasm.gz?v=<stamp> — ~5.4 MB instead of 23 MB (-77%),
