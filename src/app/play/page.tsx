@@ -732,6 +732,17 @@ function PlayPageInner() {
           window.fetch = patchedFetch;
         }
 
+        // --- 2a. Kick off the asset manifest fetch (concurrent with everything) ---
+        // The manifest carries the per-export content stamp that version-stamps
+        // the wasm/pak URLs for immutable HTTP caching. Fetched with no-store
+        // (war story: some middleboxes ignore revalidation), then awaited just
+        // before the wasm/VFS start — the script loads below overlap with it.
+        const manifestPromise = originalFetch(STATIC_MANIFEST, { cache: 'no-store' })
+          .then(r => {
+            if (!r.ok) throw new Error('asset manifest HTTP ' + r.status);
+            return r.json() as Promise<{ stamp?: string }>;
+          });
+
         // --- 2b. Deferred warmup of the lazy VFS set (boot-window fix) ---
         // vfs.js no longer prefetches its ~18MB lazy menu/UI set inside
         // ikemenVfsInit — that download used to race the .pak, WASM compile
@@ -780,10 +791,15 @@ function PlayPageInner() {
           log('Online mode: loading game data...');
           await loadScript('/game/vfs.js');
           if (cancelled) return;
+          // Stamp source for the immutable wasm/pak URLs (kicked off at 2a).
+          const manifestData = await manifestPromise;
+          if (cancelled) return;
+          g.ikemenAssetStamp = manifestData.stamp || '';
           // Start the .pak load NOW: the netplay build check exchanges a
           // hash that vfs init computes at its END, so it must be underway
           // before the handshake. The fight boot reuses this promise (a
-          // second init would download everything twice).
+          // second init would download everything twice). The manifest is
+          // passed through so vfs init does not refetch it.
           vfsPromiseRef.current = (g.ikemenVfsInit as any)(
             '/game/ikemen-fs/manifest.json',
             [],
@@ -791,7 +807,8 @@ function PlayPageInner() {
               if (cancelled) return;
               const pct = total > 0 ? Math.round((got / total) * 100) : 0;
               setBootLine('[PAK] ', (got / 1e6).toFixed(1) + ' / ' + (total / 1e6).toFixed(1) + ' MB (' + pct + '%)');
-            }
+            },
+            manifestData
           );
           // Warm the WASM compile while the players are in the lobby and
           // the select screens — the fight then starts near-instantly.
@@ -801,14 +818,7 @@ function PlayPageInner() {
           const goPre = new (g.Go as any)();
           goPre.env = { GOGC: 'off', GOMEMLIMIT: WASM_HEAP_LIMIT_MIB + 'MiB' };
           goRef.current = goPre;
-          wasmPromiseRef.current = WebAssembly.instantiateStreaming(
-            originalFetch('/game/ikemen.wasm', { cache: 'no-cache' }),
-            goPre.importObject,
-          ).catch(async () => {
-            log('Streaming compile failed, buffering...');
-            const bytes = await (await originalFetch('/game/ikemen.wasm', { cache: 'no-cache' })).arrayBuffer();
-            return WebAssembly.instantiate(bytes, goPre.importObject);
-          });
+          wasmPromiseRef.current = instantiateIkemenWasm(originalFetch, goPre, manifestData.stamp || '', log);
           log('Loading netplay bridge...');
           await loadScript('/game/webrtc.js');
           if (cancelled) return;
@@ -954,18 +964,16 @@ function PlayPageInner() {
           }
         }
 
-        const wasmUrl = '/game/ikemen.wasm';
+        // Asset manifest (kicked off at 2a, overlapped with the script loads):
+        // provides the content stamp for the immutable wasm/pak URLs and is
+        // passed into vfs init so it is fetched exactly once per boot.
+        const manifestData = await manifestPromise;
+        if (cancelled) return;
+        g.ikemenAssetStamp = manifestData.stamp || '';
+
         const wasmPromise = netMenu
           ? wasmPromiseRef.current!
-          : WebAssembly.instantiateStreaming(
-              originalFetch(wasmUrl, { cache: 'no-cache' }),
-              go.importObject
-            ).catch(async () => {
-              // Fallback: buffered compile if streaming fails
-              log('Streaming compile failed, buffering...');
-              const bytes = await (await originalFetch(wasmUrl, { cache: 'no-cache' })).arrayBuffer();
-              return WebAssembly.instantiate(bytes, go.importObject);
-            });
+          : instantiateIkemenWasm(originalFetch, go, manifestData.stamp || '', log);
 
         // Start VFS (.pak) load — updates progress as it streams
         // (net=1: already started in the preboot — reuse the promise)
@@ -978,7 +986,8 @@ function PlayPageInner() {
                 if (cancelled) return;
                 const pct = total > 0 ? Math.round((got / total) * 100) : 0;
                 setBootLine('[PAK] ', (got / 1e6).toFixed(1) + ' / ' + (total / 1e6).toFixed(1) + ' MB (' + pct + '%)');
-              }
+              },
+              manifestData
             );
 
         // Await both in parallel
@@ -1499,6 +1508,45 @@ function loadScript(src: string): Promise<void> {
     script.onerror = () => reject(new Error('Failed to load: ' + src));
     document.head.appendChild(script);
   });
+}
+
+// Instantiate the engine WASM over the cheapest wire path:
+//   1. /game/ikemen.wasm.gz?v=<stamp> — ~5.4 MB instead of 23 MB (-77%),
+//      immutable-cached via the content stamp, streamed through
+//      DecompressionStream so decompression overlaps the download and
+//      compilation overlaps decompression.
+//   2. Raw /game/ikemen.wasm — browsers without DecompressionStream, or a
+//      missing/corrupt .gz artifact.
+// The raw path fetches ONCE and reuses the same response for the buffered
+// fallback (the old code re-downloaded all 23 MB on fallback).
+async function instantiateIkemenWasm(
+  fetchFn: typeof fetch,
+  go: { importObject: unknown },
+  stamp: string,
+  log: (s: string) => void,
+) {
+  const qs = stamp ? '?v=' + encodeURIComponent(stamp) : '';
+  if (typeof DecompressionStream === 'function' && stamp) {
+    try {
+      const res = await fetchFn('/game/ikemen.wasm.gz' + qs, { cache: 'default' });
+      if (res.ok && res.body) {
+        const wasmStream = res.body.pipeThrough(new DecompressionStream('gzip'));
+        const wasmRes = new Response(wasmStream, { headers: { 'Content-Type': 'application/wasm' } });
+        return await WebAssembly.instantiateStreaming(wasmRes, go.importObject as any);
+      }
+      log('Compressed wasm unavailable (HTTP ' + res.status + '), falling back to raw.');
+    } catch (e) {
+      log('Compressed wasm path failed (' + (e instanceof Error ? e.message : String(e)) + '), falling back to raw.');
+    }
+  }
+  const res = await fetchFn('/game/ikemen.wasm' + qs, { cache: 'no-cache' });
+  try {
+    return await WebAssembly.instantiateStreaming(res.clone(), go.importObject as any);
+  } catch {
+    log('Streaming compile failed, buffering...');
+    const bytes = await res.arrayBuffer();
+    return WebAssembly.instantiate(bytes, go.importObject as any);
+  }
 }
 
 // (DebugBadge component removed — was a development tool for touch
