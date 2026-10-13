@@ -20,6 +20,37 @@ const DB_VERSION = 1;
 const CHAR_STORE = 'chars';
 const STAGE_STORE = 'stages';
 
+// --- Persistent storage -----------------------------------------------------
+// Without navigator.storage.persist() the browser treats this cache as
+// "best effort" and may EVICT it wholesale under disk pressure — the cache
+// then silently empties and every character/stage re-downloads on the next
+// visit (reported as "downloaded multiple times, not stored in IndexedDB").
+// persist() marks the cache as durable; Chrome grants it for sites the user
+// actively engages with. Fire-and-forget once per session — never blocks a
+// download and failure here is harmless (cache just stays evictable).
+let persistRequested = false;
+function requestPersistentStorage(): void {
+  if (persistRequested) return;
+  persistRequested = true;
+  try {
+    if (typeof navigator !== 'undefined' && navigator.storage && typeof navigator.storage.persist === 'function') {
+      navigator.storage.persist()
+        .then(granted => {
+          if (granted) console.log('[cache] persistent storage granted — cache is eviction-protected');
+          else console.warn('[cache] persistent storage NOT granted — browser may evict the cache under disk pressure');
+        })
+        .catch(() => { /* not fatal */ });
+    }
+  } catch { /* not fatal */ }
+}
+
+// Approximate on-disk size of a file record, for the success log line.
+function fileRecordBytes(files: Record<string, CachedFileData>): number {
+  let n = 0;
+  for (const f of Object.values(files)) n += f instanceof Blob ? f.size : f.byteLength;
+  return n;
+}
+
 // --- IndexedDB helpers ---
 
 function openDB(): Promise<IDBDatabase> {
@@ -53,6 +84,7 @@ export interface CachedAsset {
 // --- Character caching ---
 
 export async function cacheCharacter(id: string, files: Record<string, CachedFileData>): Promise<void> {
+  requestPersistentStorage();
   try {
     const db = await openDB();
     const tx = db.transaction(CHAR_STORE, 'readwrite');
@@ -61,10 +93,17 @@ export async function cacheCharacter(id: string, files: Record<string, CachedFil
     await new Promise<void>((resolve, reject) => {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
+      // Quota errors and private-mode failures ABORT the transaction —
+      // without this handler the promise never settles and callers hang.
+      tx.onabort = () => reject(tx.error || new Error('IndexedDB transaction aborted'));
     });
     db.close();
+    console.log(`[cache] stored character ${id}: ${Object.keys(files).length} file(s), ~${(fileRecordBytes(files) / 1e6).toFixed(1)} MB`);
   } catch (e) {
-    console.warn('[cache] Failed to cache character:', id, e);
+    // LOUD on purpose: a silent cache failure looked exactly like "downloads
+    // repeat every visit" with no trace to diagnose. The download still
+    // succeeds (session-only), so this must never break the fight itself.
+    console.error('[cache] FAILED to cache character (session-only fallback):', id, e);
   }
 }
 
@@ -103,6 +142,7 @@ export async function isCharacterCached(id: string, requiredFiles?: string[]): P
 // --- Stage caching ---
 
 export async function cacheStage(id: string, files: Record<string, CachedFileData>): Promise<void> {
+  requestPersistentStorage();
   try {
     const db = await openDB();
     const tx = db.transaction(STAGE_STORE, 'readwrite');
@@ -111,10 +151,12 @@ export async function cacheStage(id: string, files: Record<string, CachedFileDat
     await new Promise<void>((resolve, reject) => {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('IndexedDB transaction aborted'));
     });
     db.close();
+    console.log(`[cache] stored stage ${id}: ${Object.keys(files).length} file(s), ~${(fileRecordBytes(files) / 1e6).toFixed(1)} MB`);
   } catch (e) {
-    console.warn('[cache] Failed to cache stage:', id, e);
+    console.error('[cache] FAILED to cache stage (session-only fallback):', id, e);
   }
 }
 

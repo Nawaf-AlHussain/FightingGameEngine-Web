@@ -1,9 +1,16 @@
 // Character/stage downloader — fetches files from our CDN proxy (which
 // fetches from GitHub raw) and caches them in IndexedDB.
 //
+// INVARIANT (since the "characters download every time" bug): EVERY download
+// path must persist to IndexedDB. Nothing is session-only unless the cache
+// layer itself is unavailable — a session-only download is thrown away when
+// the page unloads and re-downloads on the next boot.
+//
 // Two-phase approach:
 // Phase 1 (on select page): Download to IndexedDB cache (no VFS needed)
 // Phase 2 (on play page): Inject cached files into VFS (instant, no network)
+// Combined (play-page cache-miss fallback): downloadCharacterToCache ->
+// inject from the in-hand record — see downloadAndInjectCharacter below.
 //
 // We use a Vercel serverless proxy (/api/cdn/) instead of jsDelivr directly
 // because jsDelivr returns 403 for some files (especially with '!' in names),
@@ -375,7 +382,7 @@ export function getStageDefPath(stage: StageInfo): string {
 type ProgressCb = (pct: number, msg: string) => void;
 
 interface InflightDownload {
-  promise: Promise<void>;
+  promise: Promise<unknown>;
   /** Progress subscribers: the original caller + every piggybacker. */
   subs: Set<ProgressCb>;
 }
@@ -395,15 +402,20 @@ function emitProgress(inflight: InflightDownload, pct: number, msg: string): voi
 
 /**
  * Download a character's files from CDN and store in IndexedDB.
- * Does NOT inject into VFS — that happens later in injectCachedCharacter().
+ * Does NOT inject into VFS — that happens later in injectCachedCharacter()
+ * or straight from the returned record (see downloadAndInjectCharacter).
  * Called when the user selects a character on the select screen (and again
  * by match-prep's readiness pass — those concurrent calls SHARE one download
  * via the in-flight registry instead of double-fetching).
+ *
+ * @returns the downloaded files record when THIS call performed the download
+ *          (so the caller can inject without another round-trip), or null when
+ *          the character was already cached / a concurrent call downloaded it.
  */
 export async function downloadCharacterToCache(
   char: CharacterInfo,
   onProgress?: (pct: number, msg: string) => void
-): Promise<void> {
+): Promise<Record<string, Blob> | null> {
   // Cache key includes the source so chars/Wolverine and
   // charsMARVEL/Wolverine can never shadow each other.
   const cacheKey = charRef(char);
@@ -425,7 +437,7 @@ export async function downloadCharacterToCache(
     // The shared download either completed (char is cached now) or threw —
     // propagate the same outcome to this caller.
     onProgress?.(100, `${char.displayName} ready`);
-    return;
+    return null;
   }
 
   const entry: InflightDownload = { promise: Promise.resolve(), subs: new Set() };
@@ -485,12 +497,14 @@ export async function downloadCharacterToCache(
     // All files downloaded — safe to cache.
     await cacheCharacter(cacheKey, downloadedFiles);
     emitProgress(entry, 100, `${char.displayName} ready`);
+    return downloadedFiles;
   })();
 
   entry.promise = promise;
   inflightCharCaches.set(cacheKey, entry);
   try {
-    await promise;
+    const record = await promise;
+    return (record as Record<string, Blob> | undefined) || null;
   } finally {
     if (inflightCharCaches.get(cacheKey) === entry) {
       inflightCharCaches.delete(cacheKey);
@@ -501,11 +515,14 @@ export async function downloadCharacterToCache(
 /**
  * Download a stage's files from CDN and store in IndexedDB.
  * Shares one in-flight download per stage id (see the registry above).
+ *
+ * @returns the downloaded files record when THIS call performed the download
+ *          (see downloadCharacterToCache), or null otherwise.
  */
 export async function downloadStageToCache(
   stage: StageInfo,
   onProgress?: (pct: number, msg: string) => void
-): Promise<void> {
+): Promise<Record<string, Blob> | null> {
   // Piggyback check FIRST (synchronous — see downloadCharacterToCache).
   const existing = inflightStageCaches.get(stage.id);
   if (existing) {
@@ -520,7 +537,7 @@ export async function downloadStageToCache(
       await existing.promise;
     }
     onProgress?.(100, `${stage.displayName} ready`);
-    return;
+    return null;
   }
 
   const entry: InflightDownload = { promise: Promise.resolve(), subs: new Set() };
@@ -567,12 +584,14 @@ export async function downloadStageToCache(
 
     await cacheStage(stage.id, downloadedFiles);
     emitProgress(entry, 100, `${stage.displayName} ready`);
+    return downloadedFiles;
   })();
 
   entry.promise = promise;
   inflightStageCaches.set(stage.id, entry);
   try {
-    await promise;
+    const record = await promise;
+    return (record as Record<string, Blob> | undefined) || null;
   } finally {
     if (inflightStageCaches.get(stage.id) === entry) {
       inflightStageCaches.delete(stage.id);
@@ -649,4 +668,95 @@ export async function injectCachedStage(stageId: string): Promise<boolean> {
   }
   console.log(`[cache] Injected ${count} files for stage: ${stageId}`);
   return true;
+}
+
+// ===========================================================================
+// Combined download+inject (play-page cache-miss fallback)
+// ===========================================================================
+//
+// WHY THIS EXISTS ("characters/stages download every time" bug): flows that
+// reach /play WITHOUT match-prep — arcade/survival/time-attack opponents via
+// /progress, online net=1 fights, hand-typed deep links — used to hit a
+// fallback that downloaded straight into the in-memory VFS and never touched
+// IndexedDB. The bytes were discarded at fight end, so every boot of the
+// same character/stage re-downloaded from the CDN. These helpers make the
+// fallback cache-first: persist to IndexedDB, then inject — the session-only
+// path only runs when the cache layer itself is unavailable/broken, so the
+// fight can still start this boot.
+
+/** Inject a files record into the VFS, one file at a time (phone-memory rule). */
+async function injectRecord(
+  files: Record<string, Blob>,
+  vpathFor: (filename: string) => string,
+  label: string
+): Promise<boolean> {
+  const g = globalThis as any;
+  if (!g.ikemenInjectFile) {
+    console.error('ikemenInjectFile not available — vfs.js not loaded?');
+    return false;
+  }
+  let count = 0;
+  for (const [filename, data] of Object.entries(files)) {
+    g.ikemenInjectFile(vpathFor(filename), await fileBytes(data));
+    count++;
+  }
+  console.log(`[cache] Injected ${count} files for ${label}`);
+  return true;
+}
+
+/**
+ * Download a character AND persist it to IndexedDB AND inject it into the
+ * VFS — the only sanctioned play-time fallback for a cache miss.
+ * Never re-downloads when the cache layer works; falls back to the legacy
+ * session-only download only when the cache layer is unavailable or the
+ * record still is not injectable afterwards (so the fight starts this boot).
+ */
+export async function downloadAndInjectCharacter(
+  char: CharacterInfo,
+  onProgress?: (pct: number, msg: string) => void
+): Promise<void> {
+  // Persist FIRST (throws on network failure — transactional, partial
+  // downloads are never cached — propagate that to the boot error screen).
+  // The IDB layer itself never throws: if the write fails it logs LOUDLY and
+  // the record still comes back, so the in-hand injection below keeps this
+  // boot working even when persistence is unavailable.
+  // Returns the record only when THIS call performed the download.
+  const record = await downloadCharacterToCache(char, onProgress);
+
+  if (record) {
+    // Inject straight from the in-hand record — no cache read, no re-fetch.
+    if (await injectRecord(record, f => `chars/${char.id}/${f}`, `character: ${char.id}`)) {
+      return;
+    }
+  } else if (await injectCachedCharacter(charRef(char))) {
+    // Already cached (this boot or a concurrent download cached it).
+    return;
+  }
+
+  // Last resort: cache layer wrote nothing injectable (private mode, quota,
+  // silent IDB failure) — session-only so the fight can still start.
+  console.warn(`[cache] ${char.id} still not injectable — session-only download (will re-download next boot)`);
+  await downloadCharacter(char, onProgress);
+}
+
+/**
+ * Download a stage AND persist it to IndexedDB AND inject it into the VFS.
+ * Mirror of downloadAndInjectCharacter — see that comment for the why.
+ */
+export async function downloadAndInjectStage(
+  stage: StageInfo,
+  onProgress?: (pct: number, msg: string) => void
+): Promise<void> {
+  const record = await downloadStageToCache(stage, onProgress);
+
+  if (record) {
+    if (await injectRecord(record, f => `stages/${f}`, `stage: ${stage.id}`)) {
+      return;
+    }
+  } else if (await injectCachedStage(stage.id)) {
+    return;
+  }
+
+  console.warn(`[cache] stage ${stage.id} still not injectable — session-only download (will re-download next boot)`);
+  await downloadStage(stage, onProgress);
 }
