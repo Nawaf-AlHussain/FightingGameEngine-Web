@@ -615,6 +615,29 @@ async function fileBytes(data: CachedFileData): Promise<Uint8Array> {
 }
 
 /**
+ * Read a character's cached files WITHOUT injecting — the read half of
+ * injectCachedCharacter, split out so the boot page can fetch P1, P2 and
+ * stage records from IndexedDB in ONE parallel round-trip (each record is
+ * Blob-backed and off-heap, so holding all three is free) and then run the
+ * phone-memory-safe serial injection afterwards.
+ * Returns the files map, or null when the character is not cached.
+ */
+export async function getCachedCharacterFiles(
+  ref: string
+): Promise<Record<string, CachedFileData> | null> {
+  const cached = await getCachedCharacter(ref);
+  return cached ? cached.files : null;
+}
+
+/** Read half of injectCachedStage — see getCachedCharacterFiles. */
+export async function getCachedStageFiles(
+  stageId: string
+): Promise<Record<string, CachedFileData> | null> {
+  const cached = await getCachedStage(stageId);
+  return cached ? cached.files : null;
+}
+
+/**
  * Inject a character's cached files into the IKEMEN VFS.
  * `ref` is a selection reference (see charRef / splitCharRef) — also used
  * as the IndexedDB cache key. Files are ALWAYS injected at chars/<id>/
@@ -625,10 +648,21 @@ async function fileBytes(data: CachedFileData): Promise<Uint8Array> {
  * Returns true if successful, false if not cached.
  */
 export async function injectCachedCharacter(ref: string): Promise<boolean> {
-  const g = globalThis as any;
-  const cached = await getCachedCharacter(ref);
+  const cached = await getCachedCharacterFiles(ref);
   if (!cached) return false;
+  return injectCharacterFiles(ref, cached);
+}
 
+/**
+ * Inject an already-read character files map (from getCachedCharacterFiles)
+ * into the VFS. One file materialized at a time (phone-memory rule).
+ * Returns false when vfs.js is not loaded (or the map is empty/unreadable).
+ */
+export async function injectCharacterFiles(
+  ref: string,
+  files: Record<string, CachedFileData>
+): Promise<boolean> {
+  const g = globalThis as any;
   if (!g.ikemenInjectFile) {
     console.error('ikemenInjectFile not available — vfs.js not loaded?');
     return false;
@@ -636,7 +670,7 @@ export async function injectCachedCharacter(ref: string): Promise<boolean> {
 
   const { id } = splitCharRef(ref);
   let count = 0;
-  for (const [filename, data] of Object.entries(cached.files)) {
+  for (const [filename, data] of Object.entries(files)) {
     const vpath = `chars/${id}/${filename}`;
     g.ikemenInjectFile(vpath, await fileBytes(data));
     count++;
@@ -646,28 +680,38 @@ export async function injectCachedCharacter(ref: string): Promise<boolean> {
 }
 
 /**
- * Inject a stage's cached files into the IKEMEN VFS.
- * One file materialized at a time (see injectCachedCharacter).
- * Returns true if successful, false if not cached.
+ * Inject an already-read stage files map (from getCachedStageFiles).
+ * One file materialized at a time (see injectCharacterFiles).
  */
-export async function injectCachedStage(stageId: string): Promise<boolean> {
+export async function injectStageFiles(
+  stageId: string,
+  files: Record<string, CachedFileData>
+): Promise<boolean> {
   const g = globalThis as any;
-  const cached = await getCachedStage(stageId);
-  if (!cached) return false;
-
   if (!g.ikemenInjectFile) {
     console.error('ikemenInjectFile not available — vfs.js not loaded?');
     return false;
   }
 
   let count = 0;
-  for (const [filename, data] of Object.entries(cached.files)) {
+  for (const [filename, data] of Object.entries(files)) {
     const vpath = `stages/${filename}`;
     g.ikemenInjectFile(vpath, await fileBytes(data));
     count++;
   }
   console.log(`[cache] Injected ${count} files for stage: ${stageId}`);
   return true;
+}
+
+/**
+ * Inject a stage's cached files into the IKEMEN VFS.
+ * One file materialized at a time (see injectCachedCharacter).
+ * Returns true if successful, false if not cached.
+ */
+export async function injectCachedStage(stageId: string): Promise<boolean> {
+  const cached = await getCachedStageFiles(stageId);
+  if (!cached) return false;
+  return injectStageFiles(stageId, cached);
 }
 
 // ===========================================================================

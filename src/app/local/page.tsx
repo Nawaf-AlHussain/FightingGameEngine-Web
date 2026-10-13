@@ -12,6 +12,15 @@ import { useIsTouchDevice } from '@/lib/use-touch-device';
 import { loadConfig, applyDisplayModeChoice, getDisplayModeMarker, type DisplayModeChoice, saveConfig } from '@/lib/ikemen-config';
 import { startMode, type ProgressionMode } from '@/lib/game-modes';
 import { getCharacters, charRef, splitCharRef, DEFAULT_SOURCE } from '@/lib/character-downloader';
+import { prewarmEngineAssets } from '@/lib/engine-prewarm';
+
+// Pull ikemen.wasm.gz + game.pak.gz into the HTTP cache while the player
+// browses the roster (usually many seconds before any fight) — /play then
+// boots from disk instead of the network. Module scope = starts at chunk
+// evaluation, before CharacterSelect even mounts; idempotent + best-effort.
+if (typeof window !== 'undefined') {
+  prewarmEngineAssets();
+}
 
 // ---------------------------------------------------------------------------
 // Types

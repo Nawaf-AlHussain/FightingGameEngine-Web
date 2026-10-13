@@ -23,6 +23,7 @@ import {
   type CharacterInfo,
   type StageInfo,
 } from '@/lib/character-downloader';
+import { prewarmEngineAssets } from '@/lib/engine-prewarm';
 
 /**
  * Match Preparation Screen (Frontend 2.1 spec Sections 17-18, 48).
@@ -89,6 +90,10 @@ function MatchPrepInner() {
 
   // Real countdown — starts only when all required assets are ready.
   const [countdown, setCountdown] = useState<number | null>(null);
+  // Auto-start delay for the countdown: 3s when this visit actually
+  // downloaded something (a beat to see the screen), 1s when everything was
+  // already cached (repeat play — the old fixed 3s was pure dead delay).
+  const countdownSecondsRef = useRef(3);
   // Bumped by the RETRY button to re-run the readiness pass.
   const [retryTick, setRetryTick] = useState(0);
 
@@ -118,6 +123,9 @@ function MatchPrepInner() {
   useEffect(() => {
     let cancelled = false;
     const inflight = new Set<string>();
+    // True once ANY slot needed a real download this pass — decides the
+    // countdown length below (3s after downloads, 1s on pure cache hits).
+    let downloadedAny = false;
 
     const ensureCharacter = async (id: string, info: CharacterInfo, setSlot: SlotSetter) => {
       // Real cache state first — validates ALL required files are present.
@@ -132,6 +140,7 @@ function MatchPrepInner() {
         return;
       }
       inflight.add(id);
+      downloadedAny = true;
       setSlot(s => ({ ...s, status: 'downloading', progress: 0 }));
       try {
         await downloadCharacterToCache(info, pct => {
@@ -158,6 +167,7 @@ function MatchPrepInner() {
         return;
       }
       inflight.add(id);
+      downloadedAny = true;
       setSlot(s => ({ ...s, status: 'downloading', progress: 0 }));
       try {
         await downloadStageToCache(info, pct => {
@@ -219,6 +229,7 @@ function MatchPrepInner() {
       }
 
       await Promise.all(jobs);
+      countdownSecondsRef.current = downloadedAny ? 3 : 1;
     }
 
     resolve();
@@ -233,7 +244,10 @@ function MatchPrepInner() {
       setCountdown(null);
       return;
     }
-    setCountdown(3);
+    // Use this window to pull ikemen.wasm.gz + game.pak.gz into the HTTP
+    // cache — /play's boot then starts from disk instead of the network.
+    prewarmEngineAssets();
+    setCountdown(countdownSecondsRef.current);
   }, [allReady]);
 
   useEffect(() => {
