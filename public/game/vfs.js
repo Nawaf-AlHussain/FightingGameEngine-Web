@@ -179,8 +179,12 @@
     if (fetching.has(vpath)) return fetching.get(vpath);
     const p = (async () => {
       // Relative URL so the game works from any subfolder on a static host.
+      // cache:'default' (NOT 'no-cache'): lazy URLs carry the per-export
+      // ?v= stamp, so the immutable/long max-age cache headers can do their
+      // job — 'no-cache' here used to force a revalidation round-trip for
+      // every one of the ~70 warmup files on every single boot.
       const res = await fetch('./ikemen-fs/file/' + encodeURIComponent(vpath).replace(/%2F/gi, '/')
-        + (globalThis.ikemenAssetStamp ? '?v=' + encodeURIComponent(globalThis.ikemenAssetStamp) : ''), { cache: 'no-cache' });
+        + (globalThis.ikemenAssetStamp ? '?v=' + encodeURIComponent(globalThis.ikemenAssetStamp) : ''), { cache: 'default' });
       if (!res.ok) {
         // CRITICAL: on 404, remove from manifest so exists() returns false on
         // subsequent calls. Otherwise Go retries open() forever in a tight
@@ -650,33 +654,67 @@
   //   { pack: 'game.pak',
   //     files: { vpath: [offset, length] } }   - single pack file, fetched
   //                                              once up front (itch.io mode)
-  globalThis.ikemenVfsInit = async function (manifestUrl, preloadList = [], onProgress) {
+  globalThis.ikemenVfsInit = async function (manifestUrl, preloadList = [], onProgress, prefetched) {
     // The manifest is fetched with no-store (never reuse ANY cached copy -
     // 'no-cache' revalidation proved insufficient in the field: one player
     // needed incognito mode to see a new build), and the big assets carry
     // the manifest's per-export stamp as ?v=, so their URLs change with
     // every export and no cache layer can serve yesterday's pak.
-    const res = await fetch(manifestUrl, { cache: 'no-store' });
-    const data = await res.json();
+    // The boot page may pass `prefetched` (the same JSON it also uses to
+    // stamp the wasm URL) so one manifest fetch serves both.
+    const data = prefetched || await (await fetch(manifestUrl, { cache: 'no-store' })).json();
     const stamp = data.stamp ? '?v=' + encodeURIComponent(data.stamp) : '';
     globalThis.ikemenAssetStamp = data.stamp || '';
 
     if (data.pack) {
-      const packUrl = manifestUrl.replace(/manifest\.json$/, data.pack) + stamp;
-      const packRes = await fetch(packUrl, { cache: 'no-cache' });
-      const total = +packRes.headers.get('Content-Length') || 0;
-      const reader = packRes.body.getReader();
-      const chunks = [];
+      // Expected pak size straight from the manifest (max end offset). This
+      // is the DECOMPRESSED size: it doubles as an accurate progress total
+      // and lets us decompress straight into ONE preallocated buffer — the
+      // old chunk-list + concat pass transiently held the whole pak twice.
+      let pakSize = 0;
+      for (const [, [off, len]] of Object.entries(data.files)) {
+        const end = off + len;
+        if (end > pakSize) pakSize = end;
+      }
+      const pakBase = manifestUrl.replace(/manifest\.json$/, '');
+      // Preferred wire format: the pre-gzipped pak (~35% smaller, served
+      // immutable via the ?v= stamp). DecompressionStream streams it
+      // straight into the final buffer so decompression overlaps the
+      // download. Raw pak stays as the fallback (old browsers, missing
+      // artifact); both are stamped so no cache layer can mix builds.
+      let bodyStream = null;
+      if (typeof DecompressionStream === 'function' && pakSize > 0) {
+        try {
+          const gzRes = await fetch(pakBase + data.pack + '.gz' + stamp, { cache: 'default' });
+          if (!gzRes.ok) throw new Error('HTTP ' + gzRes.status);
+          if (!gzRes.body) throw new Error('no body');
+          bodyStream = gzRes.body.pipeThrough(new DecompressionStream('gzip'));
+        } catch (e) {
+          console.warn('[vfs] compressed pak unavailable (' + (e && e.message || e) + '), using raw pak');
+          bodyStream = null;
+        }
+      }
+      if (!bodyStream) {
+        const packRes = await fetch(pakBase + data.pack + stamp, { cache: 'default' });
+        bodyStream = packRes.body;
+      }
+      const pak = new Uint8Array(pakSize);
+      const reader = bodyStream.getReader();
       let received = 0;
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
-        chunks.push(value);
+        if (received + value.length > pakSize) {
+          reader.cancel();
+          throw new Error('[vfs] pak larger than manifest: ' + (received + value.length) + ' > ' + pakSize);
+        }
+        pak.set(value, received);
         received += value.length;
-        if (onProgress) onProgress(received, total);
+        if (onProgress) onProgress(received, pakSize);
       }
-      const pak = new Uint8Array(received);
-      { let o = 0; for (const c of chunks) { pak.set(c, o); o += c.length; } }
+      if (received !== pakSize) {
+        throw new Error('[vfs] pak size mismatch: got ' + received + ', manifest says ' + pakSize);
+      }
       for (const [vpath, [offset, length]] of Object.entries(data.files)) {
         if (length > 0) {
           contents.set(vpath, pak.subarray(offset, offset + length));

@@ -19,6 +19,8 @@
 
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
+const crypto = require('crypto');
 
 const dataRoot = path.join(__dirname, '..', 'public', 'game', 'ikemen-fs', 'file');
 const pakPath = path.join(__dirname, '..', 'public', 'game', 'ikemen-fs', 'game.pak');
@@ -47,6 +49,12 @@ function isEssential(f) {
   // NOTE: no bundled characters/stages anymore (kfm + the training stage were
   // removed) — fighters and stages are injected/downloaded from the CDN.
   if (f.startsWith('stages/')) return true;
+  // data/fight.snd alone is ~6.4 MB (63% of the whole pak) — pure fight
+  // sounds. As a registered lazy file the engine open()s it on demand
+  // (deduped with the background warmup), which cuts the boot-critical
+  // download by more than half. Every other data/fight* file stays
+  // essential (fight.sff/fight.def draw the lifebar from frame one).
+  if (f === 'data/fight.snd') return false;
   if (f.startsWith('data/fight')) return true;
   if (f.startsWith('data/common')) return true;
   if (f.startsWith('data/fightfx')) return true;
@@ -87,7 +95,6 @@ console.log(`Lazy (individual): ${lazyPaths.length} files`);
 
 // Build the .pak file with essential files
 const manifest = {
-  stamp: String(Math.floor(Date.now() / 1000)),
   pack: 'game.pak',
   files: {},  // essential files: [offset, length]
   lazy: {},   // lazy files: size (for manifest.has() checks)
@@ -122,6 +129,19 @@ if (!manifest.files['save/stats.json']) manifest.files['save/stats.json'] = [0, 
 const pak = Buffer.concat(chunks);
 fs.writeFileSync(pakPath, pak);
 console.log(`\nWrote game.pak: ${pak.length.toLocaleString()} bytes (${(pak.length / 1e6).toFixed(1)} MB)`);
+
+// Pre-gzipped pak: the wire format (vfs.js streams it through
+// DecompressionStream into the same final buffer). ~35% smaller than raw;
+// served immutable because the stamp below is CONTENT-derived.
+const pakGz = zlib.gzipSync(pak, { level: 9 });
+fs.writeFileSync(pakPath + '.gz', pakGz);
+console.log(`Wrote game.pak.gz: ${pakGz.length.toLocaleString()} bytes (${(pakGz.length / 1e6).toFixed(1)} MB, -${Math.round((1 - pakGz.length / pak.length) * 100)}%)`);
+
+// Content-derived stamp: identical pak bytes -> identical stamp, so a
+// rebuild that changed nothing keeps every asset URL stable and the
+// immutable cache entries valid. Date.now() busting all URLs on every
+// rebuild was pure cache waste.
+manifest.stamp = crypto.createHash('sha256').update(pak).digest('hex').slice(0, 12);
 console.log(`  Essential: ${essentialPaths.length} files, ${(essentialBytes / 1e6).toFixed(1)} MB`);
 console.log(`  Lazy:      ${lazyPaths.length} files, ${(lazyBytes / 1e6).toFixed(1)} MB`);
 console.log(`  Total:     ${essentialPaths.length + lazyPaths.length} files, ${((essentialBytes + lazyBytes) / 1e6).toFixed(1)} MB`);
