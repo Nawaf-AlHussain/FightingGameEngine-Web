@@ -1151,14 +1151,30 @@
   // out of the boot memory/bandwidth window. Safe to call more than once:
   // already-fetched files are skipped and concurrent fetches dedupe
   // through the `fetching` map.
-  globalThis.ikemenVfsPrefetch = function (onProgress) {
+  //
+  // opts.maxFileBytes (Batch 3, memory-constrained devices): when set,
+  // files larger than the cap are SKIPPED - system.sff (~9.2 MB) +
+  // system.snd (~3.7 MB) are 88% of the lazy set, and holding them
+  // permanently resident in `contents` (a JS-heap map) helped push phone
+  // tabs over the memory cliff. On constrained devices the boot page caps
+  // the warmup at small files; the big ones stay on-demand (fetched the
+  // first time the engine actually opens them, then retained as usual).
+  globalThis.ikemenVfsPrefetch = function (onProgress, opts) {
+    const maxFileBytes = (opts && opts.maxFileBytes) || 0;
     const pending = [...manifest.keys()];
     const totalBytes = pending.reduce((n, p) => n + (manifest.get(p) || 0), 0);
     let doneBytes = 0;
+    let skipped = 0;
     const workers = Array.from({ length: 4 }, async () => {
       while (pending.length) {
         const vpath = pending.shift();
         const size = manifest.get(vpath) || 0;
+        if (maxFileBytes && size > maxFileBytes) {
+          skipped++;
+          doneBytes += size; // still accounted, so progress completes
+          if (onProgress) onProgress(doneBytes, totalBytes);
+          continue;
+        }
         if (!contents.has(vpath)) {
           await fetchFile(vpath).catch(() => {});
         }
@@ -1166,6 +1182,9 @@
         if (onProgress) onProgress(doneBytes, totalBytes);
       }
     });
-    return Promise.all(workers).then(() => console.log('[vfs] background prefetch complete'));
+    return Promise.all(workers).then(() => console.log(
+      '[vfs] background prefetch complete' +
+      (skipped ? ' (' + skipped + ' large file(s) skipped - on-demand)' : '')
+    ));
   };
 })();

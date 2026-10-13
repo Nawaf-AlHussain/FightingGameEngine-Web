@@ -8,8 +8,28 @@ import { NextRequest, NextResponse } from 'next/server';
 //
 // URL format: /api/cdn/chars/Bardock/Bardock.sff
 // Fetches from: https://raw.githubusercontent.com/FightingGameEngine/Assets/main/chars/Bardock/Bardock.sff
+//
+// STREAMING + EDGE CACHE (Batch 3) — the "DC / Guilty Gear / DBZ portraits
+// don't load" fix:
+// The old handler awaited res.arrayBuffer() (whole file buffered in the
+// serverless function's memory — a 100 MB character .sff held a 100 MB
+// buffer per concurrent request) and advertised no s-maxage, so the Vercel
+// edge cache never engaged. EVERY request — including the ~85 portrait PNGs
+// a select-screen view renders at once — executed the function and hit
+// GitHub raw, whose throttling of shared datacenter egress IPs returns
+// 429/503 storms to exactly those bursts (broken images on whichever roster
+// tab was browsed). Now the upstream body streams straight through, success
+// responses carry s-maxage=31536000 (+SWR) so the edge serves repeat
+// fetches, and error responses are no-store so a throttled 429 can never be
+// pinned into any cache. Range headers pass through (GitHub raw supports
+// them) so future resumable downloads / media consumers work unchanged.
 
 const GITHUB_RAW_BASE = 'https://raw.githubusercontent.com/FightingGameEngine/Assets/main/';
+
+// Upstream response headers worth relaying when present: content-length
+// lets the browser show real download progress; content-range/accept-ranges
+// keep Range responses coherent; etag/last-modified enable revalidation.
+const PASSTHROUGH_HEADERS = ['content-length', 'content-range', 'etag', 'last-modified', 'accept-ranges'] as const;
 
 export async function GET(
   request: NextRequest,
@@ -20,24 +40,33 @@ export async function GET(
 
   // Prevent path traversal
   if (vpath.includes('..')) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    return NextResponse.json(
+      { error: 'Forbidden' },
+      { status: 403, headers: { 'Cache-Control': 'no-store' } }
+    );
   }
 
   const url = GITHUB_RAW_BASE + vpath;
 
   try {
-    const res = await fetch(url, { cache: 'force-cache' });
+    // Forward Range requests so partial fetches stay partial end-to-end.
+    const range = request.headers.get('range');
+    const res = await fetch(url, {
+      cache: 'force-cache',
+      ...(range ? { headers: { Range: range } } : {}),
+    });
 
     if (!res.ok) {
+      // Never cache failures: a throttled 429 / transient 503 cached with
+      // immutable would break that file until the next deploy.
       return NextResponse.json(
         { error: `CDN file not found: ${vpath} (${res.status})` },
-        { status: res.status }
+        { status: res.status, headers: { 'Cache-Control': 'no-store' } }
       );
     }
 
-    const buffer = new Uint8Array(await res.arrayBuffer());
-
-    // Determine content type from extension
+    // Determine content type from extension (fallback — GitHub raw already
+    // serves an accurate content-type for portraits and text files).
     const ext = vpath.split('.').pop()?.toLowerCase() || '';
     const contentTypes: Record<string, string> = {
       cns: 'text/plain', cmd: 'text/plain', air: 'text/plain',
@@ -50,18 +79,27 @@ export async function GET(
       png: 'image/png',
     };
 
-    return new NextResponse(buffer, {
-      headers: {
-        'Content-Type': contentTypes[ext] || 'application/octet-stream',
-        'Content-Length': String(buffer.length),
-        'Cache-Control': 'public, max-age=31536000, immutable',
-        'Access-Control-Allow-Origin': '*',
-      },
-    });
+    const headers = new Headers();
+    headers.set('Content-Type', res.headers.get('content-type') || contentTypes[ext] || 'application/octet-stream');
+    headers.set(
+      'Cache-Control',
+      // max-age/immutable: browser-side (unchanged semantics — game files
+      // are content-addressed by our manifest flow). s-maxage/SWR: Vercel
+      // edge cache — repeat fetches never reach this function or GitHub.
+      'public, max-age=31536000, immutable, s-maxage=31536000, stale-while-revalidate=86400'
+    );
+    headers.set('Access-Control-Allow-Origin', '*');
+    for (const h of PASSTHROUGH_HEADERS) {
+      const v = res.headers.get(h);
+      if (v) headers.set(h, v);
+    }
+
+    // Stream the upstream body through — no whole-file buffering.
+    return new NextResponse(res.body, { status: res.status, headers });
   } catch (e) {
     return NextResponse.json(
       { error: `CDN proxy error: ${e instanceof Error ? e.message : String(e)}` },
-      { status: 500 }
+      { status: 500, headers: { 'Cache-Control': 'no-store' } }
     );
   }
 }
