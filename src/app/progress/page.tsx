@@ -11,7 +11,7 @@ import {
   MODE_RULES,
   type ModeState,
 } from '@/lib/game-modes';
-import { getCharacters, getStages, charRef } from '@/lib/character-downloader';
+import { getCharacters, getStages, charRef, downloadCharacterToCache, downloadStageToCache } from '@/lib/character-downloader';
 
 /**
  * /progress — between-fights screen for Arcade, Survival, and Time Attack.
@@ -59,6 +59,18 @@ export default function ProgressPage() {
         setCharNames(names);
         const stg = stages.find(x => x.id === state.stageId);
         setStageName(stg?.displayName ?? null);
+        // --- Boot-window prefetch ("first match refreshes once" crash family) ---
+        // /progress navigates STRAIGHT to /play — no match-prep. The next
+        // opponent's character used to download inside the boot memory spike
+        // (WASM + pak + injection all at once), which phone renderers punish
+        // with a tab kill: the page reloads once, then plays (assets cached).
+        // Download here, during the countdown, instead. Fire-and-forget: the
+        // /play boot cache-hits, or piggybacks on the shared in-flight
+        // download registry if this is still running when it gets there.
+        const oppRef = state.opponents[(state.fightNumber - 1) % state.opponents.length];
+        const opp = chars.find(c => charRef(c) === oppRef);
+        if (opp) downloadCharacterToCache(opp).catch(() => { /* boot fallback reports */ });
+        if (stg) downloadStageToCache(stg).catch(() => { /* boot fallback reports */ });
       } catch {
         // Keep raw IDs — honest fallback, no fabricated data.
       }

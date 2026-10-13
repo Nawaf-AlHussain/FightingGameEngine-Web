@@ -5,6 +5,8 @@ import {
   fetchAssetsManifest,
   downloadAndInjectCharacter,
   downloadAndInjectStage,
+  downloadCharacterToCache,
+  downloadStageToCache,
   getStageDefPath,
   injectCachedCharacter,
   injectCachedStage,
@@ -223,6 +225,18 @@ function PlayPageInner() {
   // Host locked the stage → finalise and boot both engines.
   const handleNetStage = useCallback((stageId: string) => {
     if (!netMine.id || !netOpp.id) return;
+    // Prefetch the chosen stage OUT of the boot memory window (same crash
+    // family as the opponent-char prefetch below). The guest learns the
+    // stage only at 'go' and pulls it through the boot fallback, which now
+    // also persists it. Fire-and-forget: the boot path cache-hits or
+    // piggybacks on the shared in-flight download registry.
+    (async () => {
+      try {
+        const manifest = await fetchAssetsManifest();
+        const stg = manifest.stages.find(s => s.id === stageId);
+        if (stg) await downloadStageToCache(stg);
+      } catch { /* boot fallback reports real failures */ }
+    })();
     const cfg: NetFightConfig = { p1: netMine.id, p2: netOpp.id, stage: stageId };
     // The guest adopts OUR display mode (fight aspects must match for the
     // engine's netplay check — a 4:3 host cannot pair with a 16:9 guest).
@@ -239,8 +253,30 @@ function PlayPageInner() {
   const cancelNetFlow = useCallback(() => {
     try { (globalThis as any).ikemenNet?.close?.(); } catch { /* already gone */ }
     netResolveRef.current?.(null);
+    try { sessionStorage.removeItem('ikemen-boot-live'); } catch { /* ignore */ }
     window.location.href = '/lobby';
   }, []);
+
+  // ---- Opponent prefetch (online flow) --------------------------------------
+  // Only MY fighter gets cached (on lock-in, inside CharacterSelect). The
+  // OPPONENT's fighter used to download INSIDE the boot memory window —
+  // on phones that spike killed the renderer mid-boot: the page refreshed
+  // once, then played (retry found the assets cached). Cache it the moment
+  // the opponent locks instead; the boot path then cache-hits or piggybacks
+  // on the shared in-flight download registry.
+  const netOppPrefetchRef = useRef<string | null>(null);
+  useEffect(() => {
+    const ref = netOpp.id;
+    if (!ref || netOppPrefetchRef.current === ref) return;
+    netOppPrefetchRef.current = ref;
+    (async () => {
+      try {
+        const manifest = await fetchAssetsManifest();
+        const char = manifest.characters.find(c => charRef(c) === ref);
+        if (char) await downloadCharacterToCache(char);
+      } catch { /* boot fallback reports real failures */ }
+    })();
+  }, [netOpp.id]);
 
   // ---- Connection watcher for the online flow ----
   // 'connecting' waits for the bridge to report established; afterwards a
@@ -419,11 +455,32 @@ function PlayPageInner() {
         document.removeEventListener('webglcontextlost', onContextLost, true);
       };
 
+      // --- Boot-death recorder (the "first match refreshes once" family) ---
+      // When a phone's renderer is killed mid-boot, the browser auto-reloads
+      // the SAME tab and sessionStorage survives that crash-reload. Park the
+      // boot log there line-by-line under a live-marker; orderly exits clear
+      // the marker (see clearBootLive below). If the next boot finds the
+      // marker, the previous boot died abruptly — surface exactly what it
+      // was doing last, so the refresh reports itself instead of relying on
+      // the user's memory of what the screen showed.
+      const recordBootLine = (line: string) => {
+        try {
+          const prev = sessionStorage.getItem('ikemen-bootlog');
+          const lines = prev ? prev.split('\n') : [];
+          lines.push(line);
+          sessionStorage.setItem('ikemen-bootlog', lines.slice(-60).join('\n'));
+        } catch { /* private mode / quota — diagnostics only, never fatal */ }
+      };
+      const clearBootLive = () => {
+        try { sessionStorage.removeItem('ikemen-boot-live'); } catch { /* ignore */ }
+      };
+
       const log = (msg: string) => {
         if (cancelled) return;
         boot.textContent += '\n' + msg;
         boot.scrollTop = boot.scrollHeight;
         console.log('[boot]', msg);
+        recordBootLine(msg);
       };
 
       // In-place line update for progress displays ([PAK]/[P1]/[P2]/[STAGE]).
@@ -436,7 +493,24 @@ function PlayPageInner() {
         else lines.push(prefix + text);
         boot.textContent = lines.join('\n');
         boot.scrollTop = boot.scrollHeight;
+        recordBootLine(prefix + text);
       };
+
+      {
+        let prevLive: string | null = null;
+        let prevLog = '';
+        try {
+          prevLive = sessionStorage.getItem('ikemen-boot-live');
+          prevLog = sessionStorage.getItem('ikemen-bootlog') || '';
+        } catch { /* ignore */ }
+        if (prevLive) {
+          const last = prevLog.split('\n').filter(Boolean).slice(-3).join('  |  ');
+          log('PREVIOUS BOOT ON THIS TAB ENDED ABRUPTLY (likely the phone killed the renderer mid-boot).');
+          log('Last activity before the refresh: ' + (last || '(no boot log recorded)'));
+        }
+        try { sessionStorage.setItem('ikemen-bootlog', ''); } catch { /* ignore */ }
+      }
+      try { sessionStorage.setItem('ikemen-boot-live', String(Date.now())); } catch { /* ignore */ }
 
       try {
         // --- Read match parameters from URL ---
@@ -1147,6 +1221,7 @@ function PlayPageInner() {
             : 'the engine exited abnormally (exit code ' + exitCode + ')';
           const tail = engineTail.slice(-4).join(' | ').slice(0, 240);
           log('ENGINE DIED: ' + why);
+          clearBootLive();
           setBootError('The game engine died: ' + why +
             (tail ? '. Engine output: ' + tail : '') +
             '. The boot log below shows how far it got - send a screenshot when reporting.');
@@ -1154,6 +1229,7 @@ function PlayPageInner() {
         }
         if (!engineRan && !fightResult) {
           cleanup();
+          clearBootLive();
           log('ENGINE EXITED BEFORE THE FIGHT STARTED' + (exitCode != null && exitCode !== 0 ? ' (exit code ' + exitCode + ')' : '') + '.');
           const tail = engineTail.slice(-4).join(' | ').slice(0, 240);
           setBootError('The game engine exited before the match started' + (exitCode != null && exitCode !== 0 ? ' (exit code ' + exitCode + ')' : '') +
@@ -1173,22 +1249,26 @@ function PlayPageInner() {
           switch (action.type) {
             case 'next-fight': {
               log(`Victory! Advancing to fight ${getCurrentModeState()?.fightNumber ?? '?'}`);
+              clearBootLive();
               window.location.href = '/progress';
               return;
             }
             case 'finished': {
               const resultParam = action.result === 'victory' ? 'win' : 'lose';
               log(`${action.result === 'victory' ? 'VICTORY!' : 'DEFEAT'} — ${action.wins}W / ${action.losses}L`);
+              clearBootLive();
               window.location.href = `/results?result=${resultParam}&mode=${qmode}&wins=${action.wins}&losses=${action.losses}&time=${action.totalTime.toFixed(1)}`;
               return;
             }
             case 'retry': {
               log('Draw! Replaying the fight...');
+              clearBootLive();
               window.location.reload();
               return;
             }
             case 'exit': {
               log('Fight complete. Returning...');
+              clearBootLive();
               window.location.href = exitTarget;
               return;
             }
@@ -1197,6 +1277,7 @@ function PlayPageInner() {
 
         // Single-fight mode (quickvs/training) or a finished online fight.
         log('Fight complete. Returning...');
+        clearBootLive();
         window.location.href = exitTarget;
 
       } catch (e) {
@@ -1210,6 +1291,7 @@ function PlayPageInner() {
           const crashLine = engineTail.find(l => l.includes('Panic:') || l.includes('fatal error:'));
           if (crashLine) {
             log('ENGINE CRASHED: ' + crashLine);
+            clearBootLive();
             setBootError('The game engine crashed (' + crashLine.slice(0, 200) + '). Send a screenshot of this screen when reporting — the boot log below shows how far it got.');
             return;
           }
@@ -1223,6 +1305,7 @@ function PlayPageInner() {
           const exitCode = (globalThis as any).__ikemenExitCode;
           const engineDied = (exitCode != null && exitCode !== 0) || glContextLost;
           if (engineRan && !engineDied) {
+            clearBootLive();
             window.location.href = exitTarget;
             return;
           }
@@ -1230,11 +1313,13 @@ function PlayPageInner() {
             ? (glContextLost ? 'graphics context lost' : 'exit code ' + exitCode)
             : msg;
           log('ENGINE CRASHED: ' + why);
+          clearBootLive();
           setBootError('The game engine crashed (' + why + '). The boot log below and the browser console (F12) hold the details - send them along when reporting.');
           return;
         }
         log('BOOT ERROR: ' + msg);
         console.error(e);
+        clearBootLive();
         if (!cancelled) setBootError(msg);
       }
     }
