@@ -3,8 +3,8 @@ import { useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState, useCallback, Suspense } from 'react';
 import {
   fetchAssetsManifest,
-  downloadCharacter,
-  downloadStage,
+  downloadAndInjectCharacter,
+  downloadAndInjectStage,
   getStageDefPath,
   injectCachedCharacter,
   injectCachedStage,
@@ -916,7 +916,9 @@ function PlayPageInner() {
         // --- 8. Inject characters/stage from cache or CDN ---
         // Nothing is bundled in game.pak anymore (kfm + the training stage
         // were removed from the engine) — every character and stage is
-        // injected from the IndexedDB cache or downloaded from the CDN.
+        // injected from the IndexedDB cache, or downloaded AND PERSISTED to
+        // that cache before injection (the fallback used to be session-only,
+        // which re-downloaded the same files on every boot).
         //
         // IMPORTANT: addChar() expects just the character ID, NOT the full path.
         // (net=1: the roster comes from the website select flow, not the URL —
@@ -952,7 +954,9 @@ function PlayPageInner() {
               const char = manifest.characters.find(c => charRef(c) === effP1);
               if (char) {
                 log(`Downloading P1: ${char.displayName} (~${char.sizeMB} MB)...`);
-                await downloadCharacter(char, (pct, msg) => {
+                // Cache-first fallback: persists to IndexedDB AND injects —
+                // the next boot of this character loads from cache instantly.
+                await downloadAndInjectCharacter(char, (pct, msg) => {
                   setBootLine('[P1] ', `${msg} (${pct}%)`);
                 });
                 p1Path = char.id;
@@ -979,7 +983,7 @@ function PlayPageInner() {
               const char = manifest.characters.find(c => charRef(c) === effP2);
               if (char) {
                 log(`Downloading P2: ${char.displayName} (~${char.sizeMB} MB)...`);
-                await downloadCharacter(char, (pct, msg) => {
+                await downloadAndInjectCharacter(char, (pct, msg) => {
                   setBootLine('[P2] ', `${msg} (${pct}%)`);
                 });
                 p2Path = char.id;
@@ -1004,7 +1008,8 @@ function PlayPageInner() {
                 stagePath = getStageDefPath(stg);
               } else {
                 log(`Downloading stage: ${stg.displayName} (~${stg.sizeMB} MB)...`);
-                await downloadStage(stg, (pct, msg) => {
+                // Cache-first fallback: persists to IndexedDB AND injects.
+                await downloadAndInjectStage(stg, (pct, msg) => {
                   setBootLine('[STAGE] ', `${msg} (${pct}%)`);
                 });
                 stagePath = getStageDefPath(stg);
