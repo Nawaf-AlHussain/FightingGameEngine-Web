@@ -1135,17 +1135,30 @@ export default function CharacterSelect({
 // ---------------------------------------------------------------------------
 
 /** Portrait image with fade-in on load (CSS shows it once .loaded is set;
- *  the letter fallback underneath stays visible until then). */
+ *  the letter fallback underneath stays visible until then).
+ *  ONE silent retry on error: burst-opening a roster tab fires dozens of
+ *  /api/cdn requests at once, and while the edge cache is still cold a few
+ *  could come back 429/503 (upstream throttling). A single delayed
+ *  re-request heals those; remounting via key forces the re-fetch since an
+ *  <img> with an unchanged src will not retry on its own. A genuinely
+ *  missing portrait just keeps the letter tile. */
 function PortraitImg({ src, className }: { src: string; className?: string }) {
   const [loaded, setLoaded] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   return (
     <img
+      key={attempt}
       src={src}
       alt=""
       loading="lazy"
       decoding="async"
       className={`${className ?? ''}${loaded ? ' loaded' : ''}`}
       onLoad={() => setLoaded(true)}
+      onError={() => {
+        if (attempt < 1) {
+          setTimeout(() => setAttempt(a => a + 1), 1500);
+        }
+      }}
     />
   );
 }

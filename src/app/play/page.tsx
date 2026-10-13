@@ -101,16 +101,32 @@ type NetDisplayMode = '4:3' | '16:9';
  * touch heuristic covers phones (including iOS, whose per-page limit is
  * the strictest). SSR-safe: the page prerenders without navigator.
  */
-const WASM_HEAP_LIMIT_MIB = ((): number => {
-  if (typeof navigator === 'undefined') return 800;
+function detectMemoryConstrained(): boolean {
+  if (typeof navigator === 'undefined') return false;
   const dm = (navigator as unknown as { deviceMemory?: number }).deviceMemory;
   const mobileUA = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
   const mobileTouch = mobileUA && (navigator.maxTouchPoints || 0) > 0;
-  const constrained =
-    (typeof dm === 'number' && dm > 0 && dm <= 4) ||
+  // NOTE: the expression MUST start on this line — a newline after `return`
+  // would trigger ASI and make the function return undefined unconditionally.
+  return (typeof dm === 'number' && dm > 0 && dm <= 4) ||
     (dm === undefined && mobileTouch);
-  return constrained ? 400 : 800;
+}
+
+// Computed once at chunk evaluation; shared by the heap ceiling and the
+// background-warmup gating so every memory decision uses ONE signal.
+const MEMORY_CONSTRAINED = detectMemoryConstrained();
+
+const WASM_HEAP_LIMIT_MIB = ((): number => {
+  if (typeof navigator === 'undefined') return 800;
+  return MEMORY_CONSTRAINED ? 400 : 800;
 })();
+
+// Background warmup cap for memory-constrained devices: lazy files LARGER
+// than this are skipped (loaded on demand only when actually used). The
+// lazy set is ~15 MB of which system.sff (~9.2 MB) + system.snd (~3.7 MB)
+// are 88% — holding all of it resident costs a phone tab whose budget is
+// already fought over by the WASM heap + WebGL + injected characters.
+const VFS_PREFETCH_MAX_FILE_BYTES = 512 * 1024;
 
 // Captured BEFORE the VFS fetch rewrite is installed (boot time), so the
 // wasm/manifest fetches below always bypass the VFS patch — the same
@@ -855,8 +871,17 @@ function PlayPageInner() {
           if (prefetchPoll) { clearInterval(prefetchPoll); prefetchPoll = null; }
           if (prefetchTimer) { clearTimeout(prefetchTimer); prefetchTimer = null; }
           try {
-            const p = (g.ikemenVfsPrefetch as any)?.();
-            log('VFS: warming menu/UI assets in the background...');
+            // Memory-constrained devices warm only small files — the big
+            // ones (system.sff/system.snd) load on demand when first used,
+            // trading a one-time fetch on menu open for ~13 MB of always-
+            // resident heap (the phone tab-kill/refresh family).
+            const p = (g.ikemenVfsPrefetch as any)?.(
+              undefined,
+              MEMORY_CONSTRAINED ? { maxFileBytes: VFS_PREFETCH_MAX_FILE_BYTES } : undefined
+            );
+            log(MEMORY_CONSTRAINED
+              ? 'VFS: warming small UI assets (large ones load on demand)...'
+              : 'VFS: warming menu/UI assets in the background...');
             if (p && typeof p.catch === 'function') p.catch(() => {});
           } catch { /* warmup must never break the fight */ }
         };
