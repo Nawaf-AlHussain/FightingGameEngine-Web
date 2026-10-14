@@ -269,6 +269,17 @@
     if (diagLines.length > 20) diagLines.shift();
     renderDiag();
   }
+  // Hot-path counterpart: during a match the byte counters advance on EVERY
+  // datachannel packet, engine read and send (60-180 calls/s combined), and
+  // each used to rewrite the whole overlay's textContent - a forced
+  // style/layout+paint on the same main thread as the game loop, every
+  // frame, for a panel nobody is reading mid-fight. Hot sites now only mark
+  // the overlay dirty; watchTransport's existing 3s tick paints the update
+  // (counter granularity of 3s is exactly what the freeze-diagnosis story
+  // needs). Log lines (netLog) still paint immediately - they are rare and
+  // they ARE the debugging payload.
+  let diagDirty = false;
+  function markDiag() { diagDirty = true; }
   function renderDiag() {
     if (!diag) {
       // Sits in the PAGE FLOW directly under the game, collapsed to its
@@ -474,7 +485,7 @@
         } catch (err) { netLog('bad control frame: ' + err.message); }
         return; // website-level message, never for the engine
       }
-      bytesRecv += u.length; chunks.push(u); renderDiag();
+      bytesRecv += u.length; chunks.push(u); markDiag();
     };
     dc.onclose = () => { isClosed = true; isConnected = false; netLog('data channel CLOSED by peer'); };
     dc.onerror = (e) => { isFailed = true; netLog('data channel ERROR: ' + (e && e.error && e.error.message || 'unknown')); };
@@ -527,6 +538,10 @@
       lastBuf = buf;
       const line = 'path ' + path + ', send-buffer ' + dc.bufferedAmount + 'B' + (pingSeen ? '' : ', NO peer ping yet');
       if (line !== lastLine) { lastLine = line; netLog(line); }
+      // Deferred counter repaint: the per-packet/read/send hot sites only
+      // marked the overlay dirty (see markDiag) - this 3s tick is the only
+      // thing that pays for the DOM write mid-fight.
+      if (diagDirty) renderDiag();
     }, 3000);
   }
 
@@ -1285,12 +1300,12 @@
       const out = head.subarray(chunkOff, chunkOff + n);
       if (n === avail) { chunks.shift(); chunkOff = 0; }
       else chunkOff += n;
-      bytesReadByEngine += n; renderDiag();
+      bytesReadByEngine += n; markDiag();
       return out;
     },
     send(u8) {
       if (!dc || dc.readyState !== 'open') return false;
-      try { dc.send(u8); bytesSent += u8.length; renderDiag(); return true; } catch { return false; }
+      try { dc.send(u8); bytesSent += u8.length; markDiag(); return true; } catch { return false; }
     },
     // GGPO datagram channel (V2 rollback). readGGPO returns ONE whole
     // datagram (Uint8Array), an empty array when none pending, or null
@@ -1307,7 +1322,7 @@
     // header like any fighting game's ping counter).
     setPing(ms) {
       pingMs = ms;
-      renderDiag();
+      markDiag();
     },
     // Engine-side diagnostic line onto the on-screen overlay (so handshake
     // progress is visible without opening the browser console).

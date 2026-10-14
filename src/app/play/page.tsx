@@ -587,25 +587,63 @@ function PlayPageInner() {
         try { sessionStorage.removeItem('ikemen-boot-live'); } catch { /* ignore */ }
       };
 
+      // The boot log mirrors its lines in JS (bootLines + a prefix→index map)
+      // instead of re-parsing the DOM. Rationale (Batch 4): progress callbacks
+      // ([PAK]/[P1]/[P2]/[STAGE]) can fire hundreds of times a second on a
+      // fast connection, and each update used to split the WHOLE log text,
+      // linear-scan for the prefix, rejoin, rewrite the <pre>, force layout
+      // via scrollTop AND append to the sessionStorage bootlog — five costs
+      // per tick for one changing line. Now: O(1) line update in the buffer,
+      // ONE DOM write per animation frame (flushBoot), and progress snapshots
+      // recorded to the crash-diagnosis bootlog at most once per second per
+      // prefix (the next log() line records the final value anyway).
+      const bootLines: string[] = [];
+      const liveLineIdx = new Map<string, number>();
+      let bootFlushScheduled = false;
+      let bootTextDirty = false;
+      const flushBoot = () => {
+        bootFlushScheduled = false;
+        if (cancelled || !bootTextDirty) return;
+        bootTextDirty = false;
+        boot.textContent = bootLines.join('\n');
+        boot.scrollTop = boot.scrollHeight;
+      };
+      const scheduleBootFlush = () => {
+        if (bootFlushScheduled) return;
+        bootFlushScheduled = true;
+        requestAnimationFrame(flushBoot);
+      };
+
       const log = (msg: string) => {
         if (cancelled) return;
-        boot.textContent += '\n' + msg;
-        boot.scrollTop = boot.scrollHeight;
+        bootLines.push(msg);
+        bootTextDirty = true;
+        scheduleBootFlush();
         console.log('[boot]', msg);
         recordBootLine(msg);
       };
 
       // In-place line update for progress displays ([PAK]/[P1]/[P2]/[STAGE]).
       // Hoisted here so the online preboot can show .pak progress too.
+      const liveRecordedAt = new Map<string, number>();
       const setBootLine = (prefix: string, text: string) => {
         if (cancelled) return;
-        const lines = boot.textContent.split('\n');
-        const idx = lines.findIndex(l => l.startsWith(prefix));
-        if (idx >= 0) lines[idx] = prefix + text;
-        else lines.push(prefix + text);
-        boot.textContent = lines.join('\n');
-        boot.scrollTop = boot.scrollHeight;
-        recordBootLine(prefix + text);
+        const line = prefix + text;
+        const idx = liveLineIdx.get(prefix);
+        if (idx !== undefined) bootLines[idx] = line;
+        else {
+          liveLineIdx.set(prefix, bootLines.length);
+          bootLines.push(line);
+        }
+        bootTextDirty = true;
+        scheduleBootFlush();
+        // Crash-diagnosis value is "what was it doing when it died" — a 1s
+        // stale progress snapshot answers that just as well as 60 per second.
+        const now = Date.now();
+        if (now - (liveRecordedAt.get(prefix) || 0) >= 1000) {
+          liveRecordedAt.set(prefix, now);
+          recordBootLine(line);
+        }
       };
 
       {

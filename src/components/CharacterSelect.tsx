@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  memo,
   useCallback,
   useEffect,
   useRef,
@@ -733,65 +734,26 @@ export default function CharacterSelect({
     },
     [roster, dP1, dP2, isReady]
   );
-
-  // ---- Render the download status block for a card ----
-  const renderDownloadStatus = (char: LocalCharacter) => {
-    // Bundled characters (KFM) — always ready, no download needed.
-    if (char.bundled) {
-      return (
-        <div className="cs__card-download" style={{ color: 'var(--green)' }}>
-          BUNDLED
-        </div>
-      );
-    }
-
-    // Already cached (in IndexedDB before mount or via a completed download).
-    if (cachedIds.has(char.id)) {
-      return (
-        <div className="cs__card-download" style={{ color: 'var(--green)' }}>
-          ✓ CACHED
-        </div>
-      );
-    }
-
-    const ds = downloadStates[char.id];
-
-    // Download in progress — show percent + progress bar.
-    if (ds?.status === 'downloading') {
-      return (
-        <>
-          <div className="cs__card-download">
-            DOWNLOADING · {ds.progress}%
-          </div>
-          <div className="cs__card-progress" aria-hidden="true">
-            <div
-              className="cs__card-progress-fill"
-              style={{ width: `${ds.progress}%` }}
-            />
-          </div>
-        </>
-      );
-    }
-
-    // Download failed — the label doubles as the retry affordance: clicking
-    // the card re-triggers the download via handleCardClick (spec Section 16).
-    if (ds?.status === 'error') {
-      return (
-        <div className="cs__card-download" style={{ color: 'var(--red)' }}>
-          ⚠ FAILED — TAP TO RETRY
-        </div>
-      );
-    }
-
-    // Not yet downloaded — show size hint.
-    return (
-      <div className="cs__card-download">
-        DOWNLOAD · {char.sizeMB.toFixed(1)} MB
-      </div>
-    );
-  };
+  // (the per-card download status block moved into CharacterCard below —
+  // it is derived inside the memoized card from primitive props)
 
   const showDifficulty = p2IsAI || p1IsAI;
+
+  // ---- Memoized card grid (Batch 4) ----
+  // The roster renders 100+ cards, and EVERY parent state change — a
+  // download progress tick, a cursor move, a search keystroke — used to
+  // reconcile all of them. Cards are now memoized on primitive props:
+  // a progress tick re-renders exactly ONE card (unchanged downloadStates
+  // entries keep their object identity through the spread update) and a
+  // cursor move touches only the cards it left/entered. handleCardClick is
+  // cursor-dependent (its identity changes on every move), so the card gets
+  // a stable latest-ref wrapper instead — identical behavior, one identity.
+  const handleCardClickRef = useRef(handleCardClick);
+  handleCardClickRef.current = handleCardClick;
+  const onCardClick = useCallback(
+    (index: number) => handleCardClickRef.current(index),
+    []
+  );
 
   // ---- Status line for the FIGHT button area ----
   const fightStatus = online
@@ -987,49 +949,23 @@ export default function CharacterSelect({
           </div>
         )}
         {!loading &&
-          filteredRoster.map(({ char, index }) => {
-            const isP1Here = dP1.index === index;
-            const isP2Here = dP2.index === index;
-            const p1LockedHere = isP1Here && dP1.locked;
-            const p2LockedHere = isP2Here && dP2.locked;
-            return (
-              <div
-                key={char.id}
-                className={cardClasses(index)}
-                style={{
-                  animationDelay: `${Math.min(index * 25, 600)}ms`,
-                }}
-                onClick={() => handleCardClick(index)}
-                role="gridcell"
-                tabIndex={-1}
-              >
-                <div className="cs__card-portrait">
-                  <div className="cs__card-fallback">
-                    {char.displayName.charAt(0).toUpperCase()}
-                  </div>
-                  {char.portrait && (
-                    <PortraitImg src={char.portrait} className="cs__card-img" />
-                  )}
-                  {isP1Here && (
-                    <div
-                      className={`cs__card-cursor cs__cursor--p1${p1LockedHere ? ' cs__cursor--locked' : ''}`}
-                    >
-                      {online ? (ownPlayer === 1 ? 'YOU' : 'P1') : 'P1'}{p1LockedHere ? ' ✓' : ''}
-                    </div>
-                  )}
-                  {isP2Here && (
-                    <div
-                      className={`cs__card-cursor cs__cursor--p2${p2LockedHere ? ' cs__cursor--locked' : ''}`}
-                    >
-                      {online ? (ownPlayer === 2 ? 'YOU' : 'P2') : (p2IsAI ? 'CPU' : 'P2')}{p2LockedHere ? ' ✓' : ''}
-                    </div>
-                  )}
-                </div>
-                <div className="cs__card-info">{char.displayName}</div>
-                {renderDownloadStatus(char)}
-              </div>
-            );
-          })}
+          filteredRoster.map(({ char, index }) => (
+            <CharacterCard
+              key={char.id}
+              char={char}
+              index={index}
+              className={cardClasses(index)}
+              cached={cachedIds.has(char.id)}
+              ds={downloadStates[char.id]}
+              p1Here={dP1.index === index}
+              p1Locked={dP1.index === index && dP1.locked}
+              p1Cursor={online ? (ownPlayer === 1 ? 'YOU' : 'P1') : 'P1'}
+              p2Here={dP2.index === index}
+              p2Locked={dP2.index === index && dP2.locked}
+              p2Cursor={online ? (ownPlayer === 2 ? 'YOU' : 'P2') : (p2IsAI ? 'CPU' : 'P2')}
+              onCardClick={onCardClick}
+            />
+          ))}
       </div>
 
       {/* Footer */}
@@ -1129,6 +1065,110 @@ export default function CharacterSelect({
     </main>
   );
 }
+
+// ---------------------------------------------------------------------------
+// CharacterCard subcomponent (memoized)
+// ---------------------------------------------------------------------------
+
+/** One roster card. Memoized on all-primitive props (char/ds identity comes
+ *  from state, so unchanged entries keep referential equality across parent
+ *  renders) — during a download only the downloading card re-renders, during
+ *  a cursor move only the cards the cursor left/entered. The download status
+ *  block mirrors the original renderDownloadStatus precedence: bundled →
+ *  cached → downloading (percent + bar) → failed (retry affordance) → size
+ *  hint. */
+const CharacterCard = memo(function CharacterCard({
+  char,
+  index,
+  className,
+  cached,
+  ds,
+  p1Here,
+  p1Locked,
+  p1Cursor,
+  p2Here,
+  p2Locked,
+  p2Cursor,
+  onCardClick,
+}: {
+  char: LocalCharacter;
+  index: number;
+  className: string;
+  cached: boolean;
+  ds?: DownloadState;
+  p1Here: boolean;
+  p1Locked: boolean;
+  p1Cursor: string;
+  p2Here: boolean;
+  p2Locked: boolean;
+  p2Cursor: string;
+  onCardClick: (index: number) => void;
+}) {
+  return (
+    <div
+      className={className}
+      style={{
+        animationDelay: `${Math.min(index * 25, 600)}ms`,
+      }}
+      onClick={() => onCardClick(index)}
+      role="gridcell"
+      tabIndex={-1}
+    >
+      <div className="cs__card-portrait">
+        <div className="cs__card-fallback">
+          {char.displayName.charAt(0).toUpperCase()}
+        </div>
+        {char.portrait && (
+          <PortraitImg src={char.portrait} className="cs__card-img" />
+        )}
+        {p1Here && (
+          <div
+            className={`cs__card-cursor cs__cursor--p1${p1Locked ? ' cs__cursor--locked' : ''}`}
+          >
+            {p1Cursor}{p1Locked ? ' ✓' : ''}
+          </div>
+        )}
+        {p2Here && (
+          <div
+            className={`cs__card-cursor cs__cursor--p2${p2Locked ? ' cs__cursor--locked' : ''}`}
+          >
+            {p2Cursor}{p2Locked ? ' ✓' : ''}
+          </div>
+        )}
+      </div>
+      <div className="cs__card-info">{char.displayName}</div>
+      {char.bundled ? (
+        <div className="cs__card-download" style={{ color: 'var(--green)' }}>
+          BUNDLED
+        </div>
+      ) : cached ? (
+        <div className="cs__card-download" style={{ color: 'var(--green)' }}>
+          ✓ CACHED
+        </div>
+      ) : ds?.status === 'downloading' ? (
+        <>
+          <div className="cs__card-download">
+            DOWNLOADING · {ds.progress}%
+          </div>
+          <div className="cs__card-progress" aria-hidden="true">
+            <div
+              className="cs__card-progress-fill"
+              style={{ width: `${ds.progress}%` }}
+            />
+          </div>
+        </>
+      ) : ds?.status === 'error' ? (
+        <div className="cs__card-download" style={{ color: 'var(--red)' }}>
+          ⚠ FAILED — TAP TO RETRY
+        </div>
+      ) : (
+        <div className="cs__card-download">
+          DOWNLOAD · {char.sizeMB.toFixed(1)} MB
+        </div>
+      )}
+    </div>
+  );
+});
 
 // ---------------------------------------------------------------------------
 // PlayerTag subcomponent
