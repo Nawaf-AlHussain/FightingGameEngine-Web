@@ -1,7 +1,21 @@
 import type { Metadata, Viewport } from 'next';
+import { Oswald } from 'next/font/google';
 import './globals.css';
 import '@/styles/game.css';
 import { WipeTransitionProvider } from '@/components/WipeTransition';
+
+// Self-hosted at build time via next/font (Batch 4): the render-blocking
+// fonts.googleapis.com stylesheet is gone — no external CSS request in the
+// critical path (it used to delay first paint of EVERY route, worst on
+// phones with a cold connection), no third-party connection, and the font
+// is preloaded + size-adjusted by the framework automatically. The family
+// is exposed as --font-oswald for game.css (--font-display).
+const oswald = Oswald({
+  subsets: ['latin'],
+  weight: ['400', '600', '700'],
+  display: 'swap',
+  variable: '--font-oswald',
+});
 
 export const metadata: Metadata = {
   title: 'Fighting Game Engine — Web',
@@ -29,11 +43,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta name="apple-mobile-web-app-status-bar-style" content="black" />
         <meta name="apple-mobile-web-app-title" content="Fighting Game Engine" />
         <script src="/game/fullscreen.js" defer />
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;600;700&display=swap" rel="stylesheet" />
       </head>
-      <body className="bg-black text-white antialiased">
+      <body className={`${oswald.variable} bg-black text-white antialiased`}>
         <WipeTransitionProvider>{children}</WipeTransitionProvider>
       </body>
     </html>

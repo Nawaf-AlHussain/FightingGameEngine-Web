@@ -14,7 +14,10 @@
   --gray-dark:  #2a2a2a;
   --gold:       #ffc83d;
   --green:      #2ecc71;
-  --font-display: 'Oswald', 'Bebas Neue', system-ui, sans-serif;
+  /* Oswald is self-hosted via next/font (layout.tsx) and registered under a
+     generated family name exposed as --font-oswald. Falls back to the old
+     webfont name if the variable is ever absent. */
+  --font-display: var(--font-oswald, 'Oswald'), 'Bebas Neue', system-ui, sans-serif;
   --font-mono:   ui-monospace, 'SF Mono', Monaco, Consolas, monospace;
   /* Player identity colors — consistent across all screens */
   --p1-color:   #d92323;
