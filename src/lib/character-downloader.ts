@@ -166,6 +166,19 @@ function setRosterFingerprint(text: string, version: number): void {
   g.engineRosterVersion = String(version);
 }
 
+/** Cache-buster bump: change when a cache tier (Vercel edge / Next data
+ *  cache / browser) is found serving POISONED bytes for the current ?v=
+ *  namespace. The Oct-2025 incident: a Range request against /api/cdn had
+ *  its 206 PARTIAL response edge-cached under the full ?v=3 URL, so every
+ *  later fetch of e.g. android16.def received a 259-byte truncation and the
+ *  engine panicked at fight load ("open a: No such file or directory" →
+ *  black screen, local AND online). Re-namespacing the query made every
+ *  poisoned entry unreachable in one deploy. The suffix also flows into the
+ *  IndexedDB meta records (CachedMeta.mv), so devices that had already
+ *  cached truncated bytes re-download automatically. Bump .r2 → .r3 on any
+ *  future poisoning — the cost is one roster-wide re-download. */
+const CACHE_BUSTER_BUMP = '.r2';
+
 /** Cache-busting query pinning the manifest version that listed these files.
  *  /api/cdn serves MUTABLE main-branch GitHub content; without this, a
  *  browser's pinned HTTP copy (and the IndexedDB cache) could keep serving
@@ -194,7 +207,12 @@ export async function fetchAssetsManifest(): Promise<AssetsManifest> {
   // Stamp the manifest version onto every entry: the download paths turn it
   // into a ?v= cache-buster and the IndexedDB meta records store it, so a
   // future roster/content update re-downloads instead of serving stale bytes.
-  const mv = String(manifest.version ?? '');
+  // CACHE_BUSTER_BUMP rides along so a bump re-downloads every cached entry
+  // (heals poisoned IDB bytes) and moves every asset URL to a fresh,
+  // never-before-cached edge namespace in the same deploy.
+  // NOTE: setRosterFingerprint below keeps using the RAW manifest version —
+  // the netplay handshake must stay a pure function of the manifest bytes.
+  const mv = String(manifest.version ?? '') + CACHE_BUSTER_BUMP;
   for (const c of manifest.characters) (c as { __mv?: string }).__mv = mv;
   for (const s of manifest.stages) (s as { __mv?: string }).__mv = mv;
   setRosterFingerprint(text, manifest.version ?? 0);

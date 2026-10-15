@@ -1,35 +1,85 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-// CDN proxy: fetches character/stage files from GitHub raw and serves them
-// to the browser with CORS headers. jsDelivr returns 403 for some files
-// (especially those with special characters like '!' in the name), and
-// raw.githubusercontent.com doesn't set CORS headers, so the browser can't
-// fetch directly. This server-side proxy solves both problems.
+// CDN proxy: fetches character/stage files and serves them to the browser
+// with CORS headers. jsDelivr returns 403 for some files (especially those
+// with special characters like '!' in the name), and raw.githubusercontent.com
+// doesn't set CORS headers, so the browser can't fetch directly. This
+// server-side proxy solves both problems.
 //
 // URL format: /api/cdn/chars/Bardock/Bardock.sff
-// Fetches from: https://raw.githubusercontent.com/FightingGameEngine/Assets/main/chars/Bardock/Bardock.sff
 //
-// STREAMING + EDGE CACHE (Batch 3) — the "DC / Guilty Gear / DBZ portraits
-// don't load" fix:
-// The old handler awaited res.arrayBuffer() (whole file buffered in the
-// serverless function's memory — a 100 MB character .sff held a 100 MB
-// buffer per concurrent request) and advertised no s-maxage, so the Vercel
-// edge cache never engaged. EVERY request — including the ~85 portrait PNGs
-// a select-screen view renders at once — executed the function and hit
-// GitHub raw, whose throttling of shared datacenter egress IPs returns
-// 429/503 storms to exactly those bursts (broken images on whichever roster
-// tab was browsed). Now the upstream body streams straight through, success
-// responses carry s-maxage=31536000 (+SWR) so the edge serves repeat
-// fetches, and error responses are no-store so a throttled 429 can never be
-// pinned into any cache. Range headers pass through (GitHub raw supports
-// them) so future resumable downloads / media consumers work unchanged.
+// ── THE CONTENT-LENGTH RULE (Oct-2025 black-screen incident) ──────────────
+// The engine parses a character's .def, then opens every file it lists. A
+// def truncated mid-line ("st = a" out of "st = android16.cns") makes it try
+// to open a state file literally named "a", panic at fight load
+// ("open a: No such file or directory"), and black-screen — in every mode.
+//
+// HOW A DEF GETS TRUNCATED: this route's upstream fetch runs through
+// Next/undici, which transparently COMPRESSES the transfer (Accept-Encoding)
+// and DECOMPRESSES res.body — while res.headers['content-length'] still
+// carries the COMPRESSED wire size (e.g. 259 for a 444-byte def). The old
+// handler passed that header through untouched next to the DECOMPRESSED
+// body. Downstream caches (Vercel edge, browser) trust content-length and
+// cut/serve exactly that many bytes — so every asset whose gzip size is
+// smaller than its real size was silently truncated to its gzip size, then
+// pinned by s-maxage. The ?v= versioned URLs (netplay byte-consistency fix)
+// repopulated the entire edge namespace afterwards, so effectively every
+// character downloaded since then was a truncated-bytes lottery — local and
+// online alike. jsDelivr-vs-GitHub-raw was never the problem: BOTH upstreams
+// delivered correct 444-byte bodies with lying (compressed) headers.
+//
+// THEREFORE, in this handler:
+//  1. `content-length` is NEVER relayed from upstream. In the buffered path
+//     it is re-set from the verified local body; in the streaming path it is
+//     omitted entirely (chunked transfer-encoding) because the true
+//     decompressed size is unknowable without buffering.
+//  2. Files ≤ VERIFY_BUFFER_LIMIT are buffered once (bounded serverless
+//     memory — never a whole 100 MB character per request) and served from
+//     the buffer, so the length we declare is the length we served.
+//  3. Larger files stream. They are cacheable ONLY via jsDelivr (its edge
+//     handles integrity); if the streaming source is GitHub raw the response
+//     is no-store so a suspect body can never outlive the request.
+//  4. Range requests are not forwarded: a 206 partial body cached under a
+//     full URL is another way to pin incomplete bytes. No consumer needs
+//     Range today (the downloader fetches whole files).
+//  5. Cache-buster interplay: character-downloader.ts appends
+//     ?v=<manifestVersion>.rN (CACHE_BUSTER_BUMP) to every asset URL. Bump
+//     that constant to make every entry poisoned under an old namespace
+//     unreachable AND to force IndexedDB meta staleness (device-side
+//     re-download) in one deploy. r2 = this incident.
 
+const JSDELIVR_BASE = 'https://cdn.jsdelivr.net/gh/FightingGameEngine/Assets@main/';
 const GITHUB_RAW_BASE = 'https://raw.githubusercontent.com/FightingGameEngine/Assets/main/';
 
-// Upstream response headers worth relaying when present: content-length
-// lets the browser show real download progress; content-range/accept-ranges
-// keep Range responses coherent; etag/last-modified enable revalidation.
-const PASSTHROUGH_HEADERS = ['content-length', 'content-range', 'etag', 'last-modified', 'accept-ranges'] as const;
+// Files at or below this size are buffered and served with an exact
+// Content-Length (portraits, .def/.cns/.cmd/.air, most .sff/.snd). Larger
+// files stream without a declared length. Bounds serverless memory: worst
+// case is one 12 MB buffer per in-flight request, never a 100 MB character.
+const VERIFY_BUFFER_LIMIT = 12 * 1024 * 1024;
+
+// Content type by extension (fallback — both upstreams already serve an
+// accurate content-type for portraits and text files).
+const contentTypes: Record<string, string> = {
+  cns: 'text/plain', cmd: 'text/plain', air: 'text/plain',
+  def: 'text/plain', lua: 'text/plain', ini: 'text/plain',
+  json: 'application/json', sff: 'application/octet-stream',
+  snd: 'application/octet-stream', act: 'application/octet-stream',
+  ogg: 'audio/ogg', wav: 'audio/wav', mp3: 'audio/mpeg',
+  ttf: 'font/ttf', otf: 'font/otf', st: 'text/plain',
+  dat: 'application/octet-stream', txt: 'text/plain',
+  png: 'image/png',
+};
+
+const CACHEABLE = 'public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800';
+const UNCACHEABLE = 'no-store';
+
+function baseHeaders(contentType: string, cacheControl: string): Headers {
+  const h = new Headers();
+  h.set('Content-Type', contentType);
+  h.set('Cache-Control', cacheControl);
+  h.set('Access-Control-Allow-Origin', '*');
+  return h;
+}
 
 export async function GET(
   request: NextRequest,
@@ -46,67 +96,77 @@ export async function GET(
     );
   }
 
-  const url = GITHUB_RAW_BASE + vpath;
+  const ext = vpath.split('.').pop()?.toLowerCase() || '';
+  const contentType = contentTypes[ext] || 'application/octet-stream';
 
-  try {
-    // Forward Range requests so partial fetches stay partial end-to-end.
-    const range = request.headers.get('range');
-    const res = await fetch(url, {
-      cache: 'force-cache',
-      ...(range ? { headers: { Range: range } } : {}),
-    });
+  // jsDelivr first (its edge owns integrity; cacheable); GitHub raw as the
+  // uncacheable fallback (403-prone '!' names, outages). NOTE: no explicit
+  // `cache` option on these fetches — this handler is inherently dynamic
+  // (per-request path) so Next's data cache does not engage, and passing
+  // cache options through Next 16's patched fetch misbehaved in testing.
+  const upstreams: Array<{ url: string; cacheable: boolean }> = [
+    { url: JSDELIVR_BASE + vpath, cacheable: true },
+    { url: GITHUB_RAW_BASE + vpath, cacheable: false },
+  ];
 
-    if (!res.ok) {
-      // Never cache failures: a throttled 429 / transient 503 cached with
-      // immutable would break that file until the next deploy.
+  for (const upstream of upstreams) {
+    let res: Response;
+    try {
+      // 15s cap: a stalled upstream (throttling, edge hang) must fail over
+      // fast — a character download waits on this before the fight can start.
+      res = await fetch(upstream.url, { signal: AbortSignal.timeout(15_000) });
+    } catch {
+      continue; // network error / timeout — try the next upstream
+    }
+    if (res.status !== 200) {
+      // 404 on jsDelivr for special-char names is expected — fall through.
+      // Any non-200 is served no-store so a throttled 429 / transient 503
+      // can never be pinned into any cache.
+      if (upstream.cacheable) continue;
       return NextResponse.json(
         { error: `CDN file not found: ${vpath} (${res.status})` },
-        { status: res.status, headers: { 'Cache-Control': 'no-store' } }
+        { status: res.status, headers: { 'Cache-Control': UNCACHEABLE } }
       );
     }
 
-    // Determine content type from extension (fallback — GitHub raw already
-    // serves an accurate content-type for portraits and text files).
-    const ext = vpath.split('.').pop()?.toLowerCase() || '';
-    const contentTypes: Record<string, string> = {
-      cns: 'text/plain', cmd: 'text/plain', air: 'text/plain',
-      def: 'text/plain', lua: 'text/plain', ini: 'text/plain',
-      json: 'application/json', sff: 'application/octet-stream',
-      snd: 'application/octet-stream', act: 'application/octet-stream',
-      ogg: 'audio/ogg', wav: 'audio/wav', mp3: 'audio/mpeg',
-      ttf: 'font/ttf', otf: 'font/otf', st: 'text/plain',
-      dat: 'application/octet-stream', txt: 'text/plain',
-      png: 'image/png',
-    };
+    const cacheable = upstream.cacheable;
 
-    const headers = new Headers();
-    headers.set('Content-Type', res.headers.get('content-type') || contentTypes[ext] || 'application/octet-stream');
-    headers.set(
-      'Cache-Control',
-      // BOUNDED freshness (netplay correctness — see the ?v= buster in
-      // character-downloader.ts): these URLs serve MUTABLE main-branch
-      // GitHub content, and lockstep netplay requires every player to hold
-      // byte-identical character data. The previous max-age=31536000 +
-      // immutable let one player's browser pin pre-update bytes for a year
-      // while another downloaded fresh ones — same build hash, divergent
-      // data, desync. Browsers now revalidate daily; the edge keeps serving
-      // repeat fetches (s-maxage + SWR) so the portrait-burst economics of
-      // the Batch 3 fix are preserved, and the manifest-version query (?v=)
-      // bypasses every cache tier the moment the roster bumps a version.
-      'public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800'
-    );
-    headers.set('Access-Control-Allow-Origin', '*');
-    for (const h of PASSTHROUGH_HEADERS) {
-      const v = res.headers.get(h);
-      if (v) headers.set(h, v);
+    // Buffered path: the ONLY path that may declare a Content-Length, taken
+    // whenever the body is small enough to hold once. The declared length is
+    // the actual served length — never the upstream's (compressed) header.
+    if (res.body) {
+      try {
+        const buf = await res.arrayBuffer();
+        if (buf.byteLength <= VERIFY_BUFFER_LIMIT) {
+          const headers = baseHeaders(contentType, cacheable ? CACHEABLE : UNCACHEABLE);
+          headers.set('Content-Length', String(buf.byteLength));
+          const etag = res.headers.get('etag');
+          if (etag) headers.set('ETag', etag);
+          const lm = res.headers.get('last-modified');
+          if (lm) headers.set('Last-Modified', lm);
+          return new NextResponse(buf, { status: 200, headers });
+        }
+      } catch {
+        continue; // body read failed mid-transfer — try the next upstream
+      }
     }
 
-    // Stream the upstream body through — no whole-file buffering.
-    return new NextResponse(res.body, { status: res.status, headers });
-  } catch (e) {
-    return NextResponse.json(
-      { error: `CDN proxy error: ${e instanceof Error ? e.message : String(e)}` },
-      { status: 500, headers: { 'Cache-Control': 'no-store' } }
-    );
+    // Streaming path (body > 12 MB, or an unreadable stream from the first
+    // upstream reached here after falling through). No Content-Length is
+    // declared — see the content-length rule above; downstream caches see
+    // chunked transfer-encoding and cannot cut the body at a stale length.
+    // GitHub raw streams stay no-store: an unverifiable body must never be
+    // pinned by any cache.
+    const headers = baseHeaders(contentType, cacheable ? CACHEABLE : UNCACHEABLE);
+    const etag = res.headers.get('etag');
+    if (etag) headers.set('ETag', etag);
+    const lm = res.headers.get('last-modified');
+    if (lm) headers.set('Last-Modified', lm);
+    return new NextResponse(res.body, { status: 200, headers });
   }
+
+  return NextResponse.json(
+    { error: `CDN proxy error: all upstreams failed for ${vpath}` },
+    { status: 502, headers: { 'Cache-Control': UNCACHEABLE } }
+  );
 }
