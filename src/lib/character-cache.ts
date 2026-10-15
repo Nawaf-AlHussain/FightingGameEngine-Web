@@ -141,10 +141,24 @@ export interface CachedAsset {
   timestamp: number;
 }
 
-/** Metadata record: name list only — never carries payload bytes. */
+/** Metadata record: name list only — never carries payload bytes.
+ *
+ *  mv (manifest version, optional): the Assets-manifest `version` that was
+ *  current when the files were downloaded. A presence check whose CURRENT
+ *  manifest version differs from the recorded one returns "not cached" so
+ *  the files re-download — the cache validates by file NAME only, which
+ *  cannot see a content update that kept the same file names (the desync
+ *  vector: one player on old bytes, the other on new, same build hash).
+ *  Records without mv are legacy and stay valid (no mass re-download). */
 interface CachedMeta {
   files: string[];
   timestamp: number;
+  mv?: string;
+}
+
+/** True when a meta record's manifest version contradicts the current one. */
+function metaIsStale(meta: CachedMeta | null, mv?: string): boolean {
+  return !!(mv && meta && meta.mv && meta.mv !== mv);
 }
 
 /** Presence check against a name list (meta store) or a files record. */
@@ -162,7 +176,7 @@ function namesSatisfy(present: string[], requiredFiles?: string[]): boolean {
 
 // --- Character caching ---
 
-export async function cacheCharacter(id: string, files: Record<string, CachedFileData>): Promise<void> {
+export async function cacheCharacter(id: string, files: Record<string, CachedFileData>, mv?: string): Promise<void> {
   requestPersistentStorage();
   try {
     const db = await openDB();
@@ -172,7 +186,7 @@ export async function cacheCharacter(id: string, files: Record<string, CachedFil
     const tx = db.transaction([CHAR_STORE, CHAR_META_STORE], 'readwrite');
     tx.objectStore(CHAR_STORE).put({ files, timestamp }, id);
     tx.objectStore(CHAR_META_STORE).put(
-      { files: Object.keys(files), timestamp } satisfies CachedMeta,
+      { files: Object.keys(files), timestamp, ...(mv ? { mv } : {}) } satisfies CachedMeta,
       id
     );
     await txDone(tx);
@@ -201,12 +215,12 @@ export async function getCachedCharacter(id: string): Promise<CachedAsset | null
   }
 }
 
-export async function isCharacterCached(id: string, requiredFiles?: string[]): Promise<boolean> {
+export async function isCharacterCached(id: string, requiredFiles?: string[], mv?: string): Promise<boolean> {
   // Fast path: the meta store answers from a KB-sized name list — the full
   // payload record is never read, so a "is this 102 MB character cached?"
   // check costs nothing on the heap.
   const meta = await getMeta(CHAR_META_STORE, id);
-  if (meta) return namesSatisfy(meta.files, requiredFiles);
+  if (meta) return !metaIsStale(meta, mv) && namesSatisfy(meta.files, requiredFiles);
   // No meta entry: either not cached at all, or a legacy pre-v2 record.
   // getKey() distinguishes the two without deserializing any values; a real
   // legacy record falls back to the full read (which also schedules its
@@ -230,7 +244,7 @@ export async function isCharacterCached(id: string, requiredFiles?: string[]): P
 
 // --- Stage caching ---
 
-export async function cacheStage(id: string, files: Record<string, CachedFileData>): Promise<void> {
+export async function cacheStage(id: string, files: Record<string, CachedFileData>, mv?: string): Promise<void> {
   requestPersistentStorage();
   try {
     const db = await openDB();
@@ -238,7 +252,7 @@ export async function cacheStage(id: string, files: Record<string, CachedFileDat
     const tx = db.transaction([STAGE_STORE, STAGE_META_STORE], 'readwrite');
     tx.objectStore(STAGE_STORE).put({ files, timestamp }, id);
     tx.objectStore(STAGE_META_STORE).put(
-      { files: Object.keys(files), timestamp } satisfies CachedMeta,
+      { files: Object.keys(files), timestamp, ...(mv ? { mv } : {}) } satisfies CachedMeta,
       id
     );
     await txDone(tx);
@@ -264,9 +278,9 @@ export async function getCachedStage(id: string): Promise<CachedAsset | null> {
   }
 }
 
-export async function isStageCached(id: string, requiredFiles?: string[]): Promise<boolean> {
+export async function isStageCached(id: string, requiredFiles?: string[], mv?: string): Promise<boolean> {
   const meta = await getMeta(STAGE_META_STORE, id);
-  if (meta) return namesSatisfy(meta.files, requiredFiles);
+  if (meta) return !metaIsStale(meta, mv) && namesSatisfy(meta.files, requiredFiles);
   try {
     const db = await openDB();
     const tx = db.transaction(STAGE_STORE, 'readonly');
