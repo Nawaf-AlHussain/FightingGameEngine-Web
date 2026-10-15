@@ -386,11 +386,22 @@ button {
   background-size: 14px 14px;
 }
 
-/* --- Lobby / Title Screen — the poster --------------------------------
-   Cream paper sheet, giant Anton headline with crimson misregistration,
-   a skewed ink panel on the right with drifting halftone dots, a striped
-   contrail ribbon crossing the page, and numbered print-bar menu items. */
+/* --- Lobby / Title Screen — "Squadron Comic" poster v2 -----------------
+   Full-viewport retro comic-print poster, modeled on the reference:
+   cream paper split by a diagonal from a royal panel carrying a duotone
+   comic hero illustration; giant Anton headline with crimson
+   misregistration that KNOCKS OUT to cream where it crosses the diagonal
+   (two stacked copies sharing the panel's exact geometry); striped
+   contrail ribbon; numbered skew print-bars with an outside red caret;
+   winged-emblem wordmark; corner registration marks; arcade deck.    */
 .lobby {
+  /* geometry shared by the panel + headline knockout layers */
+  --diag-top: 55%;   /* diagonal x at the top edge */
+  --diag-bot: 43%;   /* diagonal x at the deck edge */
+  --deck-h: 64px;    /* arcade deck height */
+  --title-x: 4.5vw;  /* headline left inset */
+  --title-y: 15vh;   /* headline top inset */
+  --title-size: clamp(3.4rem, 17vw, 15.5rem);
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
@@ -400,39 +411,65 @@ button {
   overflow: hidden;
   background: var(--paper);
 }
-/* Diagonal ink panel, right side (desktop) */
-.lobby::before {
-  content: '';
-  position: absolute;
-  top: -10%;
-  bottom: -10%;
-  right: -14%;
-  width: 46%;
-  background: var(--ink);
-  transform: skewX(-14deg);
-  pointer-events: none;
-}
-/* Drifting halftone over the ink panel — transform-only loop (GPU cheap) */
-.lobby::after {
-  content: '';
-  position: absolute;
-  top: -10%;
-  bottom: -10%;
-  right: -14%;
-  width: 46%;
-  background-image: radial-gradient(rgba(242,236,218,0.15) 1.2px, transparent 1.4px);
-  background-size: 14px 14px;
-  transform: skewX(-14deg);
-  animation: halftonePan 7s ease-in-out infinite alternate;
-  pointer-events: none;
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }
 
-/* Masthead — small-caps kicker line across the top, like the reference */
+/* Right diagonal panel: duotone hero art + shade + drifting halftone.
+   The panel IS the artwork — its royal border tone (#2938b4) is the
+   fallback, and a royal wash on the left edge anchors the knockout. */
+.lobby__panel {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: var(--deck-h);
+  clip-path: polygon(var(--diag-top) 0, 100% 0, 100% 100%, var(--diag-bot) 100%);
+  background: #2938b4;
+  /* thin ink edge along the diagonal (drop-shadow follows the clip) */
+  filter: drop-shadow(-3px 0 0 rgba(16, 22, 64, 0.5));
+  z-index: 4;
+  pointer-events: none;
+}
+.lobby__panel-art {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  object-fit: cover; object-position: 30% 5%;
+  user-select: none;
+}
+.lobby__panel-art--b { opacity: 0; object-position: 35% 10%; animation: artSwap 19s ease-in-out infinite; }
+.lobby__panel-shade {
+  position: absolute; inset: 0;
+  background:
+    linear-gradient(90deg, rgba(49,67,214,0.9) 0%, rgba(49,67,214,0.45) 12%, rgba(49,67,214,0) 30%),
+    linear-gradient(0deg, rgba(16,22,64,0.6) 0%, rgba(16,22,64,0) 44%);
+}
+.lobby__panel-dots {
+  position: absolute; inset: 0;
+  background-image: radial-gradient(rgba(242,236,218,0.15) 1.2px, transparent 1.4px);
+  background-size: 14px 14px;
+  animation: halftonePan 7s ease-in-out infinite alternate;
+}
+
+/* Corner registration marks — thin print crosshairs */
+.lobby__reg {
+  position: absolute; width: 15px; height: 15px;
+  z-index: 6; opacity: 0.75; pointer-events: none;
+  background:
+    linear-gradient(currentColor, currentColor) center / 15px 1.5px no-repeat,
+    linear-gradient(currentColor, currentColor) center / 1.5px 15px no-repeat;
+  color: var(--royal);
+}
+.lobby__reg--tl { top: 14px; left: 16px; }
+.lobby__reg--tr { top: 14px; right: 16px; color: rgba(242,236,218,0.85); }
+.lobby__reg--bl { bottom: calc(var(--deck-h) + 10px); left: 16px; }
+.lobby__reg--br { bottom: calc(var(--deck-h) + 10px); right: 16px; color: rgba(242,236,218,0.85); }
+
+/* Masthead kicker row across the top */
 .lobby__masthead {
   position: absolute;
   top: 20px;
-  left: 26px;
-  right: 26px;
+  left: 44px;
+  right: 44px;
   display: flex;
   justify-content: space-between;
   gap: 1rem;
@@ -440,211 +477,284 @@ button {
   font-weight: 700;
   letter-spacing: 0.34em;
   text-transform: uppercase;
-  z-index: 2;
+  z-index: 6;
   pointer-events: none;
 }
 .lobby__masthead-left { color: var(--ink); }
-.lobby__masthead-right { color: var(--paper); }
+.lobby__masthead-right { color: rgba(242,236,218,0.92); }
 .lobby__masthead-right em { font-style: normal; color: var(--crimson); }
 
-/* Contrail ribbon — striped strip crossing behind/over the title */
+/* Contrail ribbon — crimson-edged cream band on a royal centerline,
+   sweeping through the headline junction (under the panel art). */
 .lobby__ribbon {
   position: absolute;
-  top: 27%;
-  left: -10%;
-  width: 120%;
-  height: 11px;
-  transform: rotate(-4deg);
-  z-index: 1;
-  opacity: 0.92;
-  pointer-events: none;
-  overflow: hidden;
-}
-.lobby__ribbon-strip {
-  width: 200%;
+  inset: 0;
+  width: 100%;
   height: 100%;
-  background: repeating-linear-gradient(90deg,
-    var(--crimson) 0 6px,
-    var(--paper) 6px 34px,
-    var(--ink) 34px 42px,
-    var(--paper) 42px 70px,
-    var(--royal) 70px 80px);
-  animation: ribbonSlide 3.4s linear infinite;
+  z-index: 3;
+  pointer-events: none;
+  animation: ribbonDrift 9s ease-in-out infinite alternate;
 }
+.lobby__ribbon path {
+  fill: none;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+.lobby__ribbon-edge  { stroke: var(--crimson); stroke-width: 30px; }
+.lobby__ribbon-body  { stroke: #f7f2e2; stroke-width: 22px; }
+.lobby__ribbon-core  { stroke: var(--royal); stroke-width: 2.5px; }
 
-/* Title — giant Anton with misregistered offset shadows */
+/* Title block — kicker + spacer + mission line (flow anchor) */
 .lobby__title {
-  text-align: center;
-  margin-bottom: 2rem;
-  z-index: 1;
+  position: absolute;
+  top: var(--title-y);
+  left: var(--title-x);
+  z-index: 2;
+  pointer-events: none;
 }
 .lobby__kicker {
-  display: block;
   font-size: 0.68rem;
   font-weight: 700;
   letter-spacing: 0.42em;
   color: var(--royal);
-  margin-bottom: 0.9rem;
   text-transform: uppercase;
+  margin-bottom: 1.1rem;
 }
-.lobby__title-main {
-  font-family: var(--font-poster);
-  font-size: clamp(3.4rem, 12vw, 8rem);
-  font-weight: 400;
-  line-height: 0.88;
-  text-transform: uppercase;
-  letter-spacing: 0.01em;
-}
-.lobby__title-main span {
-  display: block;
-}
-.lobby__title-main span:nth-child(1) {
-  color: var(--royal);
-  text-shadow: 5px 5px 0 var(--crimson);
-}
-.lobby__title-main span:nth-child(2) {
-  color: var(--crimson);
-  text-shadow: 5px 5px 0 var(--ink);
-}
-.lobby__title-sub {
-  display: inline-flex;
+.lobby__headline-slot { height: calc(var(--title-size) * 0.86 * 2); }
+.lobby__mission {
+  display: flex;
   align-items: center;
-  gap: 12px;
-  margin-top: 1.1rem;
-  font-size: 0.78rem;
+  gap: 14px;
+  margin-top: 1.2rem;
+  font-size: clamp(0.8rem, 1.35vw, 1.05rem);
   font-weight: 700;
-  letter-spacing: 0.34em;
-  color: var(--ink);
+  letter-spacing: 0.24em;
+  color: var(--royal);
   text-transform: uppercase;
 }
-.lobby__title-sub::before,
-.lobby__title-sub::after {
-  content: '';
-  width: 34px;
-  height: 3px;
-  background: var(--crimson);
+.lobby__mission em { font-style: normal; color: var(--crimson); }
+.lobby__mission-rule { width: 64px; height: 3px; background: var(--ink); opacity: 0.8; }
+
+/* Headline knockout layers — two copies sharing the panel's geometry.
+   Paper copy: royal fill + crimson misregistration, clipped left of the
+   diagonal. Panel copy: cream knockout, clipped right of it. */
+.lobby__headline {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: var(--deck-h);
+  padding: calc(var(--title-y) + 2.05rem) 0 0 var(--title-x);
+  font-family: var(--font-poster);
+  font-size: var(--title-size);
+  font-weight: 400;
+  line-height: 0.86;
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.lobby__headline--paper {
+  z-index: 2;
+  color: var(--royal);
+  text-shadow: 0.055em -0.035em 0 var(--crimson);
+  clip-path: polygon(0 0, var(--diag-top) 0, var(--diag-bot) 100%, 0 100%);
+}
+.lobby__headline--panel {
+  z-index: 5;
+  color: var(--paper);
+  text-shadow: 0.055em -0.035em 0 var(--crimson);
+  clip-path: polygon(var(--diag-top) 0, 100% 0, 100% 100%, var(--diag-bot) 100%);
 }
 
-/* Menu — numbered print bars (reference: 01/02/03 + red caret) */
+/* Winged emblem + wordmark block (bottom-left, above the deck) */
+.lobby__brand {
+  position: absolute;
+  left: var(--title-x);
+  bottom: calc(var(--deck-h) + 4.5vh);
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  z-index: 6;
+  pointer-events: none;
+}
+.lobby__brand-wing { width: 92px; height: 49px; color: var(--royal); flex: none; }
+.lobby__brand-name {
+  font-size: 1.02rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.lobby__brand-tag {
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: rgba(16, 22, 64, 0.62);
+  margin-top: 5px;
+}
+.lobby__brand-stamp {
+  font-size: 0.56rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(16, 22, 64, 0.5);
+  margin-top: 7px;
+  font-family: var(--font-mono);
+}
+
+/* Menu — numbered print bars riding the panel (reference-faithful):
+   skewed cream bars, red caret OUTSIDE the selected row's left edge,
+   crimson number, cut-tick marks on the right edge. */
 .lobby__menu {
+  position: absolute;
+  right: 4%;
+  top: 50%;
+  transform: translateY(-42%);
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
-  width: min(430px, 88vw);
-  margin-top: 0.25rem;
-  z-index: 1;
+  gap: 13px;
+  width: min(420px, 90vw);
+  z-index: 6;
 }
 .lobby__menu-item {
   --bar-x: 0px;
   position: relative;
   display: flex;
   align-items: center;
-  gap: 0.9rem;
-  padding: 0.72rem 1.4rem;
-  background: var(--paper);
-  color: var(--ink);
-  border: 2px solid var(--ink);
-  box-shadow: 4px 4px 0 rgba(16,16,24,0.85);
+  gap: 1rem;
+  padding: 0.8rem 1.5rem;
+  min-height: 50px;
+  background: transparent;
+  border: none;
+  color: var(--royal);
   font-family: var(--font-display);
   font-size: 1rem;
   font-weight: 700;
-  letter-spacing: 0.2em;
+  letter-spacing: 0.22em;
   text-transform: uppercase;
   cursor: pointer;
   text-align: left;
-  min-height: 48px;
-  transition: transform 0.15s, box-shadow 0.15s, background 0.15s, color 0.15s;
+  transition: transform 0.15s ease;
   animation: barIn 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.15) backwards;
   -webkit-tap-highlight-color: transparent;
 }
+.lobby__menu-item::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(242, 236, 218, 0.88);
+  transform: skewX(-4deg);
+  transition: background 0.15s ease;
+}
+.lobby__menu-item > * { position: relative; z-index: 1; }
 .lobby__menu-item:nth-child(1) { animation-delay: 0.05s; }
 .lobby__menu-item:nth-child(2) { animation-delay: 0.13s; }
 .lobby__menu-item:nth-child(3) { animation-delay: 0.21s; }
 .lobby__menu-item:nth-child(4) { animation-delay: 0.29s; }
-.lobby__menu-item:nth-child(5) { animation-delay: 0.37s; }
-.lobby__menu-item:nth-child(6) { animation-delay: 0.45s; }
 .lobby__menu-item-num {
   font-family: var(--font-poster);
-  font-size: 0.95rem;
+  font-size: 1rem;
   letter-spacing: 0.06em;
   color: var(--royal);
-  min-width: 2ch;
+  min-width: 2.2ch;
+  opacity: 0.75;
 }
-.lobby__menu-item-label {
-  flex: 1;
-  text-align: center;
-}
-.lobby__menu-item-arrow {
+.lobby__menu-item-label { flex: 1; text-align: center; }
+.lobby__menu-item-caret {
+  position: absolute;
+  left: -18px;
+  top: 50%;
+  margin-top: -9px;
   width: 0;
   height: 0;
-  border-top: 7px solid transparent;
-  border-bottom: 7px solid transparent;
-  border-left: 10px solid var(--crimson);
+  border-top: 9px solid transparent;
+  border-bottom: 9px solid transparent;
+  border-left: 13px solid var(--crimson);
   opacity: 0;
   transform: translateX(-6px);
   transition: opacity 0.15s, transform 0.15s;
 }
-.lobby__menu-item--selected {
-  --bar-x: 6px;
-  background: var(--royal);
-  color: var(--paper);
-  box-shadow: 5px 5px 0 var(--crimson);
-  transform: translateX(var(--bar-x));
+.lobby__menu-item-ticks {
+  position: absolute;
+  right: 10px;
+  top: 9px;
+  bottom: 9px;
+  width: 9px;
+  pointer-events: none;
+  background:
+    linear-gradient(var(--ink), var(--ink)) top / 9px 2px no-repeat,
+    linear-gradient(var(--ink), var(--ink)) bottom / 9px 2px no-repeat;
+  opacity: 0.45;
 }
-.lobby__menu-item--selected .lobby__menu-item-num {
-  color: rgba(242,236,218,0.8);
-}
-.lobby__menu-item--selected .lobby__menu-item-arrow {
+.lobby__menu-item--selected,
+.lobby__menu-item:hover { transform: translateX(var(--bar-x)); }
+.lobby__menu-item--selected::before,
+.lobby__menu-item:hover::before { background: #ffffff; }
+.lobby__menu-item--selected .lobby__menu-item-caret,
+.lobby__menu-item:hover .lobby__menu-item-caret {
   opacity: 1;
   transform: translateX(0);
+}
+.lobby__menu-item--selected .lobby__menu-item-caret {
   animation: caretNudge 0.9s ease-in-out infinite alternate;
 }
-.lobby__menu-item:hover {
+.lobby__menu-item--selected .lobby__menu-item-num { color: var(--crimson); opacity: 1; }
+.lobby__menu-item:hover .lobby__menu-item-num { color: var(--crimson); }
+
+/* Arcade deck — full-width bottom strip: SELECT / PRESS ENTER / CONFIRM */
+.lobby__deck {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: var(--deck-h);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0 30px;
+  background: var(--paper);
+  border-top: 2px solid rgba(49, 67, 214, 0.3);
+  z-index: 7;
+}
+.lobby__deck-side {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--royal);
+}
+.lobby__deck-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 4px;
+  border: 1.5px solid rgba(49, 67, 214, 0.65);
+  border-radius: 3px;
+  font-size: 0.6rem;
+}
+.lobby__deck-center {
+  font-family: var(--font-poster);
+  font-size: clamp(0.9rem, 1.6vw, 1.3rem);
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--royal);
+  animation: deckPulse 1.6s ease-in-out infinite alternate;
+}
+.lobby__deck-chip {
+  display: inline-block;
   background: var(--royal);
   color: var(--paper);
+  padding: 0.12em 0.5em 0.1em;
+  border-radius: 3px;
+  letter-spacing: 0.22em;
+  margin: 0 0.35em;
 }
-.lobby__menu-item:hover .lobby__menu-item-num { color: rgba(242,236,218,0.8); }
-.lobby__menu-item:hover .lobby__menu-item-arrow { opacity: 1; transform: translateX(0); }
-
-/* Paper-surface fixed bits */
-.lobby .footer-credit,
-.lobby__version {
-  color: rgba(16,16,24,0.42);
-}
-.lobby__help {
-  color: #5c5747;
-  margin-top: 1.6rem;
-  z-index: 1;
-}
-.lobby__help span { color: var(--royal); }
-
-.lobby__start-btn {
-  padding: 1rem 3rem;
-  font-size: 1.25rem;
-  font-weight: 700;
-  letter-spacing: 0.15em;
-  text-transform: uppercase;
-  background: var(--crimson);
-  color: var(--paper);
-  border: none;
-  clip-path: polygon(12px 0, 100% 0, calc(100% - 12px) 100%, 0 100%);
-  box-shadow: 6px 6px 0 var(--ink);
-  transition: transform 0.15s, box-shadow 0.15s;
-}
-.lobby__start-btn:hover {
-  transform: translate(-2px, -2px);
-  box-shadow: 8px 8px 0 var(--ink);
-}
-.lobby__start-btn:active { transform: translate(0, 0); box-shadow: 3px 3px 0 var(--ink); }
-
-.lobby__version {
-  position: fixed;
-  bottom: 30px;
-  left: 12px;
-  font-size: 0.65rem;
-  font-family: var(--font-mono);
-  z-index: 100;
-  pointer-events: none;
+.lobby__deck-chip--quiet {
+  background: transparent;
+  border: 1.5px solid rgba(49, 67, 214, 0.65);
+  color: var(--royal);
 }
 
 /* --- Character Select --- */
@@ -1385,15 +1495,7 @@ body.fighting {
 
 /* ---- Mobile: ≤ 768px (phones) ---- */
 @media (max-width: 768px) {
-  /* Lobby */
-  .lobby__title-main { font-size: clamp(2rem, 10vw, 3.5rem); }
-  .lobby__title-sub  { font-size: 0.7rem; letter-spacing: 0.2em; }
-  .lobby__start-btn {
-    padding: 1.2rem 4rem;
-    font-size: 1.4rem;
-    letter-spacing: 0.2em;
-    min-height: 64px;
-  }
+  /* Lobby — see the poster reflow block at the end of this file */
 
   /* Character select */
   .cs { padding: 0.5rem; }
@@ -1550,32 +1652,6 @@ body.fighting {
     top: calc(12px + env(safe-area-inset-top));
     right: calc(12px + env(safe-area-inset-right));
   }
-}
-
-/* ========================================
-   SETTINGS BUTTON (lobby)
-   ======================================== */
-.lobby__settings-btn {
-  margin-top: 1rem;
-  padding: 0.5rem 1.5rem;
-  font-size: 0.85rem;
-  font-weight: 700;
-  letter-spacing: 0.15em;
-  text-transform: uppercase;
-  background: transparent;
-  color: var(--gray);
-  border: 1px solid var(--gray-dark);
-  clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
-  transition: all 0.15s;
-  cursor: pointer;
-}
-.lobby__settings-btn:hover {
-  color: var(--white);
-  border-color: var(--white);
-  background: rgba(255,255,255,0.05);
-}
-.lobby__settings-btn:active {
-  transform: translateY(1px);
 }
 
 /* ========================================
@@ -2617,28 +2693,65 @@ body.fighting {
   background-image: radial-gradient(rgba(16,16,24,0.08) 1.2px, transparent 1.4px);
   background-size: 13px 13px;
 }
+/* corner registration marks */
+.about__reg {
+  position: absolute; width: 15px; height: 15px; opacity: 0.7; pointer-events: none;
+  background:
+    linear-gradient(currentColor, currentColor) center / 15px 1.5px no-repeat,
+    linear-gradient(currentColor, currentColor) center / 1.5px 15px no-repeat;
+  color: var(--royal);
+}
+.about__reg--tl { top: 14px; left: 16px; }
+.about__reg--tr { top: 14px; right: 16px; }
 .about__content {
-  max-width: 600px;
+  max-width: 640px;
   width: 100%;
   z-index: 1;
 }
+.about__masthead {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--ink);
+  margin-bottom: 1.4rem;
+}
+.about__masthead em { font-style: normal; color: var(--crimson); }
 .about__title {
   font-family: var(--font-poster);
-  font-size: clamp(2.4rem, 6vw, 3.8rem);
+  font-size: clamp(2.6rem, 6.5vw, 4.2rem);
   font-weight: 400;
   text-transform: uppercase;
   color: var(--royal);
-  line-height: 0.95;
-  text-shadow: 4px 4px 0 var(--crimson);
-  text-align: center;
-  margin-bottom: 0.35rem;
+  line-height: 0.9;
+  letter-spacing: 0.01em;
+  text-shadow: 0.05em -0.03em 0 var(--crimson);
+  margin-bottom: 1rem;
+}
+/* striped contrail divider under the headline */
+.about__ribbon {
+  position: relative;
+  height: 10px;
+  overflow: hidden;
+  margin-bottom: 0.7rem;
+}
+.about__ribbon-stripe {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(90deg,
+    var(--crimson) 0 26px,
+    var(--paper) 26px 34px,
+    var(--royal) 34px 60px,
+    var(--paper) 60px 68px);
 }
 .about__subtitle {
   font-size: 0.8rem;
   letter-spacing: 0.4em;
   color: var(--ink);
   font-weight: 700;
-  text-align: center;
   margin-bottom: 2rem;
   text-transform: uppercase;
 }
@@ -2652,12 +2765,27 @@ body.fighting {
   clip-path: polygon(0 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%);
 }
 .about__section-title {
-  font-size: 0.7rem;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: 0.72rem;
   letter-spacing: 0.2em;
   color: var(--royal);
   font-weight: 700;
   text-transform: uppercase;
   margin-bottom: 0.5rem;
+}
+.about__section-num {
+  color: var(--crimson);
+  font-family: var(--font-poster);
+  letter-spacing: 0.08em;
+}
+.about__section-caret {
+  width: 0;
+  height: 0;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 8px solid var(--crimson);
 }
 .about__section-body {
   font-size: 0.85rem;
@@ -2924,29 +3052,84 @@ body.fighting {
   to   { transform: translateX(4px); }
 }
 @keyframes halftonePan {
-  from { transform: skewX(-14deg) translateX(-8px); }
-  to   { transform: skewX(-14deg) translateX(8px); }
+  from { transform: translateX(-8px); }
+  to   { transform: translateX(8px); }
 }
-/* 160px = exactly 2 stripe periods (80px) -> seamless ribbon loop */
-@keyframes ribbonSlide {
-  from { transform: translateX(0); }
-  to   { transform: translateX(-160px); }
+@keyframes ribbonDrift {
+  from { transform: translateX(-8px); }
+  to   { transform: translateX(10px); }
+}
+@keyframes deckPulse {
+  from { opacity: 1; }
+  to   { opacity: 0.5; }
+}
+/* Panel art crossfade: pose B holds ~9s, dips out, pose A shows */
+@keyframes artSwap {
+  0%, 40%  { opacity: 0; }
+  47%, 92% { opacity: 1; }
+  100%     { opacity: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .lobby__ribbon-strip,
+  .lobby__panel-art--b,
+  .lobby__panel-dots,
+  .lobby__ribbon,
   .lobby__menu-item,
-  .lobby__menu-item--selected .lobby__menu-item-arrow {
+  .lobby__menu-item--selected .lobby__menu-item-caret,
+  .lobby__deck-center {
     animation: none !important;
   }
 }
 
-/* Phones: the diagonal ink panel crowds small screens — drop it and let
-   the type + print bars carry the poster. */
+/* Phones: the poster reflows to a vertical scroll — headline static and
+   centered (paper copy only), print bars full-width, art panel off. */
 @media (max-width: 768px) {
-  .lobby::before,
-  .lobby::after { display: none; }
-  .lobby__masthead { left: 16px; right: 16px; }
+  .lobby {
+    --title-size: clamp(2.7rem, 14.5vw, 4.6rem);
+    --deck-h: 58px;
+    justify-content: flex-start;
+    padding-bottom: var(--deck-h);
+  }
+  .lobby__panel,
+  .lobby__ribbon,
+  .lobby__reg,
+  .lobby__headline--panel { display: none; }
+  .lobby__masthead { position: static; order: 0; margin: 18px 16px 0; }
   .lobby__masthead-right { display: none; }
-  .lobby__ribbon { top: 24%; }
+  /* title becomes a pass-through so kicker/headline/mission can interleave */
+  .lobby__title {
+    display: contents;
+  }
+  .lobby__kicker { order: 1; margin: 3.5vh 6vw 0; text-align: center; }
+  .lobby__headline-slot { display: none; }
+  .lobby__mission { order: 3; justify-content: center; margin: 1.4rem 6vw 0; }
+  .lobby__headline {
+    position: static;
+    order: 2;
+    clip-path: none;
+    padding: 0;
+    margin: 1.2rem auto 0;
+    text-align: center;
+  }
+  .lobby__headline--paper { color: var(--royal); }
+  .lobby__menu {
+    position: static;
+    order: 4;
+    transform: none;
+    width: min(430px, 92vw);
+    margin: 3.5vh auto 2vh;
+  }
+  /* hairline definition now that bars sit on paper instead of the panel */
+  .lobby__menu-item::before {
+    box-shadow: inset 0 0 0 2px rgba(16, 22, 64, 0.18);
+  }
+  .lobby__menu-item-caret { left: 2px; }
+  .lobby__brand {
+    position: static;
+    order: 5;
+    margin: 1vh auto 4vh;
+    justify-content: center;
+  }
+  .lobby__deck { padding: 0 14px; }
+  .lobby__deck-side--right { display: none; }
 }
