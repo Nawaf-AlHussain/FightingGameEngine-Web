@@ -4,22 +4,39 @@ import { useWipeNavigation } from '@/components/WipeTransition';
 import { GameButton } from '@/components/ui';
 
 /**
- * About page — project information.
+ * About page — project information, staged as an issue of the arcade serial.
  *
- * Shows what the project is, what it runs on, and credits.
- * Not a fake page — all info here is factual.
+ * Same print language as the lobby poster: masthead kicker row, giant Anton
+ * headline with crimson misregistration, a striped contrail divider, and
+ * sections presented as numbered print bars (01/02/03) with the red caret.
+ * All info is factual — engine, stack, credits.
  */
 export default function AboutPage() {
   const { navigate } = useWipeNavigation();
 
   return (
     <main className="about bg-grid">
+      <span className="about__reg about__reg--tl" aria-hidden="true" />
+      <span className="about__reg about__reg--tr" aria-hidden="true" />
+
       <div className="about__content">
-        <h1 className="about__title">FIGHTING GAME ENGINE</h1>
+        <header className="about__masthead" aria-hidden="true">
+          <span>Fighting Game Engine · An Arcade Serial</span>
+          <span>Issue <em>01</em> — The Story</span>
+        </header>
+
+        <h1 className="about__title">FIGHTING<br />GAME ENGINE</h1>
+
+        <div className="about__ribbon" aria-hidden="true">
+          <span className="about__ribbon-stripe" />
+        </div>
         <div className="about__subtitle">WEB · WASM · 60 FPS</div>
 
         <div className="about__section">
-          <div className="about__section-title">WHAT IS THIS?</div>
+          <div className="about__section-title">
+            <span className="about__section-caret" aria-hidden="true" />
+            <span className="about__section-num">01</span> What is this?
+          </div>
           <div className="about__section-body">
             A browser-based fighting game platform running a custom
             open-source engine compiled to WebAssembly. Play with 85+
@@ -29,7 +46,10 @@ export default function AboutPage() {
         </div>
 
         <div className="about__section">
-          <div className="about__section-title">POWERED BY</div>
+          <div className="about__section-title">
+            <span className="about__section-caret" aria-hidden="true" />
+            <span className="about__section-num">02</span> Powered by
+          </div>
           <div className="about__section-body">
             <div>• Custom WASM engine — Go-based fighting-game engine</div>
             <div>• WebAssembly — compiled via GOOS=js GOARCH=wasm</div>
@@ -39,7 +59,10 @@ export default function AboutPage() {
         </div>
 
         <div className="about__section">
-          <div className="about__section-title">CREDITS</div>
+          <div className="about__section-title">
+            <span className="about__section-caret" aria-hidden="true" />
+            <span className="about__section-num">03</span> Credits
+          </div>
           <div className="about__section-body">
             <div>Engine: open-source Go fighting-game engine (WebAssembly port)</div>
             <div>Browser layer: custom VFS + WebRTC netplay</div>
