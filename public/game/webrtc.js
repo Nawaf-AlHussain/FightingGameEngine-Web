@@ -267,7 +267,30 @@
     console.log('[netplay]', msg);
     diagLines.push('[' + (performance.now() / 1000).toFixed(1) + 's] ' + msg);
     if (diagLines.length > 20) diagLines.shift();
+    watchHandshakeStall(msg);
     renderDiag();
+  }
+  // Pre-fight stall visibility (the "black screen after the fight starts"
+  // report): while the engines handshake/load, the canvas shows nothing, so
+  // a wait that is NORMAL (the opponent is still downloading the stage or
+  // their engine is still booting) was indistinguishable from a dead one.
+  // The engine reports its handshake progress through olog as "HSHAKE ..."
+  // lines; if none of them reaches "handshake complete" within 45s, surface
+  // what is probably happening instead of leaving a silent black canvas.
+  let hshakeStallTimer = null;
+  function watchHandshakeStall(msg) {
+    if (typeof msg !== 'string' || msg.indexOf('HSHAKE ') !== 0) return;
+    if (msg.indexOf('handshake complete') !== -1) {
+      if (hshakeStallTimer) { clearTimeout(hshakeStallTimer); hshakeStallTimer = null; }
+      return;
+    }
+    if (hshakeStallTimer) return;
+    hshakeStallTimer = setTimeout(function () {
+      hshakeStallTimer = null;
+      if (isClosed || isFailed || !isConnected) return;
+      netLog('Still waiting for the opponent\'s engine 45s into the handshake - they are probably still downloading the stage/characters, or their engine is stuck. Keep both tabs open. Counters below: recv growing = their engine is talking.');
+      openDiag();
+    }, 45000);
   }
   // Hot-path counterpart: during a match the byte counters advance on EVERY
   // datachannel packet, engine read and send (60-180 calls/s combined), and
@@ -328,6 +351,7 @@
     peerNetcode = null; ncVerdict = null;
     gdc = null; gQueue = []; pingMs = -1;
     queueRole = ''; queueP1 = ''; queueP2 = ''; queueStartedAt = 0; queueMatchSeq = 0;
+    if (hshakeStallTimer) { clearTimeout(hshakeStallTimer); hshakeStallTimer = null; }
     if (!localHash) computeBuildHash();
   }
 
@@ -406,6 +430,22 @@
       // instead of desyncing mid-match.
       if (globalThis.ikemenBuildHash instanceof Uint8Array && globalThis.ikemenBuildHash.length === 8) {
         localHash = globalThis.ikemenBuildHash;
+        // Roster fingerprint (site-level, character-downloader.ts): the pack
+        // hash does NOT cover the downloaded characters/stages - they are
+        // fetched from the Assets manifest at match time and the engine's
+        // own content fingerprint is still a no-op. Mix the manifest digest
+        // the site was served in, so two players with different rosters are
+        // refused here instead of desyncing mid-fight (one player not
+        // visible / divergent positions).
+        const roster = globalThis.ikemenRosterHash;
+        if (roster instanceof Uint8Array && roster.length === 8) {
+          const combined = new Uint8Array(16);
+          combined.set(localHash, 0);
+          combined.set(roster, 8);
+          localHash = contentHash64(combined);
+          netLog('build check includes roster fingerprint' +
+            (typeof globalThis.ikemenRosterHex === 'string' ? ' (' + globalThis.ikemenRosterHex + ')' : ''));
+        }
       } else {
         // Fallback (page without the VFS, e.g. the dev harness): manifest only.
         const res = await fetch('./ikemen-fs/manifest.json', { cache: 'no-cache' });
@@ -424,10 +464,10 @@
     const same = localHash.every((b, i) => b === peerHash[i]);
     hashVerdict = same;
     if (same) {
-      netLog('build check OK - same characters/stages on both sides');
+      netLog('build check OK - same pack, mods and roster on both sides');
     } else {
       netLog('BUILD MISMATCH - refusing match to prevent desync');
-      setStatus('Game contents differ between players! Both players: hard-refresh the page (Ctrl+F5) and retry.');
+      setStatus('Game contents differ between players! One of you may have an older cached roster. Both players: hard-refresh the page (Ctrl+F5) and retry.');
       ikemenNet.close();
     }
   }
@@ -441,6 +481,17 @@
       joinBusy = false; // session established; engine re-entry may attach normally
       netLog('data channel OPEN');
       try { dc.send(PING); netLog('handshake ping sent'); } catch (e) { netLog('ping send FAILED: ' + e.message); }
+      // One-way channel detection: the peer's ping should arrive within
+      // seconds. If it never does, their data is not reaching us at all
+      // (field-observed one-way/black-hole mode) - say so instead of
+      // leaving both players staring at a silent black canvas.
+      setTimeout(function () {
+        if (!pingSeen && channel.readyState === 'open' && !isClosed && !isFailed) {
+          netLog('NO data has arrived from your opponent for 15s - one-way connection. Both players: leave and rejoin, or try a different network (a phone hotspot often fixes stubborn routers).');
+          setStatus('One-way connection - your opponent\'s data is not arriving. Both players: retry the room, or switch networks.');
+          openDiag();
+        }
+      }, 15000);
       // send our build hash once computed (may still be in flight)
       const sendHash = () => {
         if (!localHash) { setTimeout(sendHash, 100); return; }
@@ -1334,6 +1385,7 @@
       try { if (pc) pc.close(); } catch {}
       isClosed = true; isConnected = false;
       joinBusy = false;
+      if (hshakeStallTimer) { clearTimeout(hshakeStallTimer); hshakeStallTimer = null; }
       netLog('session closed');
       hidePanel();
       setTimeout(hideDiag, 8000); // leave the log up briefly after teardown

@@ -131,6 +131,51 @@ interface AssetsManifest {
 
 let cachedManifest: AssetsManifest | null = null;
 
+// ---- Roster fingerprint (netplay desync guard) ------------------------------
+// The bridge build-check hash (vfs.js) covers the shipped pack + browser mods
+// + theme, but characters/stages are DOWNLOADED from this manifest at match
+// time and the engine's own content fingerprint is still a no-op TODO. Hash
+// the exact manifest bytes this client was served and expose the digest to
+// the netplay bridge (webrtc.js mixes it into its build check): two players
+// whose rosters differ are refused at the handshake instead of desyncing
+// mid-fight with an invisible/broken player.
+function setRosterFingerprint(text: string, version: number): void {
+  const g = globalThis as any;
+  if (g.ikemenRosterHash) return; // first manifest this session wins — stays consistent for the session
+  // cyrb64 — pure JS (crypto.subtle is unavailable on plain http); the same
+  // algorithm every client runs, so equal bytes always yield equal digests.
+  let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+  const mix = (b: number) => {
+    h1 = Math.imul(h1 ^ b, 2654435761);
+    h2 = Math.imul(h2 ^ b, 1597334677);
+  };
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    mix(c & 0xff);
+    mix((c >> 8) & 0xff);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  const out = new Uint8Array(8);
+  const dv = new DataView(out.buffer);
+  dv.setUint32(0, h2 >>> 0);
+  dv.setUint32(4, h1 >>> 0);
+  g.ikemenRosterHash = out;
+  g.ikemenRosterHex =
+    ((h2 >>> 0).toString(16).padStart(8, '0') + (h1 >>> 0).toString(16).padStart(8, '0')).slice(0, 12);
+  g.ikemenRosterVersion = String(version);
+}
+
+/** Cache-busting query pinning the manifest version that listed these files.
+ *  /api/cdn serves MUTABLE main-branch GitHub content; without this, a
+ *  browser's pinned HTTP copy (and the IndexedDB cache) could keep serving
+ *  pre-update bytes to one player while the other downloads fresh ones —
+ *  identical build hashes, divergent character data, netplay desync. */
+function assetVersionQuery(entry: unknown): string {
+  const mv = (entry as { __mv?: string }).__mv;
+  return mv ? `?v=${encodeURIComponent(mv)}` : '';
+}
+
 /**
  * Fetch the Assets manifest (character/stage list) from jsDelivr CDN.
  * Cached in memory after first fetch.
@@ -142,7 +187,17 @@ export async function fetchAssetsManifest(): Promise<AssetsManifest> {
   if (!res.ok) {
     throw new Error(`Failed to fetch Assets manifest: ${res.status}`);
   }
-  const manifest: AssetsManifest = await res.json();
+  // Hash the TEXT this client was actually served (not a re-serialization):
+  // byte-identical manifests must hash identically across peers.
+  const text = await res.text();
+  const manifest: AssetsManifest = JSON.parse(text);
+  // Stamp the manifest version onto every entry: the download paths turn it
+  // into a ?v= cache-buster and the IndexedDB meta records store it, so a
+  // future roster/content update re-downloads instead of serving stale bytes.
+  const mv = String(manifest.version ?? '');
+  for (const c of manifest.characters) (c as { __mv?: string }).__mv = mv;
+  for (const s of manifest.stages) (s as { __mv?: string }).__mv = mv;
+  setRosterFingerprint(text, manifest.version ?? 0);
   cachedManifest = manifest;
   return manifest;
 }
@@ -222,7 +277,7 @@ export async function downloadCharacter(
     const batch = files.slice(i, i + BATCH_SIZE);
 
     await Promise.all(batch.map(async (filename) => {
-      const url = CDN_PROXY_BASE + source + '/' + char.id + '/' + filename;
+      const url = CDN_PROXY_BASE + source + '/' + char.id + '/' + filename + assetVersionQuery(char);
       // Character files go into chars/<id>/ in the VFS
       const vpath = `chars/${char.id}/${filename}`;
 
@@ -419,6 +474,9 @@ export async function downloadCharacterToCache(
   // Cache key includes the source so chars/Wolverine and
   // charsMARVEL/Wolverine can never shadow each other.
   const cacheKey = charRef(char);
+  // Manifest version stamp for the cache record + ?v= cache-buster (declared
+  // here because the async closure below reads it before any await returns).
+  const charMv = (char as { __mv?: string }).__mv;
 
   // Piggyback check FIRST (synchronous — no await before this, so two
   // concurrent callers can never both miss the registry).
@@ -444,8 +502,9 @@ export async function downloadCharacterToCache(
   if (onProgress) entry.subs.add(onProgress);
 
   const promise = (async () => {
-    // Check if already cached
-    if (await isCharacterCached(cacheKey, char.files)) {
+    // Check if already cached (a manifest-version mismatch counts as NOT
+    // cached — see CachedMeta.mv in character-cache.ts).
+    if (await isCharacterCached(cacheKey, char.files, charMv)) {
       emitProgress(entry, 100, `${char.displayName} cached`);
       return;
     }
@@ -467,7 +526,7 @@ export async function downloadCharacterToCache(
     for (let i = 0; i < files.length; i += BATCH_SIZE) {
       const batch = files.slice(i, i + BATCH_SIZE);
       await Promise.all(batch.map(async (filename) => {
-        const url = CDN_PROXY_BASE + source + '/' + char.id + '/' + filename;
+        const url = CDN_PROXY_BASE + source + '/' + char.id + '/' + filename + assetVersionQuery(char);
         try {
           const res = await fetch(url, { cache: 'force-cache' });
           if (!res.ok) {
@@ -495,7 +554,7 @@ export async function downloadCharacterToCache(
     }
 
     // All files downloaded — safe to cache.
-    await cacheCharacter(cacheKey, downloadedFiles);
+    await cacheCharacter(cacheKey, downloadedFiles, charMv);
     emitProgress(entry, 100, `${char.displayName} ready`);
     return downloadedFiles;
   })();
@@ -544,7 +603,7 @@ export async function downloadStageToCache(
   if (onProgress) entry.subs.add(onProgress);
 
   const promise = (async () => {
-    if (await isStageCached(stage.id, stage.files)) {
+    if (await isStageCached(stage.id, stage.files, (stage as { __mv?: string }).__mv)) {
       emitProgress(entry, 100, `${stage.displayName} cached`);
       return;
     }
@@ -558,7 +617,7 @@ export async function downloadStageToCache(
     emitProgress(entry, 0, `Downloading ${stage.displayName}...`);
 
     await Promise.all(files.map(async (filename) => {
-      const url = CDN_PROXY_BASE + 'stages/' + filename;
+      const url = CDN_PROXY_BASE + 'stages/' + filename + assetVersionQuery(stage);
       try {
         const res = await fetch(url, { cache: 'force-cache' });
         if (!res.ok) {
@@ -582,7 +641,7 @@ export async function downloadStageToCache(
       );
     }
 
-    await cacheStage(stage.id, downloadedFiles);
+    await cacheStage(stage.id, downloadedFiles, (stage as { __mv?: string }).__mv);
     emitProgress(entry, 100, `${stage.displayName} ready`);
     return downloadedFiles;
   })();

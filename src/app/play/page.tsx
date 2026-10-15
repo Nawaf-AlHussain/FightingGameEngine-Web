@@ -316,13 +316,22 @@ function PlayPageInner() {
   }, []);
 
   // Role picked → connect: wait for the .pak (the build-check hash is
-  // computed at the end of vfs init), then open the bridge room panel.
+  // computed at the end of vfs init), fetch the roster manifest (its digest
+  // rides the bridge's build check — MUST be set before net.start, which
+  // sends the hash the moment the channel opens), then open the bridge room
+  // panel.
   const handleNetRolePick = useCallback(async (role: 'host' | 'join') => {
     setNetRole(role);
     netRoleRef.current = role;
     setNetPhase('connecting');
     try {
       if (vfsPromiseRef.current) await vfsPromiseRef.current;
+      // Mandatory (not best-effort): a client WITHOUT the roster fingerprint
+      // would false-refuse against every client that has it, so a failed
+      // fetch here blocks the flow with a retryable error instead.
+      const roster = await fetchAssetsManifest();
+      console.log('[netplay] roster manifest v' + roster.version +
+        ((globalThis as any).ikemenRosterHex ? ' (' + (globalThis as any).ikemenRosterHex + ')' : ''));
       const net = (globalThis as any).ikemenNet;
       if (!net) throw new Error('Netplay bridge not loaded');
       net.start(role);
@@ -998,6 +1007,12 @@ function PlayPageInner() {
           }
           log(`Online match: P1=${netFightCfg.p1} vs P2=${netFightCfg.p2} (you are ${netRoleRef.current === 'join' ? 'P2/guest' : 'P1/host'})`);
           log(`Stage: ${netFightCfg.stage}`);
+          // Roster fingerprint actually in play (visible in screenshots when
+          // a mismatch is refused) — set at role pick, before net.start.
+          if ((globalThis as any).ikemenRosterVersion) {
+            log('Roster: manifest v' + (globalThis as any).ikemenRosterVersion +
+              ((globalThis as any).ikemenRosterHex ? ' (' + (globalThis as any).ikemenRosterHex + ')' : ''));
+          }
           // Display-mode sync result — the engine's netplay check refuses
           // mismatched fight aspects, so this line proves the fix ran.
           if (netSyncedModeRef.current) {
@@ -1232,6 +1247,18 @@ function PlayPageInner() {
               }
             }
           }
+        }
+
+        // net=direct boots via the engine's own -ip handshake; make sure the
+        // roster fingerprint exists before go.run (the engine calls
+        // ikemenNet.start mid-run, which sends the build check immediately).
+        // Best-effort here: net=direct is the fixed-roster dev/advanced flow.
+        if (netDirect) {
+          try {
+            const roster = await fetchAssetsManifest();
+            log('Roster: manifest v' + roster.version +
+              ((globalThis as any).ikemenRosterHex ? ' (' + (globalThis as any).ikemenRosterHex + ')' : ''));
+          } catch { /* bridge falls back to the pack-only hash */ }
         }
 
         if (cancelled) return;

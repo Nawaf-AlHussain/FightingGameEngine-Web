@@ -83,10 +83,17 @@ export async function GET(
     headers.set('Content-Type', res.headers.get('content-type') || contentTypes[ext] || 'application/octet-stream');
     headers.set(
       'Cache-Control',
-      // max-age/immutable: browser-side (unchanged semantics — game files
-      // are content-addressed by our manifest flow). s-maxage/SWR: Vercel
-      // edge cache — repeat fetches never reach this function or GitHub.
-      'public, max-age=31536000, immutable, s-maxage=31536000, stale-while-revalidate=86400'
+      // BOUNDED freshness (netplay correctness — see the ?v= buster in
+      // character-downloader.ts): these URLs serve MUTABLE main-branch
+      // GitHub content, and lockstep netplay requires every player to hold
+      // byte-identical character data. The previous max-age=31536000 +
+      // immutable let one player's browser pin pre-update bytes for a year
+      // while another downloaded fresh ones — same build hash, divergent
+      // data, desync. Browsers now revalidate daily; the edge keeps serving
+      // repeat fetches (s-maxage + SWR) so the portrait-burst economics of
+      // the Batch 3 fix are preserved, and the manifest-version query (?v=)
+      // bypasses every cache tier the moment the roster bumps a version.
+      'public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800'
     );
     headers.set('Access-Control-Allow-Origin', '*');
     for (const h of PASSTHROUGH_HEADERS) {
