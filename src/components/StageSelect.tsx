@@ -292,18 +292,14 @@ export default function StageSelect({
     // Bundled stage — always ready, no download needed.
     if (stage.bundled) {
       return (
-        <div className="ss__card-download" style={{ color: 'var(--green)' }}>
-          BUNDLED
-        </div>
+        <div className="ss__card-download ss__card-download--ready">BUNDLED</div>
       );
     }
 
     // Already cached (in IndexedDB before mount or via a completed download).
     if (cachedIds.has(stage.id)) {
       return (
-        <div className="ss__card-download" style={{ color: 'var(--green)' }}>
-          ✓ READY
-        </div>
+        <div className="ss__card-download ss__card-download--ready">✓ READY</div>
       );
     }
 
@@ -312,9 +308,17 @@ export default function StageSelect({
     // Download in progress — show percent.
     if (ds?.status === 'downloading') {
       return (
-        <div className="ss__card-download" style={{ color: 'var(--gold)' }}>
-          DOWNLOADING · {ds.progress}%
-        </div>
+        <>
+          <div className="ss__card-download ss__card-download--downloading">
+            DOWNLOADING · {ds.progress}%
+          </div>
+          <div className="ss__card-progress" aria-hidden="true">
+            <div
+              className="ss__card-progress-fill"
+              style={{ width: `${ds.progress}%` }}
+            />
+          </div>
+        </>
       );
     }
 
@@ -322,7 +326,7 @@ export default function StageSelect({
     // download (spec Section 16: failure must be visible and retryable).
     if (ds?.status === 'error') {
       return (
-        <div className="ss__card-download" style={{ color: 'var(--red)' }}>
+        <div className="ss__card-download ss__card-download--error">
           ⚠ FAILED — RETRY
         </div>
       );
@@ -330,7 +334,7 @@ export default function StageSelect({
 
     // Not yet downloaded — show size hint.
     return (
-      <div className="ss__card-download" style={{ color: 'var(--gray)' }}>
+      <div className="ss__card-download ss__card-download--idle">
         DOWNLOAD · {stage.sizeMB.toFixed(1)} MB
       </div>
     );
@@ -350,9 +354,20 @@ export default function StageSelect({
     : 'PREPARING DOWNLOAD…';
 
   return (
-    <main className="ss bg-grid" tabIndex={0}>
-      {/* Title */}
-      <div className="ss__title">
+    <main className="ss" tabIndex={0}>
+      {/* Print dressing: paper field + diagonal wedges + drifting halftone + reg marks */}
+      <div className="ss__bg-wedges" aria-hidden="true" />
+      <div className="ss__bg-dots" aria-hidden="true" />
+      <span className="cs__reg ss__reg-tl" aria-hidden="true" />
+      <span className="cs__reg ss__reg-tr" aria-hidden="true" />
+
+      {/* Masthead — paper poster */}
+      <header className="ss__title">
+        <div className="ss__kicker">
+          <span className="cs__kicker-rule" aria-hidden="true" />
+          <span>ISSUE No. 03 — THE BATTLEGROUND</span>
+          <span className="cs__kicker-rule" aria-hidden="true" />
+        </div>
         <h1 className="ss__title-main">SELECT STAGE</h1>
         <div className="ss__title-sub">
           {loading
@@ -373,28 +388,30 @@ export default function StageSelect({
             </button>
           </div>
         )}
-      </div>
+      </header>
 
-      {/* Selected stage preview panel */}
+      {/* Selected stage preview panel — ink comic panel */}
       {selectedStage && !loading && (
         <div className="ss__preview">
           <div className="ss__preview-portrait">
             <span>{selectedStage.displayName.charAt(0).toUpperCase()}</span>
+            <i className="ss__preview-dots" aria-hidden="true" />
           </div>
           <div className="ss__preview-info">
+            <div className="ss__preview-kicker">NOW SCOUTING</div>
             <div className="ss__preview-name">{selectedStage.displayName}</div>
             {selectedStage.description && (
               <div className="ss__preview-desc">{selectedStage.description}</div>
             )}
             <div className="ss__preview-status">
               {selectedStage.bundled ? (
-                <span style={{ color: 'var(--green)' }}>✓ READY · BUNDLED</span>
+                <span className="ss__status ss__status--ok">✓ READY · BUNDLED</span>
               ) : selectedReady ? (
-                <span style={{ color: 'var(--green)' }}>✓ READY</span>
+                <span className="ss__status ss__status--ok">✓ READY</span>
               ) : selectionStatus ? (
-                <span style={{ color: 'var(--gold)' }}>{selectionStatus}</span>
+                <span className="ss__status ss__status--warn">{selectionStatus}</span>
               ) : (
-                <span style={{ color: 'var(--gray)' }}>—</span>
+                <span className="ss__status ss__status--idle">—</span>
               )}
             </div>
           </div>
@@ -424,13 +441,20 @@ export default function StageSelect({
               <div
                 key={stage.id}
                 className={`ss__card${isSelected ? ' ss__card--selected' : ''}`}
+                style={{ animationDelay: `${Math.min(index * 45, 450)}ms` }}
                 onClick={() => setSelectedIndex(index)}
                 onDoubleClick={() => handleConfirm()}
                 role="gridcell"
                 tabIndex={-1}
               >
-                <div className="ss__card-portrait">
-                  <span>{stage.displayName.charAt(0).toUpperCase()}</span>
+                <span className="ss__card-caret" aria-hidden="true" />
+                <div className="ss__card-head">
+                  <span className="ss__card-num">
+                    {String(index + 1).padStart(2, '0')}
+                  </span>
+                  <div className="ss__card-portrait">
+                    <span>{stage.displayName.charAt(0).toUpperCase()}</span>
+                  </div>
                 </div>
                 <div className="ss__card-name">{stage.displayName}</div>
                 <div className="ss__card-desc">{stage.description}</div>
@@ -454,7 +478,7 @@ export default function StageSelect({
           )}
           {selectedStage && (
             <div style={{ marginTop: '0.25rem' }}>
-              Current: <span style={{ color: 'var(--cyan)' }}>
+              Current: <span style={{ color: 'var(--royal)' }}>
                 {selectedStage.displayName}
               </span>
               {!selectedReady && (
