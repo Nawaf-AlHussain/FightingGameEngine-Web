@@ -12,6 +12,7 @@ import {
   getCachedStageIds,
   getStages,
   isStageCached,
+  stageThumbUrl,
   type StageInfo,
 } from '@/lib/character-downloader';
 
@@ -25,6 +26,10 @@ interface LocalStage {
   description: string;
   sizeMB: number;
   bundled: boolean;
+  /** CDN-proxy URL of the stage thumbnail PNG (<stage>.png next to the
+   *  .def in the Assets repo), or undefined when it can't be derived —
+   *  the card then keeps its letter tile. */
+  thumb?: string;
 }
 
 interface StageSelectProps {
@@ -125,6 +130,7 @@ export default function StageSelect({
             description: s.description || `By ${s.author}`,
             sizeMB: s.sizeMB,
             bundled: false,
+            thumb: stageThumbUrl(s),
           })),
         ];
         setStages(merged);
@@ -501,6 +507,9 @@ export default function StageSelect({
         <div className="ss__preview">
           <div className="ss__preview-portrait">
             <span>{selectedStage.displayName.charAt(0).toUpperCase()}</span>
+            {selectedStage.thumb && (
+              <StageImg src={selectedStage.thumb} className="ss__preview-img" />
+            )}
             <i className="ss__preview-dots" aria-hidden="true" />
           </div>
           <div className="ss__preview-info" aria-live="polite">
@@ -609,6 +618,7 @@ export default function StageSelect({
                   </span>
                   <div className="ss__card-portrait">
                     <span>{stage.displayName.charAt(0).toUpperCase()}</span>
+                    {stage.thumb && <StageImg src={stage.thumb} className="ss__card-img" />}
                   </div>
                 </div>
                 <div className="ss__card-name">{stage.displayName}</div>
@@ -713,5 +723,40 @@ export default function StageSelect({
         </div>
       )}
     </main>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// StageImg subcomponent
+// ---------------------------------------------------------------------------
+
+/** Stage thumbnail with fade-in on load (CSS shows it once .loaded is set;
+ *  the letter tile underneath stays visible until then — and forever when
+ *  no <stage>.png exists in the Assets repo yet).
+ *  ONE silent retry on error: opening the grid fires one /api/cdn request
+ *  per stage at once, and while the edge cache is still cold a few could
+ *  come back 429/503 (upstream throttling). A single delayed re-request
+ *  heals those; remounting via key forces the re-fetch since an <img> with
+ *  an unchanged src will not retry on its own. A genuinely missing
+ *  thumbnail (404) just keeps the letter tile. Same contract as the
+ *  character roster's PortraitImg. */
+function StageImg({ src, className }: { src: string; className?: string }) {
+  const [loaded, setLoaded] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  return (
+    <img
+      key={attempt}
+      src={src}
+      alt=""
+      loading="lazy"
+      decoding="async"
+      className={`${className ?? ''}${loaded ? ' loaded' : ''}`}
+      onLoad={() => setLoaded(true)}
+      onError={() => {
+        if (attempt < 1) {
+          setTimeout(() => setAttempt(a => a + 1), 1500);
+        }
+      }}
+    />
   );
 }
