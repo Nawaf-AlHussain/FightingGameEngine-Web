@@ -788,11 +788,23 @@ export default function CharacterSelect({
 
   return (
     <main className="cs bg-grid" tabIndex={0}>
-      <div className="cs__bg-grid bg-grid" aria-hidden="true" />
+      {/* Print dressing: diagonal ink wedges + drifting halftone + reg marks */}
+      <div className="cs__bg-wedges" aria-hidden="true" />
+      <div className="cs__bg-dots" aria-hidden="true" />
+      <span className="cs__reg cs__reg--tl" aria-hidden="true" />
+      <span className="cs__reg cs__reg--tr" aria-hidden="true" />
 
-      {/* Title */}
-      <div className="cs__title">
-        <h1 className="cs__title-main">SELECT FIGHTER</h1>
+      {/* Masthead — comic cover */}
+      <header className="cs__title">
+        <div className="cs__kicker">
+          <span className="cs__kicker-rule" aria-hidden="true" />
+          <span>ISSUE No. 02 — THE ROSTER</span>
+          <span className="cs__kicker-rule" aria-hidden="true" />
+        </div>
+        <h1 className="cs__title-main">
+          <span className="cs__title-pre">SELECT YOUR</span>
+          <span className="cs__title-hero">FIGHTER</span>
+        </h1>
         <div className="cs__title-sub">
           {loading
             ? 'LOADING ROSTER…'
@@ -812,7 +824,7 @@ export default function CharacterSelect({
             </button>
           </div>
         )}
-      </div>
+      </header>
 
       {/* Mode bar (online: fixed versus — no mode/difficulty pickers) */}
       {!online && (
@@ -1136,19 +1148,23 @@ const CharacterCard = memo(function CharacterCard({
             {p2Cursor}{p2Locked ? ' ✓' : ''}
           </div>
         )}
+        {(p1Locked || p2Locked) && (
+          <span
+            className={`cs__card-stamp cs__card-stamp--${p1Locked ? 'p1' : 'p2'}`}
+            aria-hidden="true"
+          >
+            LOCKED
+          </span>
+        )}
       </div>
       <div className="cs__card-info">{char.displayName}</div>
       {char.bundled ? (
-        <div className="cs__card-download" style={{ color: 'var(--green)' }}>
-          BUNDLED
-        </div>
+        <div className="cs__card-download cs__card-download--ok">BUNDLED</div>
       ) : cached ? (
-        <div className="cs__card-download" style={{ color: 'var(--green)' }}>
-          ✓ CACHED
-        </div>
+        <div className="cs__card-download cs__card-download--ok">✓ CACHED</div>
       ) : ds?.status === 'downloading' ? (
         <>
-          <div className="cs__card-download">
+          <div className="cs__card-download cs__card-download--warn">
             DOWNLOADING · {ds.progress}%
           </div>
           <div className="cs__card-progress" aria-hidden="true">
@@ -1159,11 +1175,11 @@ const CharacterCard = memo(function CharacterCard({
           </div>
         </>
       ) : ds?.status === 'error' ? (
-        <div className="cs__card-download" style={{ color: 'var(--red)' }}>
+        <div className="cs__card-download cs__card-download--err">
           ⚠ FAILED — TAP TO RETRY
         </div>
       ) : (
-        <div className="cs__card-download">
+        <div className="cs__card-download cs__card-download--idle">
           DOWNLOAD · {char.sizeMB.toFixed(1)} MB
         </div>
       )}
@@ -1218,19 +1234,30 @@ function PlayerTag({
   portrait?: string;
 }) {
   const classes = [
-    'cs__player-tag',
-    `cs__player-tag--${side}`,
-    locked ? `cs__player-tag--locked--${side}` : '',
+    'cs__plate',
+    `cs__plate--${side}`,
+    locked ? 'cs__plate--locked' : '',
   ]
     .filter(Boolean)
     .join(' ');
   return (
     <div className={classes}>
-      {portrait && <PortraitImg src={portrait} className="cs__player-tag-portrait" />}
-      <div className="cs__player-tag-label">{label}</div>
-      <div className="cs__player-tag-name">{name}</div>
-      <div className="cs__player-tag-status">
-        {locked ? 'LOCKED IN' : 'SELECTING…'}
+      <div className="cs__plate-art">
+        <span className="cs__plate-letter" aria-hidden="true">
+          {name.charAt(0).toUpperCase()}
+        </span>
+        {portrait && <PortraitImg src={portrait} className="cs__plate-img" />}
+        <span className="cs__plate-dots" aria-hidden="true" />
+        {locked && (
+          <span className="cs__plate-stamp">LOCKED ✓</span>
+        )}
+      </div>
+      <div className="cs__plate-meta">
+        <div className="cs__player-tag-label">{label}</div>
+        <div className="cs__player-tag-name">{name}</div>
+        <div className="cs__player-tag-status">
+          {locked ? 'LOCKED IN' : 'SELECTING…'}
+        </div>
       </div>
     </div>
   );
