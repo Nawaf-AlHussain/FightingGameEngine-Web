@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from 'next';
-import { Oswald } from 'next/font/google';
+import { Anton, Oswald } from 'next/font/google';
 import './globals.css';
 import '@/styles/game.css';
 import { WipeTransitionProvider } from '@/components/WipeTransition';
@@ -15,6 +15,17 @@ const oswald = Oswald({
   weight: ['400', '600', '700'],
   display: 'swap',
   variable: '--font-oswald',
+});
+
+// COMIC OVERHAUL: Anton is the giant condensed poster headline face — the
+// "ROCKET SQUADRON"-style title voice. Single 400 weight (it IS the weight),
+// used only for display headlines via --font-anton; all UI labels stay on
+// Oswald so body hierarchy and letter-spaced small-caps are untouched.
+const anton = Anton({
+  subsets: ['latin'],
+  weight: '400',
+  display: 'swap',
+  variable: '--font-anton',
 });
 
 export const metadata: Metadata = {
@@ -44,7 +55,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta name="apple-mobile-web-app-title" content="Fighting Game Engine" />
         <script src="/game/fullscreen.js" defer />
       </head>
-      <body className={`${oswald.variable} bg-black text-white antialiased`}>
+      <body className={`${oswald.variable} ${anton.variable} bg-black text-white antialiased`}>
         <WipeTransitionProvider>{children}</WipeTransitionProvider>
       </body>
     </html>
