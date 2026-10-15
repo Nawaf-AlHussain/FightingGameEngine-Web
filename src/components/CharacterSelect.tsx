@@ -4,6 +4,7 @@ import {
   memo,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -120,6 +121,19 @@ const GRID_COLS = 10;
 // localStorage key persisting the chosen roster source across visits.
 const ROSTER_SOURCE_KEY = 'fg-roster-source';
 const ROSTER_SOURCE_KEY_LEGACY = 'ikemen-roster-source';
+// localStorage keys persisting the last mode/difficulty across visits
+// (repeat sessions skip re-tapping VS CPU + Normal every time).
+const SELECT_MODE_KEY = 'fg-select-mode';
+const SELECT_DIFF_KEY = 'fg-select-diff';
+
+// True when a keystroke originated inside a text field. The global grid
+// hotkeys (WASD / arrows / Enter / …) must never fire while the player is
+// typing in the SEARCH box — before this guard, typing "w" moved the P1
+// cursor and pressing Enter locked P2's fighter mid-search.
+function isTypingTarget(e: KeyboardEvent): boolean {
+  const t = e.target as HTMLElement | null;
+  return !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+}
 
 interface CursorState {
   index: number;
@@ -159,6 +173,9 @@ export default function CharacterSelect({
 
   // Search filter
   const [searchQuery, setSearchQuery] = useState('');
+  // View filter: show only characters already cached on this device
+  // (zero-wait picking — no download stalls after lock-in).
+  const [readyOnly, setReadyOnly] = useState(false);
 
   // Cursors
   const [p1, setP1] = useState<CursorState>({ index: 0, locked: false });
@@ -185,6 +202,8 @@ export default function CharacterSelect({
   // Track if onLockIn has been fired for this lock-in cycle (prevents double fire
   // in StrictMode dev).
   const lockInFiredRef = useRef(false);
+  // Search field — focused by the global "/" hotkey.
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Refs that mirror state for use inside stable callbacks / async closures
   // (avoids stale closures without re-creating the triggerDownload callback).
@@ -368,28 +387,49 @@ export default function CharacterSelect({
   const p1Locked = p1.locked;
   const p2Locked = p2.locked || isProgressionMode; // auto-locked for progression modes
 
+  // The side that still has to lock in — drives the step strip, the RANDOM
+  // action and the page-scroll keys. Online: this machine's side until it
+  // locks (the opponent's side is never ours to pick).
+  const nextPicker: 1 | 2 | null = online
+    ? ((ownPlayer === 1 ? p1 : p2).locked ? null : ownPlayer)
+    : p1Locked
+    ? (!isProgressionMode && !p2Locked ? 2 : null)
+    : 1;
+  const nextPickerRef = useRef<1 | 2 | null>(1);
+  nextPickerRef.current = nextPicker;
+
   // ---- Movement helpers ----
+  // Cursor movement operates on the FILTERED view (see filteredIndices): the
+  // cursor hops between cards that are actually rendered, so a search or a
+  // roster-source switch can never move it onto an invisible character.
+  // Page keys jump two rows at a time for 100+ rosters.
+  const filteredIndicesRef = useRef<number[]>([]);
   const moveCursor = useCallback(
-    (player: 1 | 2, dir: 'up' | 'down' | 'left' | 'right') => {
+    (player: 1 | 2, dir: 'up' | 'down' | 'left' | 'right' | 'home' | 'end' | 'pageup' | 'pagedown') => {
       const setter = player === 1 ? setP1 : setP2;
       setter(prev => {
         if (prev.locked) return prev; // can't move while locked
-        const total = roster.length;
-        if (total === 0) return prev;
+        const list = filteredIndicesRef.current;
+        if (list.length === 0) return prev;
         const cols = GRID_COLS;
-        let idx = prev.index;
+        let pos = list.indexOf(prev.index);
+        if (pos === -1) return { ...prev, index: list[0] }; // filtered out — snap
         switch (dir) {
-          case 'up':    idx = idx - cols; break;
-          case 'down':  idx = idx + cols; break;
-          case 'left':  idx = idx - 1; break;
-          case 'right': idx = idx + 1; break;
+          case 'up':       pos -= cols; break;
+          case 'down':     pos += cols; break;
+          case 'left':     pos -= 1; break;
+          case 'right':    pos += 1; break;
+          case 'pageup':   pos -= cols * 2; break;
+          case 'pagedown': pos += cols * 2; break;
+          case 'home':     pos = 0; break;
+          case 'end':      pos = list.length - 1; break;
         }
         // Wrap with modulo (handles negative indices).
-        idx = ((idx % total) + total) % total;
-        return { ...prev, index: idx };
+        pos = ((pos % list.length) + list.length) % list.length;
+        return { ...prev, index: list[pos] };
       });
     },
-    [roster.length]
+    []
   );
 
   // ---- Keyboard controls ----
@@ -401,7 +441,42 @@ export default function CharacterSelect({
     if (isTouch) return; // no keyboard on phones
     if (online) return; // online: unified handler below
     const onKey = (e: KeyboardEvent) => {
+      // Never hijack keys while the player types in the search field.
+      if (isTypingTarget(e)) {
+        if (e.code === 'Escape') {
+          e.preventDefault();
+          setSearchQuery('');
+          (e.target as HTMLElement).blur();
+        }
+        return;
+      }
       const code = e.code;
+
+      // "/" focuses the search field from anywhere on the screen.
+      if (code === 'Slash') {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        return;
+      }
+      // Escape / Backspace back out (matches stage select).
+      if (code === 'Escape' || code === 'Backspace') {
+        e.preventDefault();
+        onCancel();
+        return;
+      }
+      // R random-locks the side that is still choosing (ready fighters only).
+      if (code === 'KeyR') {
+        e.preventDefault();
+        if (nextPickerRef.current) randomLockRef.current(nextPickerRef.current);
+        return;
+      }
+      // Page keys drive whichever side is still choosing (big rosters).
+      if (code === 'Home' || code === 'End' || code === 'PageUp' || code === 'PageDown') {
+        e.preventDefault();
+        const dir = code === 'Home' ? 'home' : code === 'End' ? 'end' : code === 'PageUp' ? 'pageup' : 'pagedown';
+        moveCursor(nextPickerRef.current ?? 1, dir);
+        return;
+      }
 
       // P1: WASD + U (lock)
       if (code === 'KeyW') { e.preventDefault(); moveCursor(1, 'up'); return; }
@@ -427,7 +502,7 @@ export default function CharacterSelect({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [moveCursor, toggleLock, isTouch]);
+  }, [moveCursor, toggleLock, isTouch, onCancel]);
 
   // ---- When mode changes, reset lock states ----
   useEffect(() => {
@@ -435,6 +510,26 @@ export default function CharacterSelect({
     setP2(prev => ({ ...prev, locked: false }));
     lockInFiredRef.current = false;
   }, [mode]);
+
+  // ---- Persist + restore mode & difficulty across visits ----
+  // Restored AFTER mount (not in the useState initializer) so SSR HTML and
+  // the first client render agree — no hydration mismatch.
+  useEffect(() => {
+    try {
+      const m = localStorage.getItem(SELECT_MODE_KEY);
+      if (m && MODES.some(x => x.id === m)) setMode(m as GameMode);
+      const d = localStorage.getItem(SELECT_DIFF_KEY);
+      if (d && DIFFICULTIES.some(x => x.id === d)) setDifficulty(d as Difficulty);
+    } catch {
+      // storage unavailable (private mode) — defaults are fine
+    }
+  }, []);
+  useEffect(() => {
+    try { localStorage.setItem(SELECT_MODE_KEY, mode); } catch { /* ignore */ }
+  }, [mode]);
+  useEffect(() => {
+    try { localStorage.setItem(SELECT_DIFF_KEY, difficulty); } catch { /* ignore */ }
+  }, [difficulty]);
 
   // ---- Roster source switch: reset cursors/locks (grid contents change) ----
   const handleSourceChange = useCallback((sourceId: string) => {
@@ -459,6 +554,80 @@ export default function CharacterSelect({
 
   const p1Char = roster[p1.index];
   const p2Char = roster[p2.index];
+
+  // ---- Filtered view (source + search + on-device filters) ----
+  // filteredIndices holds the FULL-roster indices of the characters that are
+  // actually rendered, in display order. All cursor movement and the RANDOM
+  // pick operate in this space (see moveCursor / randomLock), so the
+  // keyboard cursor can never land on a card that isn't on screen. Bundled
+  // chars live in game.pak, not in any source folder — they show in every
+  // universe.
+  const filteredIndices = useMemo(
+    () =>
+      roster
+        .map((_, index) => index)
+        .filter(i => {
+          const char = roster[i];
+          if (!char.bundled && splitCharRef(char.id).source !== activeSource) return false;
+          if (readyOnly && !isReady(char)) return false;
+          if (
+            searchQuery &&
+            !char.displayName.toLowerCase().includes(searchQuery.toLowerCase())
+          ) {
+            return false;
+          }
+          return true;
+        }),
+    [roster, activeSource, searchQuery, readyOnly, isReady]
+  );
+  filteredIndicesRef.current = filteredIndices;
+
+  const filteredRoster = useMemo(
+    () => filteredIndices.map(index => ({ char: roster[index], index })),
+    [filteredIndices, roster]
+  );
+
+  // ---- Keep unlocked cursors inside the filtered view ----
+  // When a filter hides the card a cursor sits on, snap it to the first
+  // (P2: second) visible card instead of leaving a phantom selection on an
+  // invisible fighter. Locked picks are never touched — a lock is a
+  // commitment, and search must not silently undo it.
+  useEffect(() => {
+    if (loading) return;
+    const list = filteredIndices;
+    if (list.length === 0) return;
+    setP1(prev =>
+      prev.locked || list.includes(prev.index) ? prev : { ...prev, index: list[0] }
+    );
+    setP2(prev => {
+      if (prev.locked || list.includes(prev.index)) return prev;
+      return { ...prev, index: list[Math.min(1, list.length - 1)] };
+    });
+    // Also re-snap when a lock is RELEASED: unlocking while the cursor sits
+    // on a filtered-out card (e.g. picked, then switched to ON DEVICE)
+    // should immediately offer a visible card again.
+  }, [filteredIndices, loading, p1.locked, p2.locked]);
+
+  // ---- Random pick (R key / RANDOM button) ----
+  // Locks a random READY (cached/bundled) character from the filtered view —
+  // random never stalls the match behind a download. It routes through the
+  // same state transition as a manual lock, so downloads trigger and online
+  // reporting behave identically.
+  const randomLock = useCallback(
+    (player: 1 | 2) => {
+      const ready = filteredIndicesRef.current.filter(i => {
+        const c = roster[i];
+        return !!c && isReady(c);
+      });
+      if (ready.length === 0) return;
+      const pick = ready[Math.floor(Math.random() * ready.length)];
+      const setter = player === 1 ? setP1 : setP2;
+      setter({ index: pick, locked: true });
+    },
+    [roster, isReady]
+  );
+  const randomLockRef = useRef(randomLock);
+  randomLockRef.current = randomLock;
 
   // ---- Online display cursors: the non-own side is derived from the ----
   // opponent's live bridge state (browsing cursor, or their locked pick
@@ -506,7 +675,30 @@ export default function CharacterSelect({
   useEffect(() => {
     if (isTouch || !online) return;
     const onKey = (e: KeyboardEvent) => {
+      if (isTypingTarget(e)) {
+        if (e.code === 'Escape') {
+          e.preventDefault();
+          setSearchQuery('');
+          (e.target as HTMLElement).blur();
+        }
+        return;
+      }
       const code = e.code;
+      if (code === 'Slash') {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        return;
+      }
+      if (code === 'Escape' || code === 'Backspace') {
+        e.preventDefault();
+        onCancel();
+        return;
+      }
+      if (code === 'KeyR') {
+        e.preventDefault();
+        if (nextPickerRef.current) randomLockRef.current(nextPickerRef.current);
+        return;
+      }
       let dir: 'up' | 'down' | 'left' | 'right' | null = null;
       if (code === 'KeyW' || code === 'ArrowUp') dir = 'up';
       else if (code === 'KeyS' || code === 'ArrowDown') dir = 'down';
@@ -524,7 +716,7 @@ export default function CharacterSelect({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [online, ownPlayer, moveCursor, toggleLock, isTouch]);
+  }, [online, ownPlayer, moveCursor, toggleLock, isTouch, onCancel]);
 
   // ---- Online reporting: forward lock/unlock transitions and cursor ----
   // moves to the parent (which relays them over the bridge). Driven by
@@ -771,20 +963,39 @@ export default function CharacterSelect({
     ? 'PREPARING DOWNLOADS…'
     : 'SELECT FIGHTERS';
 
-  // Filter roster by active source + search query (preserves original
-  // indices for cursor positioning). Bundled chars (KFM) live in game.pak,
-  // not in any source folder — they show in every universe.
-  const sourceFilter = (char: LocalCharacter) =>
-    char.bundled || splitCharRef(char.id).source === activeSource;
+  // ---- Ready count for the masthead subtitle ----
+  const readyCount = filteredRoster.reduce((n, { char }) => n + (isReady(char) ? 1 : 0), 0);
 
-  const filteredRoster = roster
-    .map((char, index) => ({ char, index }))
-    .filter(({ char }) => sourceFilter(char))
-    .filter(({ char }) =>
-      searchQuery
-        ? char.displayName.toLowerCase().includes(searchQuery.toLowerCase())
-        : true
-    );
+  // ---- Step strip: whose pick is it / are we ready to fight ----
+  // One glanceable line above the grid (aria-live: the pick state is
+  // announced to screen readers too). Touch gets TAP wording.
+  const confirmWord = isTouch ? 'TAP FIGHT!' : 'PRESS FIGHT!';
+  let stepText: string;
+  let stepMod: string;
+  if (!online) {
+    if (!p1Locked) {
+      stepText = 'P1 — CHOOSE YOUR FIGHTER';
+      stepMod = 'cs__step--p1';
+    } else if (!isProgressionMode && !p2Locked) {
+      stepText = 'P2 — CHOOSE YOUR FIGHTER';
+      stepMod = 'cs__step--p2';
+    } else {
+      stepText = `LOCKED — ${confirmWord}`;
+      stepMod = 'cs__step--ready';
+    }
+  } else if (!ownState.locked) {
+    stepText = 'YOUR PICK — CHOOSE YOUR FIGHTER';
+    stepMod = ownPlayer === 1 ? 'cs__step--p1' : 'cs__step--p2';
+  } else if (!online.opponentLocked) {
+    stepText = 'LOCKED — WAITING FOR OPPONENT';
+    stepMod = 'cs__step--ready';
+  } else {
+    stepText = 'BOTH LOCKED — STARTING…';
+    stepMod = 'cs__step--ready';
+  }
+
+  // (Filtered view lives in filteredIndices / filteredRoster above —
+  // movement, RANDOM and the grid below all read from it.)
 
   return (
     <main className="cs bg-grid" tabIndex={0}>
@@ -810,7 +1021,7 @@ export default function CharacterSelect({
             ? 'LOADING ROSTER…'
             : error
             ? 'COULD NOT LOAD CHARACTER LIST'
-            : `${filteredRoster.length} CHARACTERS AVAILABLE`}
+            : `${readyCount} READY · ${filteredRoster.length} TOTAL`}
         </div>
         {error && (
           <div className="cs__roster-error">
@@ -907,15 +1118,30 @@ export default function CharacterSelect({
         />
       </div>
 
-      {/* Search field — only when roster is loaded and large enough to warrant it */}
+      {/* Search + view filter — "/" focuses the field from anywhere.
+          ON DEVICE narrows the grid to cached characters so you can pick
+          with zero download wait. */}
       {!loading && !error && roster.length > 10 && (
         <div className="cs__search">
           <input
+            ref={searchInputRef}
             type="text"
             className="cs__search-input"
             placeholder="SEARCH…"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
+            onKeyDown={e => {
+              // Enter leaves the field (grid keys resume); Esc clears it.
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                e.currentTarget.blur();
+              } else if (e.key === 'Escape') {
+                e.preventDefault();
+                setSearchQuery('');
+                e.currentTarget.blur();
+              }
+            }}
+            title="Press / to focus — Esc clears"
             aria-label="Search characters"
           />
           {searchQuery && (
@@ -928,7 +1154,28 @@ export default function CharacterSelect({
               ✕
             </button>
           )}
+          <span className="cs__search-sep" aria-hidden="true" />
+          <button
+            type="button"
+            className={`cs__diff-btn${!readyOnly ? ' cs__diff-btn--active' : ''}`}
+            onClick={() => setReadyOnly(false)}
+          >
+            ALL
+          </button>
+          <button
+            type="button"
+            className={`cs__diff-btn${readyOnly ? ' cs__diff-btn--active' : ''}`}
+            onClick={() => setReadyOnly(true)}
+            title="Only characters already cached on this device"
+          >
+            ON DEVICE
+          </button>
         </div>
+      )}
+
+      {/* Pick-step strip — whose turn it is (screen-reader announced) */}
+      {!loading && !error && (
+        <div className={`cs__step ${stepMod}`} aria-live="polite">{stepText}</div>
       )}
 
       {/* Character grid */}
@@ -958,7 +1205,9 @@ export default function CharacterSelect({
               letterSpacing: '0.2em',
             }}
           >
-            NO CHARACTERS MATCH "{searchQuery.toUpperCase()}"
+            {searchQuery
+              ? `NO CHARACTERS MATCH "${searchQuery.toUpperCase()}"`
+              : 'NO CHARACTERS ON DEVICE YET — SWITCH TO "ALL" AND DOWNLOAD ONE'}
           </div>
         )}
         {!loading &&
@@ -1046,6 +1295,15 @@ export default function CharacterSelect({
               {fightStatus}
             </span>
           )}
+          <button
+            type="button"
+            className="cs__diff-btn"
+            onClick={() => nextPicker && randomLock(nextPicker)}
+            disabled={!nextPicker}
+            title="Lock a random ready fighter (R)"
+          >
+            RANDOM
+          </button>
           <button type="button" className="cs__btn-back" onClick={onCancel}>
             ← BACK
           </button>
