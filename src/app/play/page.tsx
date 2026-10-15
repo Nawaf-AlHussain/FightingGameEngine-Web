@@ -235,7 +235,8 @@ function PlayPageInner() {
   const [showExit, setShowExit] = useState(false);
   // Boot failure — shown as a structured ErrorState overlay (Frontend 2.1
   // spec Section 33: what failed, can the user retry, can they go back).
-  // The boot log below remains available as "Technical Details".
+  // The hidden boot log's tail is embedded in the error's "Technical
+  // Details" (see bootDetails in bootEngine).
   const [bootError, setBootError] = useState<string | null>(null);
 
   // ---- Online (net=1) flow state ----
@@ -653,6 +654,18 @@ function PlayPageInner() {
           liveRecordedAt.set(prefix, now);
           recordBootLine(line);
         }
+      };
+
+      // The on-screen boot terminal is HIDDEN by default (user request:
+      // the green log spooked the pre-match screen). bootLines still records
+      // every line — failures embed the tail below into the error overlay's
+      // Technical Details, so the "send a screenshot" flow keeps its
+      // diagnostics without the terminal being visible on every boot.
+      const bootDetails = () => {
+        const lines = bootLines.filter(Boolean).slice(-30);
+        return lines.length
+          ? '\n\n--- Boot log (last ' + lines.length + ' lines) ---\n' + lines.join('\n')
+          : '';
       };
 
       {
@@ -1352,7 +1365,7 @@ function PlayPageInner() {
         if (crashLine) {
           cleanup();
           log('ENGINE CRASHED: ' + crashLine);
-          setBootError('The game engine crashed (' + crashLine.slice(0, 200) + '). Send a screenshot of this screen when reporting — the boot log below shows how far it got.');
+          setBootError('The game engine crashed (' + crashLine.slice(0, 200) + '). Send a screenshot of this screen when reporting — expand Technical Details below to see how far the boot got.' + bootDetails());
           return;
         }
 
@@ -1386,7 +1399,7 @@ function PlayPageInner() {
           clearBootLive();
           setBootError('The game engine died: ' + why +
             (tail ? '. Engine output: ' + tail : '') +
-            '. The boot log below shows how far it got - send a screenshot when reporting.');
+            '. Expand Technical Details below for the boot log - send a screenshot when reporting.' + bootDetails());
           return;
         }
         if (!engineRan && !fightResult) {
@@ -1396,7 +1409,7 @@ function PlayPageInner() {
           const tail = engineTail.slice(-4).join(' | ').slice(0, 240);
           setBootError('The game engine exited before the match started' + (exitCode != null && exitCode !== 0 ? ' (exit code ' + exitCode + ')' : '') +
             (tail ? '. Engine output: ' + tail : '') +
-            '. The boot log below shows how far it got. If this repeats, send a screenshot when reporting' + (netMode ? '; both players should also hard-refresh the page (Ctrl+F5) and retry.' : '.'));
+            '. Expand Technical Details below for the boot log. If this repeats, send a screenshot when reporting' + (netMode ? '; both players should also hard-refresh the page (Ctrl+F5) and retry.' : '.') + bootDetails());
           return;
         }
 
@@ -1454,7 +1467,7 @@ function PlayPageInner() {
           if (crashLine) {
             log('ENGINE CRASHED: ' + crashLine);
             clearBootLive();
-            setBootError('The game engine crashed (' + crashLine.slice(0, 200) + '). Send a screenshot of this screen when reporting — the boot log below shows how far it got.');
+            setBootError('The game engine crashed (' + crashLine.slice(0, 200) + '). Send a screenshot of this screen when reporting — expand Technical Details below to see how far the boot got.' + bootDetails());
             return;
           }
           // Keep the redirect ONLY for a genuine post-fight exit (the fight
@@ -1476,13 +1489,13 @@ function PlayPageInner() {
             : msg;
           log('ENGINE CRASHED: ' + why);
           clearBootLive();
-          setBootError('The game engine crashed (' + why + '). The boot log below and the browser console (F12) hold the details - send them along when reporting.');
+          setBootError('The game engine crashed (' + why + '). Technical Details below and the browser console (F12) hold the details - send them along when reporting.' + bootDetails());
           return;
         }
         log('BOOT ERROR: ' + msg);
         console.error(e);
         clearBootLive();
-        if (!cancelled) setBootError(msg);
+        if (!cancelled) setBootError(msg + bootDetails());
       }
     }
 
@@ -1500,6 +1513,11 @@ function PlayPageInner() {
     // via the isTouch && engineRunning condition — no need to re-boot.
   }, [searchParams]);
 
+  // The boot terminal is hidden by default (user request: they don't want
+  // to see the green log before a match). ?debug=1 on the URL re-shows the
+  // raw terminal for live diagnosis of a misbehaving device.
+  const showBootTerminal = searchParams.get('debug') === '1';
+
   return (
     <div className="min-h-screen bg-black flex flex-col items-center justify-center">
       <pre
@@ -1507,7 +1525,27 @@ function PlayPageInner() {
         id="boot"
         className="w-full max-w-2xl text-sm text-green-400 font-mono whitespace-pre-wrap leading-relaxed mb-4"
         style={{ maxHeight: '200px', overflow: 'hidden' }}
+        hidden={!showBootTerminal}
       />
+      {/* Minimal boot indicator replacing the visible terminal — a quiet
+          pulsing LOADING label instead of scrolling green log lines. It
+          unmounts once the engine is up (or an error overlay takes over). */}
+      {!engineRunning && !bootError && !showBootTerminal && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, zIndex: 5,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            pointerEvents: 'none',
+          }}
+        >
+          <span
+            className="animate-pulse"
+            style={{ color: '#777', fontSize: '0.8rem', letterSpacing: '0.4em', paddingLeft: '0.4em' }}
+          >
+            LOADING
+          </span>
+        </div>
+      )}
       {/* The engine creates its own canvas element */}
       <div id="game-container" />
 
@@ -1608,7 +1646,9 @@ function PlayPageInner() {
       )}
 
       {/* Structured boot-failure overlay (Frontend 2.1 spec Section 33).
-          The green boot log above stays visible as raw diagnostics. */}
+          The boot terminal is hidden by default; each failure embeds the
+          recent boot log inside `details` (Technical Details panel), and
+          ?debug=1 re-shows the raw green terminal for live diagnosis. */}
       {bootError && (
         <ErrorState
           title="ENGINE FAILED TO START"
