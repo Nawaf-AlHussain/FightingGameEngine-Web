@@ -1,14 +1,16 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { useWipeNavigation } from '@/components/WipeTransition';
-import { GameButton } from '@/components/ui';
 
 /**
- * Lobby / Title Screen
+ * Lobby / Title Screen — "SQUADRON COMIC" poster.
  *
- * The main entry point for the game. Shows the title, a menu of real
- * destinations, and contextual hints.
+ * The main entry point for the game, styled as a retro comic-print
+ * aviation poster: cream paper, giant Anton headline with crimson
+ * misregistration, a skewed ink panel with drifting halftone, a striped
+ * contrail ribbon, and numbered print-bar menu items (01–04) with a red
+ * caret on the active row.
  *
  * Menu items:
  * - LOCAL PLAY → /local (character select → stage select → fight)
@@ -21,12 +23,16 @@ import { GameButton } from '@/components/ui';
  *
  * Keyboard:
  * - Enter / Space → selected item
- * - L → LOCAL PLAY · O → ONLINE PLAY · S → SETTINGS · A → ABOUT
+ * - Arrows move · L/O/S/A are direct shortcuts
+ *
+ * Motion: menu bars slide in staggered (CSS only), the caret nudges, the
+ * ribbon + halftone drift on transform-only loops. All disabled under
+ * prefers-reduced-motion. No per-frame JS runs on this screen (the old
+ * 2s glow-toggle interval is gone — the poster is static after entrance).
  */
 
 export default function LobbyPage() {
   const { navigate } = useWipeNavigation();
-  const [glow, setGlow] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
 
   const menuItems = [
@@ -35,11 +41,6 @@ export default function LobbyPage() {
     { label: 'SETTINGS', action: () => navigate('/settings'), key: 'S' },
     { label: 'ABOUT', action: () => navigate('/about'), key: 'A' },
   ];
-
-  useEffect(() => {
-    const interval = setInterval(() => setGlow(g => !g), 2000);
-    return () => clearInterval(interval);
-  }, []);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -68,41 +69,35 @@ export default function LobbyPage() {
 
   return (
     <main
-      className="lobby bg-grid"
+      className="lobby"
       onKeyDown={handleKeyDown}
       tabIndex={0}
       aria-label="Title screen"
     >
-      {/* Animated red glow behind the title */}
-      <div
-        aria-hidden="true"
-        style={{
-          position: 'absolute',
-          width: 600,
-          height: 600,
-          borderRadius: '50%',
-          filter: 'blur(150px)',
-          background: glow
-            ? 'radial-gradient(circle, rgba(217,35,35,0.30), transparent 70%)'
-            : 'radial-gradient(circle, rgba(217,35,35,0.15), transparent 70%)',
-          opacity: glow ? 1 : 0.5,
-          transition: 'opacity 1s ease, background 1s ease',
-          pointerEvents: 'none',
-          zIndex: 0,
-        }}
-      />
+      {/* Masthead kicker line across the top of the poster */}
+      <header className="lobby__masthead" aria-hidden="true">
+        <span className="lobby__masthead-left">Fighting Game Engine · An Arcade Serial</span>
+        <span className="lobby__masthead-right">One Engine — <em>No Ceiling</em></span>
+      </header>
 
-      {/* Title */}
-      <div className="lobby__title" style={{ zIndex: 1 }}>
-        <h1 className="lobby__title-main text-stroke text-shadow-red">
-          <span>FIGHTING </span>
-          <span>GAME</span>
-        </h1>
-        <div className="lobby__title-sub">ENGINE · WASM · 60FPS</div>
+      {/* Striped contrail ribbon crossing the poster (pure CSS loop).
+          Placed BEFORE the title so the headline paints over it. */}
+      <div className="lobby__ribbon" aria-hidden="true">
+        <div className="lobby__ribbon-strip" />
       </div>
 
-      {/* Menu */}
-      <div className="lobby__menu" style={{ zIndex: 1 }}>
+      {/* Title block */}
+      <div className="lobby__title">
+        <span className="lobby__kicker">Browser · WASM · 60 FPS</span>
+        <h1 className="lobby__title-main">
+          <span>FIGHTING</span>
+          <span>GAME</span>
+        </h1>
+        <div className="lobby__title-sub">ENGINE</div>
+      </div>
+
+      {/* Numbered print-bar menu */}
+      <nav className="lobby__menu" aria-label="Main menu">
         {menuItems.map((item, i) => (
           <button
             key={item.label}
@@ -112,23 +107,15 @@ export default function LobbyPage() {
             onMouseEnter={() => setSelectedIndex(i)}
             aria-label={item.label}
           >
-            <span className="lobby__menu-item-arrow">
-              {selectedIndex === i ? '▶' : ' '}
-            </span>
+            <span className="lobby__menu-item-num" aria-hidden="true">0{i + 1}</span>
+            <span className="lobby__menu-item-arrow" aria-hidden="true" />
             <span className="lobby__menu-item-label">{item.label}</span>
           </button>
         ))}
-      </div>
+      </nav>
 
       {/* Controls hint */}
-      <div
-        className="cs__controls-help"
-        style={{
-          marginTop: '2rem',
-          textAlign: 'center',
-          zIndex: 1,
-        }}
-      >
+      <div className="cs__controls-help lobby__help">
         <div>
           <span>↑↓</span> navigate · <span>ENTER</span> select · <span>L</span> local · <span>O</span> online · <span>S</span> settings
         </div>

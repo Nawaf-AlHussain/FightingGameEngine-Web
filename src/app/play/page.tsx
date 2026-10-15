@@ -1540,7 +1540,14 @@ function PlayPageInner() {
         >
           <span
             className="animate-pulse"
-            style={{ color: '#777', fontSize: '0.8rem', letterSpacing: '0.4em', paddingLeft: '0.4em' }}
+            style={{
+              fontFamily: 'var(--font-poster)',
+              color: 'var(--paper, #f2ecda)',
+              fontSize: '1.1rem',
+              letterSpacing: '0.3em',
+              paddingLeft: '0.3em',
+              textShadow: '3px 3px 0 var(--crimson, #e8283c)',
+            }}
           >
             LOADING
           </span>
