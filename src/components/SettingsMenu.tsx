@@ -19,7 +19,7 @@ import {
   type DisplayModeChoice,
   type SettingDef,
   type SettingGroup,
-} from '@/lib/ikemen-config';
+} from '@/lib/engine-config';
 
 // ---------------------------------------------------------------------------
 // Component

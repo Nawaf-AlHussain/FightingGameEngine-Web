@@ -107,7 +107,7 @@ console.log('>> cache console: ' + (injectedLog.trim().split('\n').filter(l => l
 // B. IDB record value types
 const idbCheck = await page.evaluate(async () => {
   const db = await new Promise((res, rej) => {
-    const r = indexedDB.open('ikemen-cache', 1);
+    const r = indexedDB.open('ikemen-cache', 1) // DB name intentionally unchanged (user cache continuity);
     r.onsuccess = () => res(r.result);
     r.onerror = () => rej(r.error);
   });

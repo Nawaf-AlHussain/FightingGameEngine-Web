@@ -16,21 +16,22 @@ export default function AboutPage() {
     <main className="about bg-grid">
       <div className="about__content">
         <h1 className="about__title">FIGHTING GAME ENGINE</h1>
-        <div className="about__subtitle">WEB · WASM · IKEMEN GO</div>
+        <div className="about__subtitle">WEB · WASM · 60 FPS</div>
 
         <div className="about__section">
           <div className="about__section-title">WHAT IS THIS?</div>
           <div className="about__section-body">
-            A browser-based MUGEN-compatible fighting game platform running
-            IKEMEN GO compiled to WebAssembly. Play with 85+ characters from
-            the community roster, directly in your browser, at 60 FPS.
+            A browser-based fighting game platform running a custom
+            open-source engine compiled to WebAssembly. Play with 85+
+            characters from the community roster, directly in your browser,
+            at 60 FPS.
           </div>
         </div>
 
         <div className="about__section">
           <div className="about__section-title">POWERED BY</div>
           <div className="about__section-body">
-            <div>• IKEMEN GO v2 — Go-based MUGEN engine</div>
+            <div>• Custom WASM engine — Go-based fighting-game engine</div>
             <div>• WebAssembly — compiled via GOOS=js GOARCH=wasm</div>
             <div>• Next.js 16 — React frontend</div>
             <div>• IndexedDB — character/stage caching</div>
@@ -40,8 +41,8 @@ export default function AboutPage() {
         <div className="about__section">
           <div className="about__section-title">CREDITS</div>
           <div className="about__section-body">
-            <div>Engine: IKEMEN GO by Suehiro / ikemen-engine</div>
-            <div>WASM port: energyjp/ikemen-go-web fork</div>
+            <div>Engine: open-source Go fighting-game engine (WebAssembly port)</div>
+            <div>Browser layer: custom VFS + WebRTC netplay</div>
             <div>Characters: Community roster (FightingGameEngine/Assets)</div>
             <div>Built by: Nawaf Al Hussain</div>
           </div>

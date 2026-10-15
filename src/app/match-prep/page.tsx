@@ -244,7 +244,7 @@ function MatchPrepInner() {
       setCountdown(null);
       return;
     }
-    // Use this window to pull ikemen.wasm.gz + game.pak.gz into the HTTP
+    // Use this window to pull engine.wasm.gz + game.pak.gz into the HTTP
     // cache — /play's boot then starts from disk instead of the network.
     prewarmEngineAssets();
     setCountdown(countdownSecondsRef.current);

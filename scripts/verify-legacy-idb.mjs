@@ -30,7 +30,7 @@ const seeded = await page.evaluate(async (charRef) => {
     files[f] = new Uint8Array(buf); // LEGACY value type
   }
   const db = await new Promise((res, rej) => {
-    const r = indexedDB.open('ikemen-cache', 1);
+    const r = indexedDB.open('ikemen-cache', 1) // DB name intentionally unchanged (user cache continuity);
     r.onupgradeneeded = () => { r.result.createObjectStore('chars'); r.result.createObjectStore('stages'); };
     r.onsuccess = () => res(r.result);
     r.onerror = () => rej(r.error);

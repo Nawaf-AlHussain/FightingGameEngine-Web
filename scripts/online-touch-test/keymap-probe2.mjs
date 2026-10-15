@@ -146,7 +146,7 @@ async function probeTouch(page, cdp, label, point) {
 
 async function dumpState(page) {
   const out = await page.evaluate(() => {
-    const raw = localStorage.getItem('ikemen-vfs12:save/config.ini');
+    const raw = localStorage.getItem('engine-vfs12:save/config.ini');
     const held = globalThis.__ikemenTouch ? globalThis.__ikemenTouch.state() : null;
     if (!raw) return { keys: null, held };
     const text = atob(raw).split('').map((c) => c.charCodeAt(0) < 128 ? c : '?').join('');

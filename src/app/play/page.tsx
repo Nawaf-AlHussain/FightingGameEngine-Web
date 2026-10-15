@@ -19,11 +19,11 @@ import { useIsTouchDevice } from '@/lib/use-touch-device';
 import RotateOverlay from '@/components/RotateOverlay';
 import { ErrorState, GameButton } from '@/components/ui';
 import { readFightResult, clearFightResult, processFightResult, getCurrentModeState, markFightStart } from '@/lib/game-modes';
-import { getDisplayModeMarker } from '@/lib/ikemen-config';
+import { getDisplayModeMarker } from '@/lib/engine-config';
 import CharacterSelect from '@/components/CharacterSelect';
 import StageSelect from '@/components/StageSelect';
 
-// This page loads the IKEMEN GO WASM engine and starts a fight directly,
+// This page loads the WebAssembly engine and starts a fight directly,
 // bypassing the laggy menu (F-026) using the smooth game() path.
 //
 // How it works:
@@ -69,7 +69,7 @@ interface NetFightConfig {
  * remote=stage)"): a 4:3-mode host paired with a 16:9 default guest
  * (the classic PC + phone combo) exited the engine before the fight
  * started. The host's display mode rides the 'go' control frame and the
- * guest adopts it via vfs.js ikemenApplyDisplayMode() before the engine
+ * guest adopts it via vfs.js engineApplyDisplayMode() before the engine
  * boots — host-authoritative, in-memory only.
  */
 type NetDisplayMode = '4:3' | '16:9';
@@ -158,7 +158,7 @@ let manifestPromiseSingleton: Promise<{ stamp?: string }> | null = null;
 function ensureAssetManifest(): Promise<{ stamp?: string }> {
   if (!manifestPromiseSingleton) {
     // no-store (war story: some middleboxes ignore revalidation).
-    manifestPromiseSingleton = moduleFetch('/game/ikemen-fs/manifest.json', { cache: 'no-store' })
+    manifestPromiseSingleton = moduleFetch('/game/engine-fs/manifest.json', { cache: 'no-store' })
       .then(r => {
         if (!r.ok) throw new Error('asset manifest HTTP ' + r.status);
         return r.json() as Promise<{ stamp?: string }>;
@@ -188,11 +188,11 @@ function ensureEngineRuntime(): Promise<EngineRuntime> {
     try {
       const prevExit = go.exit;
       go.exit = (code: number) => {
-        (globalThis as any).__ikemenExitCode = code;
+        (globalThis as any).__engineExitCode = code;
         if (prevExit) prevExit.call(go, code);
       };
     } catch { /* diagnostics must never block boot */ }
-    const wasmPromise = instantiateIkemenWasm(
+    const wasmPromise = instantiateEngineWasm(
       moduleFetch,
       go,
       manifestData.stamp || '',
@@ -285,7 +285,7 @@ function PlayPageInner() {
       if (dm === '4:3' || dm === '16:9') {
         netSyncedModeRef.current = dm;
         try {
-          const applied = (globalThis as any).ikemenApplyDisplayMode?.(dm);
+          const applied = (globalThis as any).engineApplyDisplayMode?.(dm);
           if (applied !== dm) {
             // Config missing or patch failed — the engine overlay would
             // report the aspect mismatch; nothing better to do here.
@@ -331,7 +331,7 @@ function PlayPageInner() {
       // fetch here blocks the flow with a retryable error instead.
       const roster = await fetchAssetsManifest();
       console.log('[netplay] roster manifest v' + roster.version +
-        ((globalThis as any).ikemenRosterHex ? ' (' + (globalThis as any).ikemenRosterHex + ')' : ''));
+        ((globalThis as any).engineRosterHex ? ' (' + (globalThis as any).engineRosterHex + ')' : ''));
       const net = (globalThis as any).ikemenNet;
       if (!net) throw new Error('Netplay bridge not loaded');
       net.start(role);
@@ -374,7 +374,7 @@ function PlayPageInner() {
   const cancelNetFlow = useCallback(() => {
     try { (globalThis as any).ikemenNet?.close?.(); } catch { /* already gone */ }
     netResolveRef.current?.(null);
-    try { sessionStorage.removeItem('ikemen-boot-live'); } catch { /* ignore */ }
+    try { sessionStorage.removeItem('engine-boot-live'); } catch { /* ignore */ }
     window.location.href = '/lobby';
   }, []);
 
@@ -477,12 +477,12 @@ function PlayPageInner() {
     script.src = '/game/touch.js?v=2026-10-07.1';
     script.onload = () => {
       const g = globalThis as any;
-      if (g.__ikemenTouch?.build) g.__ikemenTouch.build();
+      if (g.__engineTouch?.build) g.__engineTouch.build();
     };
     document.head.appendChild(script);
     return () => {
       const g = globalThis as any;
-      if (g.__ikemenTouch?.destroy) g.__ikemenTouch.destroy();
+      if (g.__engineTouch?.destroy) g.__engineTouch.destroy();
       script.remove();
     };
   }, [isTouch, engineRunning]);
@@ -586,14 +586,14 @@ function PlayPageInner() {
       // the user's memory of what the screen showed.
       const recordBootLine = (line: string) => {
         try {
-          const prev = sessionStorage.getItem('ikemen-bootlog');
+          const prev = sessionStorage.getItem('engine-bootlog');
           const lines = prev ? prev.split('\n') : [];
           lines.push(line);
-          sessionStorage.setItem('ikemen-bootlog', lines.slice(-60).join('\n'));
+          sessionStorage.setItem('engine-bootlog', lines.slice(-60).join('\n'));
         } catch { /* private mode / quota — diagnostics only, never fatal */ }
       };
       const clearBootLive = () => {
-        try { sessionStorage.removeItem('ikemen-boot-live'); } catch { /* ignore */ }
+        try { sessionStorage.removeItem('engine-boot-live'); } catch { /* ignore */ }
       };
 
       // The boot log mirrors its lines in JS (bootLines + a prefix→index map)
@@ -659,17 +659,17 @@ function PlayPageInner() {
         let prevLive: string | null = null;
         let prevLog = '';
         try {
-          prevLive = sessionStorage.getItem('ikemen-boot-live');
-          prevLog = sessionStorage.getItem('ikemen-bootlog') || '';
+          prevLive = sessionStorage.getItem('engine-boot-live');
+          prevLog = sessionStorage.getItem('engine-bootlog') || '';
         } catch { /* ignore */ }
         if (prevLive) {
           const last = prevLog.split('\n').filter(Boolean).slice(-3).join('  |  ');
           log('PREVIOUS BOOT ON THIS TAB ENDED ABRUPTLY (likely the phone killed the renderer mid-boot).');
           log('Last activity before the refresh: ' + (last || '(no boot log recorded)'));
         }
-        try { sessionStorage.setItem('ikemen-bootlog', ''); } catch { /* ignore */ }
+        try { sessionStorage.setItem('engine-bootlog', ''); } catch { /* ignore */ }
       }
-      try { sessionStorage.setItem('ikemen-boot-live', String(Date.now())); } catch { /* ignore */ }
+      try { sessionStorage.setItem('engine-boot-live', String(Date.now())); } catch { /* ignore */ }
 
       try {
         // --- Read match parameters from URL ---
@@ -732,7 +732,7 @@ function PlayPageInner() {
 
         const installCanvasFit = () => {
           const style = document.createElement('style');
-          style.id = 'ikemen-canvas-fit';
+          style.id = 'engine-canvas-fit';
           style.textContent = [
             'html, body { overflow: hidden !important; }',
             // object-fit / object-position are set inline (always contain —
@@ -743,7 +743,7 @@ function PlayPageInner() {
           document.body.classList.add('fighting');
 
           // Do not observe the whole document while the engine is running.
-          // IKEMEN/wasm and the touch overlay can mutate the DOM frequently;
+          // The engine and the touch overlay can mutate the DOM frequently;
           // a subtree MutationObserver would turn unrelated DOM changes into
           // canvas layout work. The canvas is created during engine startup,
           // so wait for it with a short rAF bootstrap loop, then only react to
@@ -777,7 +777,7 @@ function PlayPageInner() {
             window.removeEventListener('resize', onResize);
             window.visualViewport?.removeEventListener('resize', onResize);
             window.visualViewport?.removeEventListener('scroll', onResize);
-            document.getElementById('ikemen-canvas-fit')?.remove();
+            document.getElementById('engine-canvas-fit')?.remove();
             document.body.classList.remove('fighting');
           };
         };
@@ -815,8 +815,7 @@ function PlayPageInner() {
         // level (capture phase) ONLY to call preventDefault on game keys
         // so the browser doesn't fire shortcuts (Ctrl+W, F5, backspace
         // navigation, etc.). We do NOT push to any array — the old
-        // __ikemenKeyDown/__ikemenKeyUp poll-based bridge was dead code
-        // (the engine never read it).
+        // poll-based key bridge was dead code (the engine never read it).
         // Online (net=1) installs this AFTER the select screens are done —
         // they need the arrows/WASD for navigation.
         const heldKeys = new Set<string>();
@@ -864,13 +863,13 @@ function PlayPageInner() {
         // realm. Patch once; later boots reuse the recorded ORIGINAL fetch
         // so the wasm/CDN fetches below still bypass the rewrite.
         const originalFetch: typeof window.fetch =
-          (window.fetch as any).__ikemenOriginal || window.fetch;
-        const VFS_FILE_PREFIX = './ikemen-fs/file/';
-        const VFS_MANIFEST_URL = './ikemen-fs/manifest.json';
-        const STATIC_FILE_BASE = '/game/ikemen-fs/file/';
-        const STATIC_MANIFEST = '/game/ikemen-fs/manifest.json';
+          (window.fetch as any).__fgOriginal || window.fetch;
+        const VFS_FILE_PREFIX = './engine-fs/file/';
+        const VFS_MANIFEST_URL = './engine-fs/manifest.json';
+        const STATIC_FILE_BASE = '/game/engine-fs/file/';
+        const STATIC_MANIFEST = '/game/engine-fs/manifest.json';
 
-        if (!(window.fetch as any).__ikemenPatched) {
+        if (!(window.fetch as any).__fgPatched) {
           const patchedFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
             const url = typeof input === 'string' ? input : input.toString();
 
@@ -880,14 +879,14 @@ function PlayPageInner() {
               return originalFetch(rewritten, init);
             }
 
-            if (url === VFS_MANIFEST_URL || url.startsWith('./ikemen-fs/manifest.json')) {
+            if (url === VFS_MANIFEST_URL || url.startsWith('./engine-fs/manifest.json')) {
               return originalFetch(STATIC_MANIFEST, init);
             }
 
             return originalFetch(input, init);
           };
-          (patchedFetch as any).__ikemenOriginal = originalFetch;
-          (patchedFetch as any).__ikemenPatched = true;
+          (patchedFetch as any).__fgOriginal = originalFetch;
+          (patchedFetch as any).__fgPatched = true;
           window.fetch = patchedFetch;
         }
 
@@ -895,7 +894,7 @@ function PlayPageInner() {
         // evaluation) + parallel VFS script load ---
         // The manifest fetch and the 5.3 MB wasm download/compile have been
         // running since before hydration — usually already resolved here.
-        // vfs.js is only needed for ikemenVfsInit, so its load overlaps the
+        // vfs.js is only needed for engineVfsInit, so its load overlaps the
         // runtime's remaining wasm work (these two loaded SERIALLY before,
         // costing a full extra script round-trip on every boot).
         const runtimePromise = ensureEngineRuntime();
@@ -903,7 +902,7 @@ function PlayPageInner() {
 
         // --- 2b. Deferred warmup of the lazy VFS set (boot-window fix) ---
         // vfs.js no longer prefetches its ~18MB lazy menu/UI set inside
-        // ikemenVfsInit — that download used to race the .pak, WASM compile
+        // engineVfsInit — that download used to race the .pak, WASM compile
         // and character injection inside the boot window (the phone
         // first-start refresh family). The boot page starts it once the
         // engine is actually up: first canvas frame + 2s grace, with a
@@ -922,7 +921,7 @@ function PlayPageInner() {
             // ones (system.sff/system.snd) load on demand when first used,
             // trading a one-time fetch on menu open for ~13 MB of always-
             // resident heap (the phone tab-kill/refresh family).
-            const p = (g.ikemenVfsPrefetch as any)?.(
+            const p = (g.engineVfsPrefetch as any)?.(
               undefined,
               MEMORY_CONSTRAINED ? { maxFileBytes: VFS_PREFETCH_MAX_FILE_BYTES } : undefined
             );
@@ -964,14 +963,14 @@ function PlayPageInner() {
           // the overlap the old preboot had, plus a module-scope head start).
           const manifestData = await ensureAssetManifest();
           if (cancelled) return;
-          g.ikemenAssetStamp = manifestData.stamp || '';
+          g.engineAssetStamp = manifestData.stamp || '';
           // Start the .pak load NOW: the netplay build check exchanges a
           // hash that vfs init computes at its END, so it must be underway
           // before the handshake. The fight boot reuses this promise (a
           // second init would download everything twice). The manifest is
           // passed through so vfs init does not refetch it.
-          vfsPromiseRef.current = (g.ikemenVfsInit as any)(
-            '/game/ikemen-fs/manifest.json',
+          vfsPromiseRef.current = (g.engineVfsInit as any)(
+            '/game/engine-fs/manifest.json',
             [],
             (got: number, total: number) => {
               if (cancelled) return;
@@ -1009,9 +1008,9 @@ function PlayPageInner() {
           log(`Stage: ${netFightCfg.stage}`);
           // Roster fingerprint actually in play (visible in screenshots when
           // a mismatch is refused) — set at role pick, before net.start.
-          if ((globalThis as any).ikemenRosterVersion) {
-            log('Roster: manifest v' + (globalThis as any).ikemenRosterVersion +
-              ((globalThis as any).ikemenRosterHex ? ' (' + (globalThis as any).ikemenRosterHex + ')' : ''));
+          if ((globalThis as any).engineRosterVersion) {
+            log('Roster: manifest v' + (globalThis as any).engineRosterVersion +
+              ((globalThis as any).engineRosterHex ? ' (' + (globalThis as any).engineRosterHex + ')' : ''));
           }
           // Display-mode sync result — the engine's netplay check refuses
           // mismatched fight aspects, so this line proves the fix ran.
@@ -1026,7 +1025,7 @@ function PlayPageInner() {
         // --- 3. VFS script (kicked off at 2a, overlapped with the runtime) ---
         // (net=1 awaited it in the online preboot above; both scripts are
         // standalone IIFEs, so only the USAGE order matters: vfs.js before
-        // ikemenVfsInit, wasm_exec.js before `new Go()` — both preserved.)
+        // engineVfsInit, wasm_exec.js before `new Go()` — both preserved.)
         if (!netMenu) {
           log('Loading virtual filesystem...');
           await vfsScriptPromise;
@@ -1070,10 +1069,10 @@ function PlayPageInner() {
         }
 
         // --- 6. Resolution is controlled by Settings UI / localStorage ---
-        // Previously, /play set globalThis.ikemenAspect here, and vfs.js
+        // Previously, /play set a global aspect override here, and vfs.js
         // used it to overwrite GameWidth/GameHeight in config.ini. Now that
         // Settings UI is authoritative (vfs.js no longer overwrites), we
-        // don't set ikemenAspect at all. The engine boots with whatever
+        // don't set any aspect override at all. The engine boots with whatever
         // GameWidth/GameHeight is in localStorage config.ini (set by the
         // Settings UI or the /local RES toggle).
 
@@ -1082,14 +1081,14 @@ function PlayPageInner() {
         // On a typical connection this saves ~40% of total load time:
         //   Sequential: .pak (3s) + WASM (5s) = 8s
         //   Parallel:   max(.pak, WASM)      = 5s
-        log(netMenu ? 'Finalizing engine boot...' : 'Loading game.pak + ikemen.wasm in parallel...');
+        log(netMenu ? 'Finalizing engine boot...' : 'Loading game.pak + engine.wasm in parallel...');
 
         // Asset manifest (fetched at module scope): provides the content
         // stamp for the immutable wasm/pak URLs and is passed into vfs init
         // so it is fetched exactly once per boot.
         const manifestData = await ensureAssetManifest();
         if (cancelled) return;
-        g.ikemenAssetStamp = manifestData.stamp || '';
+        g.engineAssetStamp = manifestData.stamp || '';
 
         // Start VFS (.pak) load FIRST — it downloads while the module-scope
         // runtime finishes the wasm compile (net=1: already started in the
@@ -1097,8 +1096,8 @@ function PlayPageInner() {
         // (go.argv is set later, after CDN downloads, with resolved paths.)
         const vfsPromise = netMenu
           ? vfsPromiseRef.current!
-          : (g.ikemenVfsInit as any)(
-              '/game/ikemen-fs/manifest.json',
+          : (g.engineVfsInit as any)(
+              '/game/engine-fs/manifest.json',
               [],
               (got: number, total: number) => {
                 if (cancelled) return;
@@ -1257,7 +1256,7 @@ function PlayPageInner() {
           try {
             const roster = await fetchAssetsManifest();
             log('Roster: manifest v' + roster.version +
-              ((globalThis as any).ikemenRosterHex ? ' (' + (globalThis as any).ikemenRosterHex + ')' : ''));
+              ((globalThis as any).engineRosterHex ? ' (' + (globalThis as any).engineRosterHex + ')' : ''));
           } catch { /* bridge falls back to the pack-only hash */ }
         }
 
@@ -1331,7 +1330,7 @@ function PlayPageInner() {
         if (isTouch) {
           setTimeout(() => setShowExit(true), 1500);
         }
-        g.__ikemenExitCode = null;
+        g.__engineExitCode = null;
         engineStartAt = Date.now();
         glContextLost = false;
         document.addEventListener('webglcontextlost', onContextLost, true);
@@ -1347,8 +1346,8 @@ function PlayPageInner() {
         // memory, deadlock, ...) printed to stderr WITHOUT a panic line —
         // the OOM-class boot deaths (Huawei Chrome report) only match the
         // second pattern. Both come through the vfs log bridge
-        // (window.__ikemenEngineLog), which captures stdout AND stderr.
-        const engineTail = ((globalThis as any).__ikemenEngineLog || []) as string[];
+        // (window.__engineLog), which captures stdout AND stderr.
+        const engineTail = ((globalThis as any).__engineLog || []) as string[];
         const crashLine = engineTail.find(l => l.includes('Panic:') || l.includes('fatal error:'));
         if (crashLine) {
           cleanup();
@@ -1375,7 +1374,7 @@ function PlayPageInner() {
         // of the Huawei Chrome report class: an engine dying after the
         // canvas is up (past the 8s engineRan heuristic) without printing a
         // Go panic line.
-        const exitCode = g.__ikemenExitCode;
+        const exitCode = g.__engineExitCode;
         const engineDied = (exitCode != null && exitCode !== 0) || glContextLost;
         if (engineDied && !fightResult) {
           cleanup();
@@ -1450,7 +1449,7 @@ function PlayPageInner() {
           // Engine's own output wins: a Panic line (or a Go runtime 'fatal
           // error:') is a real engine bug, and bouncing silently would hide
           // it (the phone report class).
-          const engineTail = ((globalThis as any).__ikemenEngineLog || []) as string[];
+          const engineTail = ((globalThis as any).__engineLog || []) as string[];
           const crashLine = engineTail.find(l => l.includes('Panic:') || l.includes('fatal error:'));
           if (crashLine) {
             log('ENGINE CRASHED: ' + crashLine);
@@ -1465,7 +1464,7 @@ function PlayPageInner() {
           const engineRan = !!document.querySelector('canvas#ikemen-canvas') && (Date.now() - engineStartAt > 8000);
           // `g` lives inside the try scope - read the exit code off globalThis
           // directly (the go.exit wrapper records it there).
-          const exitCode = (globalThis as any).__ikemenExitCode;
+          const exitCode = (globalThis as any).__engineExitCode;
           const engineDied = (exitCode != null && exitCode !== 0) || glContextLost;
           if (engineRan && !engineDied) {
             clearBootLive();
@@ -1497,7 +1496,7 @@ function PlayPageInner() {
     // included isTouch, this effect would re-fire when isTouch flips,
     // cancelling the first bootEngine() mid-WASM-load and starting a
     // second one (race condition: duplicate <script> tags, double
-    // fetch of ikemen.wasm, etc.). The touch UI is handled in render
+    // fetch of engine.wasm, etc.). The touch UI is handled in render
     // via the isTouch && engineRunning condition — no need to re-boot.
   }, [searchParams]);
 
@@ -1678,15 +1677,15 @@ function loadScript(src: string): Promise<void> {
 const scriptPromises = new Map<string, Promise<void>>();
 
 // Instantiate the engine WASM over the cheapest wire path:
-//   1. /game/ikemen.wasm.gz?v=<stamp> — ~5.4 MB instead of 23 MB (-77%),
+//   1. /game/engine.wasm.gz?v=<stamp> — ~5.4 MB instead of 23 MB (-77%),
 //      immutable-cached via the content stamp, streamed through
 //      DecompressionStream so decompression overlaps the download and
 //      compilation overlaps decompression.
-//   2. Raw /game/ikemen.wasm — browsers without DecompressionStream, or a
+//   2. Raw /game/engine.wasm — browsers without DecompressionStream, or a
 //      missing/corrupt .gz artifact.
 // The raw path fetches ONCE and reuses the same response for the buffered
 // fallback (the old code re-downloaded all 23 MB on fallback).
-async function instantiateIkemenWasm(
+async function instantiateEngineWasm(
   fetchFn: typeof fetch,
   go: { importObject: unknown },
   stamp: string,
@@ -1695,7 +1694,7 @@ async function instantiateIkemenWasm(
   const qs = stamp ? '?v=' + encodeURIComponent(stamp) : '';
   if (typeof DecompressionStream === 'function' && stamp) {
     try {
-      const res = await fetchFn('/game/ikemen.wasm.gz' + qs, { cache: 'default' });
+      const res = await fetchFn('/game/engine.wasm.gz' + qs, { cache: 'default' });
       if (res.ok && res.body) {
         const wasmStream = res.body.pipeThrough(new DecompressionStream('gzip'));
         const wasmRes = new Response(wasmStream, { headers: { 'Content-Type': 'application/wasm' } });
@@ -1706,7 +1705,7 @@ async function instantiateIkemenWasm(
       log('Compressed wasm path failed (' + (e instanceof Error ? e.message : String(e)) + '), falling back to raw.');
     }
   }
-  const res = await fetchFn('/game/ikemen.wasm' + qs, { cache: 'no-cache' });
+  const res = await fetchFn('/game/engine.wasm' + qs, { cache: 'no-cache' });
   try {
     return await WebAssembly.instantiateStreaming(res.clone(), go.importObject as any);
   } catch {

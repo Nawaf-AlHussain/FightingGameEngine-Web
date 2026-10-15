@@ -1,8 +1,9 @@
 /**
- * IKEMEN GO config.ini parser, serializer, and storage helpers.
+ * Engine config.ini parser, serializer, and storage helpers.
  *
  * The engine reads save/config.ini at boot. vfs.js persists it to
- * localStorage under 'ikemen-vfs12:save/config.ini' so it survives reloads.
+ * localStorage under 'engine-vfs12:save/config.ini' so it survives reloads
+ * (migrated forward from the pre-rename 'ikemen-vfs12:' prefix on read).
  *
  * This module lets the React settings UI read the current config, modify
  * values, and persist them back to localStorage — so the next engine boot
@@ -141,10 +142,12 @@ export function serializeConfigIni(data: ConfigData): string {
 // ---------------------------------------------------------------------------
 
 /** localStorage key the engine's vfs.js uses for persisted save/config.ini. */
-export const CONFIG_STORAGE_KEY = 'ikemen-vfs12:save/config.ini';
+export const CONFIG_STORAGE_KEY = 'engine-vfs12:save/config.ini';
+/** Pre-rename key; still read once (and migrated) for returning players. */
+export const CONFIG_STORAGE_KEY_LEGACY = 'ikemen-vfs12:save/config.ini';
 
 /** URL of the shipped config.ini (used to fetch defaults if nothing is persisted). */
-export const SHIPPED_CONFIG_URL = '/game/ikemen-fs/file/save/config.ini';
+export const SHIPPED_CONFIG_URL = '/game/engine-fs/file/save/config.ini';
 
 /**
  * Load the current config from localStorage, falling back to the shipped
@@ -155,7 +158,7 @@ export const SHIPPED_CONFIG_URL = '/game/ikemen-fs/file/save/config.ini';
 export async function loadConfig(): Promise<ConfigData | null> {
   // Try persisted first
   try {
-    const raw = localStorage.getItem(CONFIG_STORAGE_KEY);
+    const raw = localStorage.getItem(CONFIG_STORAGE_KEY) ?? localStorage.getItem(CONFIG_STORAGE_KEY_LEGACY);
     if (raw) {
       const text = atob(raw);
       return parseConfigIni(text);
@@ -186,6 +189,7 @@ export function saveConfig(data: ConfigData): void {
   const text = serializeConfigIni(data);
   try {
     localStorage.setItem(CONFIG_STORAGE_KEY, btoa(text));
+    try { localStorage.removeItem(CONFIG_STORAGE_KEY_LEGACY); } catch { /* best-effort */ }
   } catch {
     // Quota exceeded / private mode — settings just won't persist
   }
@@ -220,11 +224,13 @@ export async function setConfigValue(
 export function clearPersistedConfig(): void {
   try {
     localStorage.removeItem(CONFIG_STORAGE_KEY);
+    localStorage.removeItem(CONFIG_STORAGE_KEY_LEGACY);
   } catch {
     // ignore
   }
   try {
     localStorage.removeItem(DISPLAY_MODE_STORAGE_KEY);
+    localStorage.removeItem(DISPLAY_MODE_STORAGE_KEY_LEGACY);
   } catch {
     // ignore
   }
@@ -250,7 +256,7 @@ export interface DisplayModePreset {
 }
 
 /**
- * The engine (verified against upstream Ikemen-GO master source AND the
+ * The engine (verified against upstream engine master source AND the
  * shipped WASM with pixel-checked headless screenshots) has exactly these
  * presentation primitives:
  *
@@ -266,7 +272,7 @@ export interface DisplayModePreset {
  *   designed area (per the stage's overdrawhigh/overdrawlow). The result is
  *   a full-bleed 4:3 picture with MORE vertical stage content than 16:9:
  *   zero bars, zero distortion, nothing cropped. This is the engine's own
- *   native 4:3 mode — the same picture standalone IKEMEN shows in a 4:3
+ *   native 4:3 mode — the same picture the standalone engine shows in a 4:3
  *   window.
  * - KeepAspect only matters when the canvas aspect differs from the fight
  *   aspect (then it letterboxes/stretches). The presets always keep canvas
@@ -287,7 +293,7 @@ export interface DisplayModePreset {
  *   rendered 4:3 with visibly more vertical stage content than 16:9. On a
  *   16:9 monitor the web fitter shows the canvas at its intrinsic aspect
  *   (side pillarboxing — the honest 4:3 presentation, exactly like
- *   standalone IKEMEN in a 4:3 window on a widescreen display).
+ *   standalone engine in a 4:3 window on a widescreen display).
  * - '16:9-*': the historical widescreen path, byte-identical rendering.
  */
 export const DISPLAY_MODE_PRESETS = {
@@ -330,14 +336,16 @@ export type DisplayModeChoice = keyof typeof DISPLAY_MODE_PRESETS;
  * renders at a genuine 4:3 canvas, so the single contain-fit presentation
  * is correct for every mode.
  */
-export const DISPLAY_MODE_STORAGE_KEY = 'ikemen-display-mode';
+export const DISPLAY_MODE_STORAGE_KEY = 'engine-display-mode';
+/** Pre-rename key; still read once for returning players. */
+export const DISPLAY_MODE_STORAGE_KEY_LEGACY = 'ikemen-display-mode';
 
 export type DisplayModeMarker = '4:3' | '16:9';
 
 /** Read the persisted display-mode marker (null = never selected/migrated). */
 export function getDisplayModeMarker(): DisplayModeMarker | null {
   try {
-    const v = localStorage.getItem(DISPLAY_MODE_STORAGE_KEY);
+    const v = localStorage.getItem(DISPLAY_MODE_STORAGE_KEY) ?? localStorage.getItem(DISPLAY_MODE_STORAGE_KEY_LEGACY);
     return v === '4:3' || v === '16:9' ? v : null;
   } catch {
     return null;
@@ -347,6 +355,7 @@ export function getDisplayModeMarker(): DisplayModeMarker | null {
 function setDisplayModeMarker(mode: DisplayModeMarker): void {
   try {
     localStorage.setItem(DISPLAY_MODE_STORAGE_KEY, mode);
+    try { localStorage.removeItem(DISPLAY_MODE_STORAGE_KEY_LEGACY); } catch { /* best-effort */ }
   } catch {
     // ignore — fitter falls back to the contain (16:9) presentation
   }
@@ -502,7 +511,7 @@ export interface SettingGroup {
 // Keyboard remapping support
 // ---------------------------------------------------------------------------
 //
-// The IKEMEN GO engine stores key bindings in config.ini [Keys_P1] and
+// The engine stores key bindings in config.ini [Keys_P1] and
 // [Keys_P2] sections. Each value is a string from KeyToStringLUT
 // (e.g., 'w' for the W key, '8' for the digit 8, 'UP' for Arrow Up,
 // 'COMMA' for the comma key).
@@ -513,8 +522,8 @@ export interface SettingGroup {
 // string format.
 //
 // The maps below are derived from input_js.go's jsCodeToKey and
-// KeyToStringLUT (cross-referenced with the actual engine source at
-// /tmp/ikemen-go-web/src/input_js.go).
+// KeyToStringLUT (cross-referenced with the engine fork's own
+// input_js.go source).
 
 /**
  * Map: KeyboardEvent.code → engine INI string (the format used in config.ini).
@@ -769,7 +778,7 @@ export const SETTINGS_SCHEMA: SettingGroup[] = [
       {
         section: 'Video', key: 'ZoomActive', label: 'Stage Zoom',
         type: 'toggle',
-        hint: 'Camera zoom on stage-specific zoom points (Ikemen feature).',
+        hint: 'Camera zoom on stage-specific zoom points (engine feature).',
       },
       {
         section: 'Config', key: 'EscOpensMenu', label: 'ESC Opens Pause Menu',
@@ -1199,7 +1208,7 @@ export const SETTINGS_SCHEMA: SettingGroup[] = [
 
   // --- Keys (keyboard remapping) -----------------------------------------
   //
-  // Each entry maps one IKEMEN action (Up/Down/Left/Right/A/B/C/X/Y/Z/Start)
+  // Each entry maps one engine action (Up/Down/Left/Right/A/B/C/X/Y/Z/Start)
   // for one player (1 or 2) to a KeyboardEvent.code. The UI captures the
   // next keydown event when the user clicks the binding button.
   //

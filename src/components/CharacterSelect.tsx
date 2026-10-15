@@ -118,7 +118,8 @@ const DIFFICULTIES: { id: Difficulty; label: string }[] = [
 const GRID_COLS = 10;
 
 // localStorage key persisting the chosen roster source across visits.
-const ROSTER_SOURCE_KEY = 'ikemen-roster-source';
+const ROSTER_SOURCE_KEY = 'fg-roster-source';
+const ROSTER_SOURCE_KEY_LEGACY = 'ikemen-roster-source';
 
 interface CursorState {
   index: number;
@@ -224,12 +225,12 @@ export default function CharacterSelect({
         setSources(rosterSources);
         // Restore the persisted source choice; fall back to the default if
         // it no longer exists (folder renamed/removed upstream).
-        const saved = typeof window !== 'undefined' ? localStorage.getItem(ROSTER_SOURCE_KEY) : null;
+        const saved = typeof window !== 'undefined' ? (localStorage.getItem(ROSTER_SOURCE_KEY) ?? localStorage.getItem(ROSTER_SOURCE_KEY_LEGACY)) : null;
         if (saved && rosterSources.some(s => s.id === saved)) {
           setActiveSource(saved);
         } else {
           setActiveSource(DEFAULT_SOURCE);
-          if (saved) localStorage.removeItem(ROSTER_SOURCE_KEY);
+          if (saved) { localStorage.removeItem(ROSTER_SOURCE_KEY); try { localStorage.removeItem(ROSTER_SOURCE_KEY_LEGACY); } catch { /* ignore */ } }
         }
         setLoading(false);
       })

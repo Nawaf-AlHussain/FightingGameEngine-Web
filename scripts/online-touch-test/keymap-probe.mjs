@@ -187,7 +187,7 @@ async function probeTouch(page, cdp, label, point, opts = {}) {
 
 async function dumpPersistedKeys(page) {
   const out = await page.evaluate(() => {
-    const raw = localStorage.getItem('ikemen-vfs12:save/config.ini');
+    const raw = localStorage.getItem('engine-vfs12:save/config.ini');
     if (!raw) return null;
     const text = atob(raw).split('').map((c) => c.charCodeAt(0) < 128 ? c : '?').join('');
     const sec = (name) => {
@@ -250,7 +250,7 @@ async function scenario(name, seedFn, seedArg) {
   await ctx.close();
 }
 
-const seedV12 = ([data]) => { localStorage.setItem('ikemen-vfs12:save/config.ini', data); };
+const seedV12 = ([data]) => { localStorage.setItem('engine-vfs12:save/config.ini', data); };
 const seedV11 = ([data]) => { localStorage.setItem('ikemen-vfs11:save/config.ini', data); };
 
 const ALL = {
