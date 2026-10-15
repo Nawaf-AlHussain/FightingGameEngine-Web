@@ -52,6 +52,10 @@ interface DownloadState {
 // Constants
 // ---------------------------------------------------------------------------
 
+// localStorage key persisting the last confirmed stage — repeat sessions
+// start the cursor on their usual battleground.
+const LAST_STAGE_KEY = 'fg-last-stage';
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -72,6 +76,8 @@ export default function StageSelect({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  // View filter: show only stages already cached on this device.
+  const [readyOnly, setReadyOnly] = useState(false);
   // Bumped by the RETRY button to re-run the stage list fetch (spec Section 33).
   const [retryTick, setRetryTick] = useState(0);
 
@@ -94,6 +100,8 @@ export default function StageSelect({
   // Tracks which stage downloads are currently in-flight (prevents
   // double-triggering when state updates fire effects repeatedly).
   const inflightRef = useRef<Set<string>>(new Set());
+  // Stage grid element — read at keypress time to walk the grid by real rows.
+  const gridRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { stageInfosRef.current = stageInfos; }, [stageInfos]);
   useEffect(() => { cachedIdsRef.current = cachedIds; }, [cachedIds]);
@@ -120,6 +128,15 @@ export default function StageSelect({
           })),
         ];
         setStages(merged);
+        // Restore the last stage this player confirmed (repeat sessions
+        // start on their usual battleground).
+        try {
+          const saved = localStorage.getItem(LAST_STAGE_KEY);
+          const idx = saved ? merged.findIndex(s => s.id === saved) : -1;
+          if (idx >= 0) setSelectedIndex(idx);
+        } catch {
+          // storage unavailable — default to the first stage
+        }
         setLoading(false);
       })
       .catch((err: unknown) => {
@@ -230,6 +247,73 @@ export default function StageSelect({
   const selectedStage = useMemo(() => stages[selectedIndex], [stages, selectedIndex]);
   const selectedReady = isReady(selectedStage);
 
+  // ---- Filtered view (on-device filter) ----
+  // filteredIndices holds FULL-list indices of the rendered cards; cursor
+  // movement stays inside this space so the selection never lands on an
+  // invisible card.
+  const filteredIndices = useMemo(
+    () => stages.map((_, i) => i).filter(i => (readyOnly ? isReady(stages[i]) : true)),
+    [stages, readyOnly, isReady]
+  );
+  const filteredIndicesRef = useRef<number[]>([]);
+  filteredIndicesRef.current = filteredIndices;
+
+  // Snap the selection into view when the filter hides it.
+  useEffect(() => {
+    if (loading) return;
+    if (filteredIndices.length === 0) return;
+    setSelectedIndex(prev =>
+      filteredIndices.includes(prev) ? prev : filteredIndices[0]
+    );
+  }, [filteredIndices, loading]);
+
+  // Move the selection within the filtered view with wrap-around.
+  // Vertical steps (delta ±rowJump) jump a FULL row: the grid is auto-fill,
+  // so the row width is measured from the rendered cards at keypress time.
+  const gridRowJump = useCallback((): number => {
+    const grid = gridRef.current;
+    if (!grid) return 1;
+    const cards = grid.querySelectorAll<HTMLElement>('.ss__card');
+    if (cards.length < 2) return 1;
+    const top = cards[0].offsetTop;
+    let cols = 1;
+    while (cols < cards.length && cards[cols].offsetTop === top) cols++;
+    return cols;
+  }, []);
+  const moveSelection = useCallback((delta: number) => {
+    setSelectedIndex(prev => {
+      const list = filteredIndicesRef.current;
+      if (list.length === 0) return prev;
+      let pos = list.indexOf(prev);
+      if (pos === -1) return list[0];
+      pos = ((pos + delta) % list.length + list.length) % list.length;
+      return list[pos];
+    });
+  }, []);
+
+  // ---- Confirm pipeline (shared by Enter / FIGHT / pending-download / RANDOM) ----
+  // Every confirmed stage is remembered (localStorage) so the next session
+  // starts the cursor on this player's usual battleground.
+  const confirmStage = useCallback(
+    (stage: LocalStage) => {
+      try { localStorage.setItem(LAST_STAGE_KEY, stage.id); } catch { /* ignore */ }
+      onSelect(stage.id);
+    },
+    [onSelect]
+  );
+
+  // ---- RANDOM: pick a random READY stage and confirm immediately ----
+  // Classic arcade behavior — random commits on the spot. Never picks a
+  // stage that would stall the match behind a download.
+  const handleRandom = useCallback(() => {
+    const ready = filteredIndicesRef.current
+      .map(i => stages[i])
+      .filter(s => !!s && isReady(s));
+    if (ready.length === 0) return;
+    const pick = ready[Math.floor(Math.random() * ready.length)];
+    confirmStage(pick);
+  }, [stages, isReady, confirmStage]);
+
   // ---- Confirm current selection (Enter / double-click / FIGHT button) ----
   // Downloads only fire HERE — on confirm — not when the cursor merely
   // lands on a stage. If the stage is already cached the triggerDownload
@@ -248,8 +332,8 @@ export default function StageSelect({
       return;
     }
     setPendingConfirm(false);
-    onSelect(selectedStage.id);
-  }, [selectedStage, selectedReady, onSelect, triggerDownload]);
+    confirmStage(selectedStage);
+  }, [selectedStage, selectedReady, confirmStage, triggerDownload]);
 
   // Auto-confirm once the pending stage download lands. Guarded against
   // spectate (the guest has no input here) and cursor moves (confirming
@@ -259,9 +343,9 @@ export default function StageSelect({
     if (!selectedStage) { setPendingConfirm(false); return; }
     if (isReady(selectedStage)) {
       setPendingConfirm(false);
-      onSelect(selectedStage.id);
+      confirmStage(selectedStage);
     }
-  }, [spectate, loading, pendingConfirm, selectedStage, isReady, onSelect, downloadStates]);
+  }, [spectate, loading, pendingConfirm, selectedStage, isReady, confirmStage, downloadStates]);
 
   // ---- Keyboard controls ----
   useEffect(() => {
@@ -269,15 +353,37 @@ export default function StageSelect({
     const onKey = (e: KeyboardEvent) => {
       if (loading) return;
       const code = e.code;
-      if (code === 'ArrowRight' || code === 'ArrowDown') {
+      if (code === 'ArrowRight') {
         e.preventDefault();
-        setSelectedIndex(i => (i + 1) % stages.length);
-      } else if (code === 'ArrowLeft' || code === 'ArrowUp') {
+        moveSelection(1);
+      } else if (code === 'ArrowDown') {
         e.preventDefault();
-        setSelectedIndex(i => (i - 1 + stages.length) % stages.length);
+        moveSelection(gridRowJump());
+      } else if (code === 'ArrowLeft') {
+        e.preventDefault();
+        moveSelection(-1);
+      } else if (code === 'ArrowUp') {
+        e.preventDefault();
+        moveSelection(-gridRowJump());
+      } else if (code === 'PageDown') {
+        e.preventDefault();
+        moveSelection(gridRowJump() * 2);
+      } else if (code === 'PageUp') {
+        e.preventDefault();
+        moveSelection(-gridRowJump() * 2);
+      } else if (code === 'Home') {
+        e.preventDefault();
+        setSelectedIndex(filteredIndicesRef.current[0] ?? 0);
+      } else if (code === 'End') {
+        e.preventDefault();
+        const list = filteredIndicesRef.current;
+        setSelectedIndex(list.length ? list[list.length - 1] : 0);
       } else if (code === 'Enter' || code === 'NumpadEnter') {
         e.preventDefault();
         handleConfirm();
+      } else if (code === 'KeyR') {
+        e.preventDefault();
+        handleRandom();
       } else if (code === 'Escape' || code === 'Backspace') {
         e.preventDefault();
         onCancel();
@@ -285,7 +391,7 @@ export default function StageSelect({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [loading, stages.length, handleConfirm, onCancel, spectate]);
+  }, [loading, moveSelection, gridRowJump, handleConfirm, handleRandom, onCancel, spectate]);
 
   // ---- Render the download status block for a card ----
   const renderDownloadStatus = (stage: LocalStage) => {
@@ -397,7 +503,7 @@ export default function StageSelect({
             <span>{selectedStage.displayName.charAt(0).toUpperCase()}</span>
             <i className="ss__preview-dots" aria-hidden="true" />
           </div>
-          <div className="ss__preview-info">
+          <div className="ss__preview-info" aria-live="polite">
             <div className="ss__preview-kicker">NOW SCOUTING</div>
             <div className="ss__preview-name">{selectedStage.displayName}</div>
             {selectedStage.description && (
@@ -418,8 +524,39 @@ export default function StageSelect({
         </div>
       )}
 
+      {/* View filter chips + random — paper print chips */}
+      {!loading && !error && (
+        <div className="ss__chips">
+          <span className="ss__chips-label">SHOW</span>
+          <button
+            type="button"
+            className={`ss__chip${!readyOnly ? ' ss__chip--active' : ''}`}
+            onClick={() => setReadyOnly(false)}
+          >
+            ALL
+          </button>
+          <button
+            type="button"
+            className={`ss__chip${readyOnly ? ' ss__chip--active' : ''}`}
+            onClick={() => setReadyOnly(true)}
+            title="Only stages already cached on this device"
+          >
+            ON DEVICE
+          </button>
+          <button
+            type="button"
+            className="ss__chip ss__chip--random"
+            onClick={handleRandom}
+            disabled={!stages.some(s => isReady(s))}
+            title="Fight on a random ready stage (R)"
+          >
+            ? RANDOM
+          </button>
+        </div>
+      )}
+
       {/* Stage grid */}
-      <div className="ss__grid" role="grid" aria-label="Stage list">
+      <div className="ss__grid" role="grid" aria-label="Stage list" ref={gridRef}>
         {loading && (
           <div
             style={{
@@ -434,8 +571,26 @@ export default function StageSelect({
             LOADING…
           </div>
         )}
+        {!loading && filteredIndices.length === 0 && (
+          <div
+            style={{
+              gridColumn: '1 / -1',
+              textAlign: 'center',
+              padding: '2rem',
+              color: 'var(--gray)',
+              fontSize: '0.85rem',
+              letterSpacing: '0.2em',
+            }}
+          >
+            {readyOnly
+              ? 'NO STAGES ON DEVICE YET — SWITCH TO "ALL" AND DOWNLOAD ONE'
+              : 'NO STAGES AVAILABLE'}
+          </div>
+        )}
         {!loading &&
-          stages.map((stage, index) => {
+          filteredIndices.map(index => {
+            const stage = stages[index];
+            if (!stage) return null;
             const isSelected = index === selectedIndex;
             return (
               <div
@@ -469,11 +624,11 @@ export default function StageSelect({
         <div className="cs__controls-help" style={{ marginBottom: '0.75rem' }}>
           {isTouch ? (
             <>
-              <span>TAP</span> select · <span>FIGHT!</span> confirm
+              <span>TAP</span> select · <span>FIGHT!</span> or <span>? RANDOM</span> confirm
             </>
           ) : (
             <>
-              <span>ARROWS</span> select · <span>ENTER</span> confirm · <span>ESC</span> back
+              <span>ARROWS</span> select · <span>ENTER</span> confirm · <span>R</span> random · <span>ESC</span> back
             </>
           )}
           {selectedStage && (

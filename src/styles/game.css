@@ -1165,6 +1165,54 @@ button {
   color: var(--paper);
 }
 
+/* Divider between the search field and the view-filter chips */
+.cs__search-sep {
+  width: 2px;
+  height: 1.2rem;
+  background: rgba(242, 236, 218, 0.25);
+  flex: none;
+  margin: 0 0.2rem;
+}
+.cs__diff-btn { cursor: pointer; }
+.cs__diff-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.cs__diff-btn:disabled:hover { background: var(--paper); color: var(--ink); }
+.cs__diff-btn--active:disabled:hover { background: var(--royal); color: var(--paper); }
+
+/* Pick-step strip — whose turn is it to choose (aria-live region) */
+.cs__step {
+  position: relative;
+  z-index: 1;
+  width: min(540px, 92%);
+  margin: 0 auto 0.55rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  padding: 0.36rem 0.9rem;
+  background: var(--ink-soft);
+  border: 1px solid var(--gray-dark);
+  clip-path: polygon(9px 0, 100% 0, calc(100% - 9px) 100%, 0 100%);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  text-indent: 0.24em;
+  text-transform: uppercase;
+  color: var(--paper);
+}
+.cs__step::before {
+  content: '';
+  flex: none;
+  width: 0;
+  height: 0;
+  border-left: 8px solid var(--crimson);
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+}
+.cs__step--p1::before { border-left-color: var(--p1-color); }
+.cs__step--p2::before { border-left-color: var(--p2-color); }
+.cs__step--ready { border-color: var(--paper); color: var(--gold); }
+.cs__step--ready::before { border-left-color: var(--gold); }
+
 /* Character grid */
 .cs__grid {
   display: grid;
@@ -1565,6 +1613,48 @@ button {
 .ss__status--ok { background: var(--royal); color: var(--paper); }
 .ss__status--warn { background: var(--gold); color: var(--ink); }
 .ss__status--idle { color: var(--gray); padding-left: 0; clip-path: none; }
+
+/* View-filter chips + random (paper side) */
+.ss__chips {
+  display: flex;
+  gap: 0.45rem;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-bottom: 0.6rem;
+  position: relative;
+  z-index: 1;
+}
+.ss__chips-label {
+  font-size: 0.56rem;
+  letter-spacing: 0.3em;
+  text-indent: 0.3em;
+  color: var(--paper);
+  background: var(--ink);
+  padding: 0.3rem 0.7rem;
+  font-weight: 700;
+  clip-path: polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%);
+}
+.ss__chip {
+  padding: 0.32rem 0.8rem;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-family: var(--font-display);
+  background: var(--paper);
+  color: var(--ink);
+  border: 2px solid var(--ink);
+  box-shadow: 3px 3px 0 rgba(16, 22, 64, 0.85);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.ss__chip:hover:not(:disabled) { color: var(--crimson); }
+.ss__chip:disabled { opacity: 0.45; cursor: not-allowed; }
+.ss__chip--active { background: var(--royal); border-color: var(--royal-deep); color: var(--paper); }
+.ss__chip--active:hover:not(:disabled) { color: var(--paper); }
+.ss__chip--random { border-color: var(--crimson); color: var(--crimson); }
+.ss__chip--random:hover:not(:disabled) { background: var(--crimson); color: var(--paper); }
 
 /* Stage grid — numbered print bars */
 .ss__grid {
@@ -2069,6 +2159,8 @@ body.fighting {
 /* ---- Mobile: ≤ 480px (small phones) ---- */
 @media (max-width: 480px) {
   /* keep the masthead kicker clear of the resolution toggle */
+  .cs__title,
+  .ss__title { padding-top: 46px; }
   .cs__kicker,
   .ss__kicker { font-size: 0.44rem; letter-spacing: 0.16em; gap: 5px; }
   .cs__kicker .cs__kicker-rule,
