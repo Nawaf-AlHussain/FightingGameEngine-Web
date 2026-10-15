@@ -1,7 +1,7 @@
 {
   "name": "Fighting Game Engine",
   "short_name": "Fighting Game Engine",
-  "description": "Browser-based MUGEN fighting game powered by IKEMEN GO.",
+  "description": "Browser-based fighting game platform powered by a WebAssembly engine.",
   "start_url": "/",
   "scope": "/",
   "display": "fullscreen",

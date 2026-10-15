@@ -1,4 +1,4 @@
-// Engine-asset prewarm — pull ikemen.wasm.gz + game.pak.gz into the browser's
+// Engine-asset prewarm — pull engine.wasm.gz + game.pak.gz into the browser's
 // immutable HTTP cache BEFORE the /play boot needs them.
 //
 // WHY: /play downloads the 5.3 MB compressed engine + 2 MB compressed pak
@@ -13,7 +13,7 @@
 // This is the local-mode mirror of the net=1 preboot (which starts the wasm
 // compile + pak load while players are still in the select screens).
 
-const PREWARM_FLAG = 'ikemen-engine-prewarm';
+const PREWARM_FLAG = 'fg-engine-prewarm';
 
 let started = false;
 
@@ -29,7 +29,7 @@ export function prewarmEngineAssets(): void {
 
   (async () => {
     try {
-      const r = await fetch('/game/ikemen-fs/manifest.json', { cache: 'no-store' });
+      const r = await fetch('/game/engine-fs/manifest.json', { cache: 'no-store' });
       if (!r.ok) return;
       const stamp = ((await r.json()) as { stamp?: string }).stamp || '';
       const qs = stamp ? '?v=' + encodeURIComponent(stamp) : '';
@@ -37,9 +37,9 @@ export function prewarmEngineAssets(): void {
       // the HTTP cache reliably stores, and the dropped Blob is disk-backed
       // so the JS heap never carries the payload.
       await Promise.allSettled([
-        fetch('/game/ikemen.wasm.gz' + qs, { cache: 'default' })
+        fetch('/game/engine.wasm.gz' + qs, { cache: 'default' })
           .then(x => (x.ok ? x.blob() : null)),
-        fetch('/game/ikemen-fs/game.pak.gz' + qs, { cache: 'default' })
+        fetch('/game/engine-fs/game.pak.gz' + qs, { cache: 'default' })
           .then(x => (x.ok ? x.blob() : null)),
       ]);
       try { sessionStorage.setItem(PREWARM_FLAG, '1'); } catch { /* ignore */ }

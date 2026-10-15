@@ -143,7 +143,7 @@ async function runKey(browser, code) {
     userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36',
   });
   await ctx.addInitScript((seed) => {
-    localStorage.setItem('ikemen-vfs12:save/config.ini', seed);
+    localStorage.setItem('engine-vfs12:save/config.ini', seed);
   }, Buffer.from(SEED_CFG, 'utf8').toString('base64'));
   const page = await ctx.newPage();
   await page.goto(`${BASE}/play?p1=kfm&p2=kfm`, { waitUntil: 'domcontentloaded', timeout: 60000 });

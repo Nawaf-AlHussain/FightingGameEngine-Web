@@ -3,14 +3,14 @@
 //  1. manifest.files offsets exactly tile the pak (max end == pak.length)
 //  2. every essential file's bytes in the pak match the loose file on disk
 //  3. game.pak.gz gunzips to exactly the pak bytes
-//  4. ikemen.wasm.gz gunzips to exactly ikemen.wasm
+//  4. engine.wasm.gz gunzips to exactly engine.wasm
 //  5. fight.snd is lazy + present in manifest.lazy and NOT in files
 const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
 const crypto = require('crypto');
 
-const root = path.join(__dirname, '..', 'public', 'game', 'ikemen-fs');
+const root = path.join(__dirname, '..', 'public', 'game', 'engine-fs');
 const fileRoot = path.join(root, 'file');
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
 const pak = fs.readFileSync(path.join(root, 'game.pak'));
@@ -43,10 +43,10 @@ if (!un.equals(pak)) throw new Error('game.pak.gz does not round-trip to game.pa
 ok.push(`game.pak.gz round-trips (${(pakGz.length / 1e6).toFixed(2)} MB gz)`);
 
 // 4. wasm.gz roundtrip
-const wasm = fs.readFileSync(path.join(__dirname, '..', 'public', 'game', 'ikemen.wasm'));
-const wasmGz = fs.readFileSync(path.join(__dirname, '..', 'public', 'game', 'ikemen.wasm.gz'));
-if (!zlib.gunzipSync(wasmGz).equals(wasm)) throw new Error('ikemen.wasm.gz does not round-trip');
-ok.push(`ikemen.wasm.gz round-trips (${(wasmGz.length / 1e6).toFixed(2)} MB gz)`);
+const wasm = fs.readFileSync(path.join(__dirname, '..', 'public', 'game', 'engine.wasm'));
+const wasmGz = fs.readFileSync(path.join(__dirname, '..', 'public', 'game', 'engine.wasm.gz'));
+if (!zlib.gunzipSync(wasmGz).equals(wasm)) throw new Error('engine.wasm.gz does not round-trip');
+ok.push(`engine.wasm.gz round-trips (${(wasmGz.length / 1e6).toFixed(2)} MB gz)`);
 
 // 5. fight.snd placement
 if (manifest.files['data/fight.snd']) throw new Error('fight.snd still packed');

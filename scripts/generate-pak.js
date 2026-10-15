@@ -22,9 +22,9 @@ const path = require('path');
 const zlib = require('zlib');
 const crypto = require('crypto');
 
-const dataRoot = path.join(__dirname, '..', 'public', 'game', 'ikemen-fs', 'file');
-const pakPath = path.join(__dirname, '..', 'public', 'game', 'ikemen-fs', 'game.pak');
-const manifestPath = path.join(__dirname, '..', 'public', 'game', 'ikemen-fs', 'manifest.json');
+const dataRoot = path.join(__dirname, '..', 'public', 'game', 'engine-fs', 'file');
+const pakPath = path.join(__dirname, '..', 'public', 'game', 'engine-fs', 'game.pak');
+const manifestPath = path.join(__dirname, '..', 'public', 'game', 'engine-fs', 'manifest.json');
 
 // Walk a directory recursively
 function walkDir(dir, base = '') {

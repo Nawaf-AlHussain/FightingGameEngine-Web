@@ -13,7 +13,7 @@
  *   /local (select mode + character)
  *     ↓
  *   /play (fight 1)
- *     ↓ engine exits, __ikemenMatchResult set
+ *     ↓ engine exits, __engineMatchResult set
  *   /play reads result → redirects to /progress
  *     ↓
  *   /progress (shows "Fight 2 of 5" or "Survival: 3 wins")
@@ -60,7 +60,7 @@ export interface ModeState {
 // Storage
 // ---------------------------------------------------------------------------
 
-const STORAGE_KEY = 'ikemen-game-mode-state';
+const STORAGE_KEY = 'fg-game-mode-state';
 
 function loadState(): ModeState | null {
   try {
@@ -242,7 +242,7 @@ export interface FightResult {
 export function readFightResult(): FightResult | null {
   try {
     const g = globalThis as any;
-    const result = g.__ikemenMatchResult;
+    const result = g.__engineMatchResult;
     if (!result) return null;
     return {
       winner: result.winner ?? -1,
@@ -269,7 +269,7 @@ export function markFightStart(): void {
 }
 export function clearFightResult(): void {
   try {
-    delete (globalThis as any).__ikemenMatchResult;
+    delete (globalThis as any).__engineMatchResult;
   } catch {
     // ignore
   }

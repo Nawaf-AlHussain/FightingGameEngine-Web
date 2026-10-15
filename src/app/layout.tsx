@@ -19,7 +19,7 @@ const oswald = Oswald({
 
 export const metadata: Metadata = {
   title: 'Fighting Game Engine — Web',
-  description: 'Browser-based MUGEN fighting game powered by IKEMEN GO v2 WASM',
+  description: 'Browser-based fighting game platform running a custom WebAssembly engine',
 };
 
 // Viewport: prevent pinch-zoom (annoying during gameplay), support

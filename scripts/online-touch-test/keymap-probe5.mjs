@@ -116,7 +116,7 @@ async function bootStale(browser) {
     userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36',
   });
   await ctx.addInitScript((seed) => {
-    localStorage.setItem('ikemen-vfs12:save/config.ini', seed);
+    localStorage.setItem('engine-vfs12:save/config.ini', seed);
   }, Buffer.from(STALE_CFG, 'utf8').toString('base64'));
   const page = await ctx.newPage();
   const logs = [];
@@ -130,7 +130,7 @@ async function bootStale(browser) {
 
 async function dumpConfig(page) {
   return page.evaluate(() => {
-    const raw = localStorage.getItem('ikemen-vfs12:save/config.ini');
+    const raw = localStorage.getItem('engine-vfs12:save/config.ini');
     if (!raw) return null;
     const text = atob(raw).split('').map((c) => c.charCodeAt(0) < 128 ? c : '?').join('');
     const firstVals = (name) => {
@@ -146,7 +146,7 @@ async function dumpConfig(page) {
       }
       return out;
     };
-    return { p1: firstVals('Keys_P1'), p2: firstVals('Keys_P2'), marker: localStorage.getItem('ikemen-keymap-v3') };
+    return { p1: firstVals('Keys_P1'), p2: firstVals('Keys_P2'), marker: localStorage.getItem('engine-keymap-v3') };
   });
 }
 

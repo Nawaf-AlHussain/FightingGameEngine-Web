@@ -70,10 +70,10 @@ const hostCtx = await browser.newContext({ viewport: { width: 1280, height: 720 
 // vfs.js boot migration sees them — the marker alone drives the config).
 if (MODE === 'mismatch') {
   await hostCtx.addInitScript(() => {
-    try { localStorage.setItem('ikemen-display-mode', '4:3'); } catch {}
+    try { localStorage.setItem('engine-display-mode', '4:3'); } catch {}
   });
   await guestCtx.addInitScript(() => {
-    try { localStorage.setItem('ikemen-display-mode', '16:9'); } catch {}
+    try { localStorage.setItem('engine-display-mode', '16:9'); } catch {}
   });
 }
 
@@ -154,7 +154,7 @@ async function hideOverlay(page) {
     if (document.getElementById('gate-hide-touch')) return;
     const s = document.createElement('style');
     s.id = 'gate-hide-touch';
-    s.textContent = '#ikemen-touch{visibility:hidden !important}';
+    s.textContent = '#fg-touch{visibility:hidden !important}';
     document.head.appendChild(s);
   });
 }
@@ -254,7 +254,7 @@ async function touchEnd(page, id) {
   }, id);
 }
 
-const heldState = (page) => page.evaluate(() => (window.__ikemenTouch ? window.__ikemenTouch.state() : null));
+const heldState = (page) => page.evaluate(() => (window.__engineTouch ? window.__engineTouch.state() : null));
 
 // ================= online flow =================
 

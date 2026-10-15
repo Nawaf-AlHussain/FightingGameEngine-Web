@@ -1,4 +1,4 @@
-// WebRTC netplay bridge for the Ikemen GO wasm build.
+// WebRTC netplay bridge for the wasm engine build.
 //
 // The engine's lockstep netplay speaks a byte stream (TCP on desktop).
 // Here the same stream rides an ordered+reliable RTCDataChannel, so the
@@ -307,7 +307,7 @@
     if (!diag) {
       // Sits in the PAGE FLOW directly under the game, collapsed to its
       // summary line. It used to be position:fixed at the viewport bottom
-      // with the canvas shrunk above it (ikemenReserveBottom) - fine on a
+      // with the canvas shrunk above it - fine on a
       // tall window, but inside itch's short iframe the bar was permanently
       // glued over the bottom of the play area and the reserved strip ate
       // the picture. In flow it can never cover the match; click the header
@@ -389,7 +389,7 @@
   // 0=delay 1=rollback, filtered from the engine). Delay and rollback are
   // incompatible on the wire, so a mismatch refuses the match with a clear
   // message instead of a broken/instant-desync session. The choice comes from
-  // the boot-page selector (globalThis.ikemenNetcode).
+  // the boot-page selector (globalThis.engineNetcode).
   const NC_MAGIC = [0x49, 0x4b, 0x4e, 0x43]; // "IKNC"
   let peerNetcode = null, ncVerdict = null;
 
@@ -400,7 +400,7 @@
   // anything still queued when it starts would be fed to it as garbage.
   const WS_MAGIC = [0x49, 0x4b, 0x57, 0x53]; // "IKWS"
   let controlHandler = null, controlBacklog = [];
-  function localNetcode() { return globalThis.ikemenNetcode === 'rollback' ? 1 : 0; }
+  function localNetcode() { return globalThis.engineNetcode === 'rollback' ? 1 : 0; }
   function ncName(v) { return v ? 'Rollback' : 'Delay'; }
 
   // Deterministic content hash (cyrb64), 8 bytes. Deliberately NOT
@@ -428,8 +428,8 @@
       // covers the shipped pack, every browser-side mod's bytes, and the
       // theme pick, so mismatched mods or themes are refused up front
       // instead of desyncing mid-match.
-      if (globalThis.ikemenBuildHash instanceof Uint8Array && globalThis.ikemenBuildHash.length === 8) {
-        localHash = globalThis.ikemenBuildHash;
+      if (globalThis.engineBuildHash instanceof Uint8Array && globalThis.engineBuildHash.length === 8) {
+        localHash = globalThis.engineBuildHash;
         // Roster fingerprint (site-level, character-downloader.ts): the pack
         // hash does NOT cover the downloaded characters/stages - they are
         // fetched from the Assets manifest at match time and the engine's
@@ -437,18 +437,18 @@
         // the site was served in, so two players with different rosters are
         // refused here instead of desyncing mid-fight (one player not
         // visible / divergent positions).
-        const roster = globalThis.ikemenRosterHash;
+        const roster = globalThis.engineRosterHash;
         if (roster instanceof Uint8Array && roster.length === 8) {
           const combined = new Uint8Array(16);
           combined.set(localHash, 0);
           combined.set(roster, 8);
           localHash = contentHash64(combined);
           netLog('build check includes roster fingerprint' +
-            (typeof globalThis.ikemenRosterHex === 'string' ? ' (' + globalThis.ikemenRosterHex + ')' : ''));
+            (typeof globalThis.engineRosterHex === 'string' ? ' (' + globalThis.engineRosterHex + ')' : ''));
         }
       } else {
         // Fallback (page without the VFS, e.g. the dev harness): manifest only.
-        const res = await fetch('./ikemen-fs/manifest.json', { cache: 'no-cache' });
+        const res = await fetch('./engine-fs/manifest.json', { cache: 'no-cache' });
         const buf = new Uint8Array(await res.arrayBuffer());
         localHash = contentHash64(buf);
       }
@@ -1098,7 +1098,7 @@
 
   // Where the leaderboard/identity service lives. Same origin the identity
   // module uses, so a build with identity disabled reports nowhere.
-  const IDENTITY_URL = ((globalThis.IKEMEN_BRAND && globalThis.IKEMEN_BRAND.identityUrl) || '').replace(/\/+$/, '');
+  const IDENTITY_URL = ((globalThis.FG_BRAND && globalThis.FG_BRAND.identityUrl) || '').replace(/\/+$/, '');
 
   function startQueue() {
     const ui = showPanel('queue');
@@ -1108,7 +1108,7 @@
       return;
     }
     let identity = null;
-    try { identity = JSON.parse(localStorage.getItem('ikemen-identity')) || null; } catch (e) { /* fall through */ }
+    try { identity = JSON.parse(localStorage.getItem('fg-identity') || localStorage.getItem('ikemen-identity')) || null; } catch (e) { /* fall through */ }
     if (!identity || !identity.name || !identity.code) {
       setStatus('Ranked match needs a claimed online name. Set NETWORK > PLAYER NAME first, save the recovery code, then try again.');
       return;
@@ -1116,13 +1116,13 @@
     // Fail CLOSED on a missing build hash: with strangers, "can't check"
     // must mean "can't queue", or mismatched builds meet and desync.
     // (Friend matches keep the lenient fallback - they can coordinate.)
-    if (!(globalThis.ikemenBuildHash instanceof Uint8Array) || typeof globalThis.ikemenBuildHex !== 'string') {
+    if (!(globalThis.engineBuildHash instanceof Uint8Array) || typeof globalThis.engineBuildHex !== 'string') {
       setStatus('Build ID unavailable - hard-refresh the page (Ctrl+F5) and try again.');
       return;
     }
     setStatus('Joining the queue as ' + identity.name + '...');
     const ws = new WebSocket(url + (url.includes('?') ? '&' : '?') +
-      'queue=1&build=' + encodeURIComponent(globalThis.ikemenBuildHex) +
+      'queue=1&build=' + encodeURIComponent(globalThis.engineBuildHex) +
       '&nc=' + localNetcode() +
       '&name=' + encodeURIComponent(identity.name) +
       '&code=' + encodeURIComponent(identity.code));
@@ -1304,7 +1304,7 @@
         if (!queueRole || !queueP1 || !queueP2) return;      // not a queue match
         if (winSide !== 1 && winSide !== 2) return;          // draw: nothing to record
         var id = null;
-        try { id = JSON.parse(localStorage.getItem('ikemen-identity')); } catch (e) { return; }
+        try { id = JSON.parse(localStorage.getItem('fg-identity') || localStorage.getItem('ikemen-identity')); } catch (e) { return; }
         if (!id || !id.name || !id.code) return;
         if (!queueStartedAt) { netLog('no pairing time - result not reported'); return; }
         var iAmP1 = queueRole === 'host';                    // host is always side 1
@@ -1326,10 +1326,10 @@
           // queue pairing time, quantised server-side into a minute bucket.
           startedAt: queueStartedAt,
           seq: seq,
-          buildId: globalThis.ikemenBuildHex || ''
+          buildId: globalThis.engineBuildHex || ''
         };
         netLog('reporting result: ' + (body.won ? 'WIN' : 'LOSS') + ' vs ' + body.opponent);
-        fetch(IDENTITY_URL + '/mugen/leaderboard/report', {
+        fetch(IDENTITY_URL + '/leaderboard/report', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),

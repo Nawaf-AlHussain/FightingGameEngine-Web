@@ -141,7 +141,7 @@ let cachedManifest: AssetsManifest | null = null;
 // mid-fight with an invisible/broken player.
 function setRosterFingerprint(text: string, version: number): void {
   const g = globalThis as any;
-  if (g.ikemenRosterHash) return; // first manifest this session wins — stays consistent for the session
+  if (g.engineRosterHash) return; // first manifest this session wins — stays consistent for the session
   // cyrb64 — pure JS (crypto.subtle is unavailable on plain http); the same
   // algorithm every client runs, so equal bytes always yield equal digests.
   let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
@@ -160,10 +160,10 @@ function setRosterFingerprint(text: string, version: number): void {
   const dv = new DataView(out.buffer);
   dv.setUint32(0, h2 >>> 0);
   dv.setUint32(4, h1 >>> 0);
-  g.ikemenRosterHash = out;
-  g.ikemenRosterHex =
+  g.engineRosterHash = out;
+  g.engineRosterHex =
     ((h2 >>> 0).toString(16).padStart(8, '0') + (h1 >>> 0).toString(16).padStart(8, '0')).slice(0, 12);
-  g.ikemenRosterVersion = String(version);
+  g.engineRosterVersion = String(version);
 }
 
 /** Cache-busting query pinning the manifest version that listed these files.
@@ -282,7 +282,7 @@ export async function downloadCharacter(
       const vpath = `chars/${char.id}/${filename}`;
 
       // Skip if already in VFS (e.g., from a previous download)
-      if (g.ikemenHasFile && g.ikemenHasFile(vpath)) {
+      if (g.engineHasFile && g.engineHasFile(vpath)) {
         completed++;
         return;
       }
@@ -297,10 +297,10 @@ export async function downloadCharacter(
         const buf = new Uint8Array(await res.arrayBuffer());
 
         // Inject into VFS
-        if (g.ikemenInjectFile) {
-          g.ikemenInjectFile(vpath, buf);
+        if (g.engineInjectFile) {
+          g.engineInjectFile(vpath, buf);
         } else {
-          console.error('ikemenInjectFile not available — vfs.js not loaded?');
+          console.error('engineInjectFile not available — vfs.js not loaded?');
           failed.push(filename);
           return;
         }
@@ -348,7 +348,7 @@ export async function downloadStage(
     // Stage files go into stages/ in the VFS
     const vpath = `stages/${filename}`;
 
-    if (g.ikemenHasFile && g.ikemenHasFile(vpath)) {
+    if (g.engineHasFile && g.engineHasFile(vpath)) {
       completed++;
       return;
     }
@@ -362,8 +362,8 @@ export async function downloadStage(
       }
       const buf = new Uint8Array(await res.arrayBuffer());
 
-      if (g.ikemenInjectFile) {
-        g.ikemenInjectFile(vpath, buf);
+      if (g.engineInjectFile) {
+        g.engineInjectFile(vpath, buf);
       } else {
         failed.push(filename);
         return;
@@ -697,11 +697,11 @@ export async function getCachedStageFiles(
 }
 
 /**
- * Inject a character's cached files into the IKEMEN VFS.
+ * Inject a character's cached files into the engine VFS.
  * `ref` is a selection reference (see charRef / splitCharRef) — also used
  * as the IndexedDB cache key. Files are ALWAYS injected at chars/<id>/
  * because the engine builds that path itself.
- * Files are materialized ONE AT A TIME: ikemenInjectFile retains the passed
+ * Files are materialized ONE AT A TIME: engineInjectFile retains the passed
  * array in the VFS, so each decoded file becomes the VFS copy directly and
  * the full record never sits decoded in the JS heap (phone memory budget).
  * Returns true if successful, false if not cached.
@@ -722,8 +722,8 @@ export async function injectCharacterFiles(
   files: Record<string, CachedFileData>
 ): Promise<boolean> {
   const g = globalThis as any;
-  if (!g.ikemenInjectFile) {
-    console.error('ikemenInjectFile not available — vfs.js not loaded?');
+  if (!g.engineInjectFile) {
+    console.error('engineInjectFile not available — vfs.js not loaded?');
     return false;
   }
 
@@ -731,7 +731,7 @@ export async function injectCharacterFiles(
   let count = 0;
   for (const [filename, data] of Object.entries(files)) {
     const vpath = `chars/${id}/${filename}`;
-    g.ikemenInjectFile(vpath, await fileBytes(data));
+    g.engineInjectFile(vpath, await fileBytes(data));
     count++;
   }
   console.log(`[cache] Injected ${count} files for character: ${ref} -> chars/${id}/`);
@@ -747,15 +747,15 @@ export async function injectStageFiles(
   files: Record<string, CachedFileData>
 ): Promise<boolean> {
   const g = globalThis as any;
-  if (!g.ikemenInjectFile) {
-    console.error('ikemenInjectFile not available — vfs.js not loaded?');
+  if (!g.engineInjectFile) {
+    console.error('engineInjectFile not available — vfs.js not loaded?');
     return false;
   }
 
   let count = 0;
   for (const [filename, data] of Object.entries(files)) {
     const vpath = `stages/${filename}`;
-    g.ikemenInjectFile(vpath, await fileBytes(data));
+    g.engineInjectFile(vpath, await fileBytes(data));
     count++;
   }
   console.log(`[cache] Injected ${count} files for stage: ${stageId}`);
@@ -763,7 +763,7 @@ export async function injectStageFiles(
 }
 
 /**
- * Inject a stage's cached files into the IKEMEN VFS.
+ * Inject a stage's cached files into the engine VFS.
  * One file materialized at a time (see injectCachedCharacter).
  * Returns true if successful, false if not cached.
  */
@@ -794,13 +794,13 @@ async function injectRecord(
   label: string
 ): Promise<boolean> {
   const g = globalThis as any;
-  if (!g.ikemenInjectFile) {
-    console.error('ikemenInjectFile not available — vfs.js not loaded?');
+  if (!g.engineInjectFile) {
+    console.error('engineInjectFile not available — vfs.js not loaded?');
     return false;
   }
   let count = 0;
   for (const [filename, data] of Object.entries(files)) {
-    g.ikemenInjectFile(vpathFor(filename), await fileBytes(data));
+    g.engineInjectFile(vpathFor(filename), await fileBytes(data));
     count++;
   }
   console.log(`[cache] Injected ${count} files for ${label}`);

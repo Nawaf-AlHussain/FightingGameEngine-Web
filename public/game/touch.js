@@ -19,7 +19,7 @@
 // which is exactly the classic layout players expect (arrows move P1, the six
 // letter keys are kicks/punches). In NETPLAY the engine drives the local player
 // from the [Keys_P1] section of the in-memory config, and the shipped
-// public/game/ikemen-fs/file/save/config.ini now carries the SAME values — so
+// public/game/engine-fs/file/save/config.ini now carries the SAME values — so
 // every input path (local fight, netplay host, netplay guest) agrees with this
 // overlay by construction.
 //
@@ -167,7 +167,7 @@
   let root = null, dpadEl = null, arrowEls = null;
 
   const CSS = `
-#ikemen-touch {
+#fg-touch {
   position: fixed; inset: 0; z-index: 40;
   pointer-events: none;
   user-select: none; -webkit-user-select: none;
@@ -180,7 +180,7 @@
   --sat: env(safe-area-inset-top, 0px);
   --sab: env(safe-area-inset-bottom, 0px);
 }
-#ikemen-touch * { touch-action: none; box-sizing: border-box; }
+#fg-touch * { touch-action: none; box-sizing: border-box; }
 
 .itc-dpad {
   position: absolute;
@@ -362,13 +362,13 @@ html.itc-touch-active #ikemen-canvas {
     } catch { /* diagnostics must never break the overlay */ }
 
     const style = document.createElement("style");
-    style.id = "ikemen-touch-style";
+    style.id = "fg-touch-style";
     style.textContent = CSS;
     document.head.appendChild(style);
     document.documentElement.classList.add("itc-touch-active");
 
     root = el("div");
-    root.id = "ikemen-touch";
+    root.id = "fg-touch";
 
     // D-pad
     dpadEl = el("div", "itc-dpad");
@@ -440,7 +440,7 @@ html.itc-touch-active #ikemen-canvas {
       root.remove();
       root = null;
     }
-    const style = document.getElementById("ikemen-touch-style");
+    const style = document.getElementById("fg-touch-style");
     if (style) style.remove();
     document.documentElement.classList.remove("itc-touch-active");
     window.removeEventListener("touchmove", onRootTouchMove);
@@ -453,7 +453,7 @@ html.itc-touch-active #ikemen-canvas {
   }
 
   // ---- Public API ----
-  window.__ikemenTouch = {
+  window.__engineTouch = {
     build,
     destroy,
     state: () => [...held.keys()],

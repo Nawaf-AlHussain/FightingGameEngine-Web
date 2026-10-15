@@ -54,7 +54,11 @@
   // returning player's saved copy would pin them to the old screenpack. Bump
   // this whenever the shipped theme changes, or nobody who has played before
   // will see it - at the cost of resetting their key bindings).
-  const PERSIST_PREFIX = 'ikemen-vfs12:';
+  // Renamed from 'ikemen-vfs12:' — restorePersisted() still reads the old
+  // prefix once and copies it over, so existing players' saves migrate
+  // in place (config.ini, key bindings, logs).
+  const PERSIST_PREFIX = 'engine-vfs12:';
+  const PERSIST_PREFIX_LEGACY = 'ikemen-vfs12:';
   const PERSIST_MAX = 512 * 1024;
   const persistTimers = new Map();
 
@@ -80,7 +84,7 @@
         // changes; config.ini persisting is the one reliable "the player
         // saved something in the options" signal available outside Lua.
         if (vpath === 'save/config.ini') {
-          try { window.dispatchEvent(new CustomEvent('ikemen-config-persisted')); } catch (e2) { /* non-DOM host */ }
+          try { window.dispatchEvent(new CustomEvent('engine-config-persisted')); } catch (e2) { /* non-DOM host */ }
         }
       } catch (e) { /* quota exceeded etc. - saves just won't persist */ }
     }, 400));
@@ -90,14 +94,23 @@
     try {
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
-        if (!key || !key.startsWith(PERSIST_PREFIX)) continue;
-        const vpath = key.slice(PERSIST_PREFIX.length);
+        if (!key) continue;
+        const isNew = key.startsWith(PERSIST_PREFIX);
+        // Accept BOTH prefixes on the read path: the legacy prefix migrates
+        // forward (copied to the new key) so a player's saves survive the
+        // rename even if they never re-save.
+        const isLegacy = !isNew && key.startsWith(PERSIST_PREFIX_LEGACY);
+        if (!isNew && !isLegacy) continue;
+        const vpath = key.slice((isNew ? PERSIST_PREFIX : PERSIST_PREFIX_LEGACY).length);
         const bin = atob(localStorage.getItem(key));
         const buf = new Uint8Array(bin.length);
         for (let j = 0; j < bin.length; j++) buf[j] = bin.charCodeAt(j);
         contents.set(vpath, buf);
         manifest.delete(vpath);
         registerDirsFor(vpath);
+        if (isLegacy) {
+          try { if (!localStorage.getItem(PERSIST_PREFIX + vpath)) localStorage.setItem(PERSIST_PREFIX + vpath, localStorage.getItem(key)); } catch (e2) { /* quota — legacy copy stays authoritative */ }
+        }
       }
     } catch (e) { /* private browsing etc. */ }
   }
@@ -183,8 +196,8 @@
       // ?v= stamp, so the immutable/long max-age cache headers can do their
       // job — 'no-cache' here used to force a revalidation round-trip for
       // every one of the ~70 warmup files on every single boot.
-      const res = await fetch('./ikemen-fs/file/' + encodeURIComponent(vpath).replace(/%2F/gi, '/')
-        + (globalThis.ikemenAssetStamp ? '?v=' + encodeURIComponent(globalThis.ikemenAssetStamp) : ''), { cache: 'default' });
+      const res = await fetch('./engine-fs/file/' + encodeURIComponent(vpath).replace(/%2F/gi, '/')
+        + (globalThis.engineAssetStamp ? '?v=' + encodeURIComponent(globalThis.engineAssetStamp) : ''), { cache: 'default' });
       if (!res.ok) {
         // CRITICAL: on 404, remove from manifest so exists() returns false on
         // subsequent calls. Otherwise Go retries open() forever in a tight
@@ -219,7 +232,7 @@
   // instead of silently bouncing back to character select. Bounded: the
   // engine is chatty in debug mode.
   const engineLog = [];
-  globalThis.__ikemenEngineLog = engineLog; // string[], oldest first
+  globalThis.__engineLog = engineLog; // string[], oldest first
   function emitEngineLine(line, isErr) {
     if (line.length) {
       engineLog.push(line);
@@ -235,7 +248,7 @@
             if (eq > 0) kv[p.slice(0, eq)] = p.slice(eq + 1);
           }
           const w = Number(kv.winner);
-          globalThis.__ikemenMatchResult = {
+          globalThis.__engineMatchResult = {
             winner: (Number.isFinite(w) ? w : -1),
             mode: kv.mode || 'quickvs',
             p1: kv.p1 || 'kfm',
@@ -470,8 +483,8 @@
   // --- CDN asset injection (Phase 2) ---------------------------------
   // Injects files downloaded from jsDelivr CDN directly into the in-memory
   // VFS before the engine boots. Used for characters/stages that aren't
-  // bundled in game.pak. Must be called AFTER ikemenVfsInit completes.
-  globalThis.ikemenInjectFile = function (vpath, u8) {
+  // bundled in game.pak. Must be called AFTER engineVfsInit completes.
+  globalThis.engineInjectFile = function (vpath, u8) {
     const buf = u8 instanceof Uint8Array ? u8 : new Uint8Array(u8);
     contents.set(vpath, buf);
     manifest.set(vpath, buf.length);
@@ -480,7 +493,7 @@
   };
 
   // Check if a file is already in the VFS (from .pak or injected)
-  globalThis.ikemenHasFile = function (vpath) {
+  globalThis.engineHasFile = function (vpath) {
     return contents.has(vpath) || manifest.has(vpath) || packedIndex.has(vpath);
   };
 
@@ -505,7 +518,7 @@
   // own marker again, so an adopted mode never leaks into local play.
   // Returns the applied mode, or null when there was nothing to apply
   // (no config file / unknown mode).
-  globalThis.ikemenApplyDisplayMode = function (mode) {
+  globalThis.engineApplyDisplayMode = function (mode) {
     try {
       if (mode !== '4:3' && mode !== '16:9') return null;
       const cfg = contents.get('save/config.ini');
@@ -554,7 +567,7 @@
         }
       }
       if (changed) {
-        globalThis.ikemenInjectFile('save/config.ini', new TextEncoder().encode(text));
+        globalThis.engineInjectFile('save/config.ini', new TextEncoder().encode(text));
       }
       return mode;
     } catch (e) {
@@ -606,7 +619,7 @@
     });
   }
   // Async API for a client-side Mod Studio to manage the overlay.
-  globalThis.ikemenMods = {
+  globalThis.engineMods = {
     async add(vpath, u8) {
       const db = await openModsDB();
       return new Promise((res, rej) => {
@@ -654,7 +667,7 @@
   //   { pack: 'game.pak',
   //     files: { vpath: [offset, length] } }   - single pack file, fetched
   //                                              once up front (itch.io mode)
-  globalThis.ikemenVfsInit = async function (manifestUrl, preloadList = [], onProgress, prefetched) {
+  globalThis.engineVfsInit = async function (manifestUrl, preloadList = [], onProgress, prefetched) {
     // The manifest is fetched with no-store (never reuse ANY cached copy -
     // 'no-cache' revalidation proved insufficient in the field: one player
     // needed incognito mode to see a new build), and the big assets carry
@@ -664,7 +677,7 @@
     // stamp the wasm URL) so one manifest fetch serves both.
     const data = prefetched || await (await fetch(manifestUrl, { cache: 'no-store' })).json();
     const stamp = data.stamp ? '?v=' + encodeURIComponent(data.stamp) : '';
-    globalThis.ikemenAssetStamp = data.stamp || '';
+    globalThis.engineAssetStamp = data.stamp || '';
 
     if (data.pack) {
       // Expected pak size straight from the manifest (max end offset). This
@@ -758,7 +771,7 @@
     try {
       let cfg = contents.get('save/config.ini');
       if (!cfg && manifest.has('save/config.ini')) {
-        const r = await fetch('./ikemen-fs/file/save/config.ini', { cache: 'no-cache' });
+        const r = await fetch('./engine-fs/file/save/config.ini', { cache: 'no-cache' });
         if (r.ok) cfg = new Uint8Array(await r.arrayBuffer());
       }
       if (cfg) {
@@ -783,7 +796,7 @@
     // meant the Settings UI's values for those keys were silently
     // discarded at boot. This created a coherence bug where changing
     // resolution in Settings had no effect (the /local RES toggle's
-    // URL param won via globalThis.ikemenAspect).
+    // URL param won via a global override; today the marker alone decides).
     //
     // Now: Settings UI writes to localStorage, restorePersisted() loads
     // it, and vfs.js does NOT overwrite. The /local RES toggle also
@@ -848,7 +861,7 @@
         const gw = /^\s*GameWidth\s*=\s*(\d+)\s*$/mi.exec(text);
         const gh = /^\s*GameHeight\s*=\s*(\d+)\s*$/mi.exec(text);
         let marker = null;
-        try { marker = localStorage.getItem('ikemen-display-mode'); } catch (e) { /* best-effort */ }
+        try { marker = localStorage.getItem('engine-display-mode') || localStorage.getItem('ikemen-display-mode'); } catch (e) { /* best-effort */ }
         // An explicit marker wins (the user's choice); with no marker, a 4:3
         // resolution can only come from a stale pre-marker 4:3 preset.
         const is43 = marker === '4:3' ? true
@@ -884,8 +897,9 @@
           ensureKey('FightAspectHeight', 3, 'Video');
           ensureKey('KeepAspect', 1, 'Video');
           try {
-            if (localStorage.getItem('ikemen-display-mode') !== '4:3') {
-              localStorage.setItem('ikemen-display-mode', '4:3');
+            const cur = localStorage.getItem('engine-display-mode') || localStorage.getItem('ikemen-display-mode');
+            if (cur !== '4:3') {
+              localStorage.setItem('engine-display-mode', '4:3');
             }
           } catch (e) { /* marker best-effort */ }
         } else {
@@ -908,7 +922,7 @@
         // sections carry P1=WASD+8/9/0+I/O/P and P2=ARROWS+1..7, which is the
         // whole 'dpad dead + XYZ buttons move my character + arrows move the
         // opponent' bug family: the touch overlay dispatches the canonical
-        // MUGEN layout (dpad=arrows, A/B/C/X/Y/Z=z/x/c/a/s/d), so with the
+        // Classic arcade layout (dpad=arrows, A/B/C/X/Y/Z=z/x/c/a/s/d), so with the
         // stale sections first-match the dpad lands on P2's keys and the XYZ
         // buttons land on P1's WASD movement keys.
         //
@@ -919,7 +933,7 @@
         // (P2 uses the engine's own built-in cluster — no key collisions
         // with P1, so two humans on one keyboard still work.)
         //
-        // ONE-TIME: marker 'ikemen-keymap-v3' guards the rewrite so a user's
+        // ONE-TIME: marker 'engine-keymap-v3' guards the rewrite so a user's
         // later in-engine remaps survive; the marker is only absent on
         // devices not yet healed (and after storage wipes, where the pak's
         // canonical copy applies anyway). The rewrite REPLACES the whole
@@ -927,7 +941,7 @@
         // shadowed duplicate keys whose first-match values are the stale
         // layout.
         let keymapMarker = null;
-        try { keymapMarker = localStorage.getItem('ikemen-keymap-v3'); } catch (e) { /* best-effort */ }
+        try { keymapMarker = localStorage.getItem('engine-keymap-v3') || localStorage.getItem('ikemen-keymap-v3'); } catch (e) { /* best-effort */ }
         if (!keymapMarker) {
           const CANON = {
             Keys_P1: [
@@ -967,7 +981,7 @@
               'Menu   = ESCAPE',
             ],
           };
-          // Values use the engine's MUGEN-style key names ("z", "UP", ...)
+          // Values use the engine's own key names ("z", "UP", ...)
           // — NOT KeyboardEvent.code strings, which the engine's StringToKey
           // does not understand.
           const rewriteSection = (src, name, bodyLines) => {
@@ -984,7 +998,7 @@
           text = rewriteSection(text, 'Keys_P1', CANON.Keys_P1);
           text = rewriteSection(text, 'Keys_P2', CANON.Keys_P2);
           changed = true;
-          try { localStorage.setItem('ikemen-keymap-v3', '1'); } catch (e) { /* best-effort */ }
+          try { localStorage.setItem('engine-keymap-v3', '1'); } catch (e) { /* best-effort */ }
           console.log('[vfs] canonical keymap v3 enforced (P1 arrows+zxc/asd, P2 ijkl+fgh/rty)');
         }
 
@@ -1013,7 +1027,7 @@
     // failure, not a cosmetic problem.
     let effectiveMotif = shippedMotif;
     try {
-      const pick = localStorage.getItem('ikemen-lite:motif');
+      const pick = localStorage.getItem('engine-lite:motif') || localStorage.getItem('ikemen-lite:motif');
       const cfg = contents.get('save/config.ini');
       if (pick && cfg && exists(pick)) {
         effectiveMotif = pick;
@@ -1038,10 +1052,10 @@
     // a UTF-8 decode/encode would corrupt); [Music] keys are standardized
     // (title.bgm / select.bgm), so this works on any screenpack.
     try {
-      const tPick = localStorage.getItem('ikemen-lite:title-bgm');
-      const sPick = localStorage.getItem('ikemen-lite:select-bgm');
+      const tPick = localStorage.getItem('engine-lite:title-bgm') || localStorage.getItem('ikemen-lite:title-bgm');
+      const sPick = localStorage.getItem('engine-lite:select-bgm') || localStorage.getItem('ikemen-lite:select-bgm');
       if (tPick || sPick) {
-        const litePick = localStorage.getItem('ikemen-lite:motif');
+        const litePick = localStorage.getItem('engine-lite:motif') || localStorage.getItem('ikemen-lite:motif');
         const motif = (litePick && exists(litePick)) ? litePick : shippedMotif;
         if (motif && exists(motif)) {
           if (!contents.get(motif)) await fetchFile(motif);
@@ -1072,12 +1086,12 @@
     await Promise.all(preloadList.map(p => fetchFile(p).catch(() => {})));
 
     // NOTE: the lazy-set prefetch used to start right here, inside
-    // ikemenVfsInit - which put ~18MB of menu/UI downloads (system.sff,
+    // engineVfsInit - which put ~18MB of menu/UI downloads (system.sff,
     // system.snd, fonts) into the same window as the .pak download, WASM
     // compile and character injection. On phones that stacked a network +
     // heap spike on top of the boot spike (the first-start refresh family,
     // fixed in 13b1fad). The prefetch now lives in
-    // globalThis.ikemenVfsPrefetch below; the boot page starts it once the
+    // globalThis.engineVfsPrefetch below; the boot page starts it once the
     // engine is actually up. Anything the engine needs earlier is still
     // fetched on demand by open() -> fetchFile.
 
@@ -1111,8 +1125,8 @@
       h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
       const out = new Uint8Array(8), dv = new DataView(out.buffer);
       dv.setUint32(0, h2 >>> 0); dv.setUint32(4, h1 >>> 0);
-      globalThis.ikemenBuildHash = out;
-      globalThis.ikemenBuildHex =
+      globalThis.engineBuildHash = out;
+      globalThis.engineBuildHex =
         ((h2 >>> 0).toString(16).padStart(8, '0') + (h1 >>> 0).toString(16).padStart(8, '0')).slice(0, 12);
     }
 
@@ -1123,7 +1137,7 @@
     // than from localStorage, so a name set THIS session is visible before the
     // config is flushed. Exposed as a function because the player can change
     // it mid-session and callers must not cache it.
-    globalThis.ikemenPlayerName = function () {
+    globalThis.enginePlayerName = function () {
       try {
         const b = contents.get('save/config.ini');
         if (!b) return '';
@@ -1146,7 +1160,7 @@
   // game loop on a network fetch - felt as a random tiny freeze. Limited
   // concurrency so fight-critical fetches still win the bandwidth race.
   // Runs for BOTH packed and unpacked builds (packed builds ship their lazy
-  // set as individual files). Deliberately NOT started by ikemenVfsInit -
+  // set as individual files). Deliberately NOT started by engineVfsInit -
   // the boot page calls this once the engine is up, keeping the megabytes
   // out of the boot memory/bandwidth window. Safe to call more than once:
   // already-fetched files are skipped and concurrent fetches dedupe
@@ -1159,7 +1173,7 @@
   // tabs over the memory cliff. On constrained devices the boot page caps
   // the warmup at small files; the big ones stay on-demand (fetched the
   // first time the engine actually opens them, then retained as usual).
-  globalThis.ikemenVfsPrefetch = function (onProgress, opts) {
+  globalThis.engineVfsPrefetch = function (onProgress, opts) {
     const maxFileBytes = (opts && opts.maxFileBytes) || 0;
     const pending = [...manifest.keys()];
     const totalBytes = pending.reduce((n, p) => n + (manifest.get(p) || 0), 0);
