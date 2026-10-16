@@ -1629,7 +1629,7 @@ function PlayPageInner() {
         </div>
       )}
       {netPhase === 'charselect' && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 40, overflowY: 'auto', background: 'var(--ink, #101018)' }}>
+        <div style={{ position: 'fixed', inset: 0, zIndex: 40, overflowY: 'auto', background: 'var(--paper, #f2ecda)' }}>
           <CharacterSelect
             isTouch={isTouch}
             online={{
@@ -1645,7 +1645,7 @@ function PlayPageInner() {
         </div>
       )}
       {(netPhase === 'stageselect' || netPhase === 'waiting') && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 40, overflowY: 'auto', background: 'var(--ink, #101018)' }}>
+        <div style={{ position: 'fixed', inset: 0, zIndex: 40, overflowY: 'auto', background: 'var(--paper, #f2ecda)' }}>
           <StageSelect
             isTouch={isTouch}
             spectate={netPhase === 'waiting'}

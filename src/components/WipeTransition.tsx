@@ -13,8 +13,10 @@ import { useRouter } from 'next/navigation';
 /**
  * WipeTransition
  * ---------------
- * A 3-pane diagonal wipe (red / black / white panes, skewX(-14deg))
- * that covers the screen instantly on navigation, then sweeps away
+ * A comic-print 3-ink diagonal sweep (crimson lead edge / royal halftone
+ * plate / paper tail, skewX(-14deg), ink panel gutters) with a rotated
+ * NEXT ISSUE stamp that pops on the paper plate while the sheet is up.
+ * It covers the screen instantly on navigation, then sweeps away
  * to reveal the new page.
  *
  * For navigation: screen covers INSTANTLY (no animate-in), router.push()
@@ -126,6 +128,7 @@ export function WipeTransitionProvider({
         <div className="pane" />
         <div className="pane" />
         <div className="pane" />
+        <div className="stamp">NEXT ISSUE</div>
         <div className="flash" />
       </div>
     </WipeContext.Provider>
