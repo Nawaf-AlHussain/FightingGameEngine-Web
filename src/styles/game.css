@@ -2228,6 +2228,19 @@ body.fighting {
   .cs__diff-btn { padding: 0.3rem 0.6rem; font-size: 0.6rem; }
 }
 
+/* ---- Small phones: ≤ 600px ----
+   The mode/roster chip rails always overflow here — print an edge fade
+   so the cut-off chip reads as "more this way", not as a broken layout.
+   (Between 600-768px the chips fit, so no fade — it would be a lie.) */
+@media (max-width: 600px) {
+  .cs__mode-bar,
+  .cs__difficulty-bar {
+    padding-right: 8px;
+    -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 26px), rgba(0, 0, 0, 0.3) calc(100% - 9px), transparent 100%);
+    mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 26px), rgba(0, 0, 0, 0.3) calc(100% - 9px), transparent 100%);
+  }
+}
+
 /* ---- Mobile: ≤ 480px (small phones) ---- */
 @media (max-width: 480px) {
   /* keep the masthead kicker clear of the resolution toggle */
@@ -2750,7 +2763,9 @@ body.fighting {
   .settings__title { margin-bottom: 0.5rem; }
   .settings__title-main { font-size: 1.5rem; }
 
-  /* Tabs → horizontal scroll instead of wrap */
+  /* Tabs → horizontal scroll instead of wrap. The 4 tab groups total
+     ~830px so the rail always overflows on phones — edge fade marks it
+     as a swipe rail. */
   .settings__tabs {
     flex-wrap: nowrap;
     overflow-x: auto;
@@ -2759,6 +2774,9 @@ body.fighting {
     justify-content: flex-start;
     padding-bottom: 4px;
     margin-bottom: 0.5rem;
+    padding-right: 8px;
+    -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 26px), rgba(0, 0, 0, 0.3) calc(100% - 9px), transparent 100%);
+    mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 26px), rgba(0, 0, 0, 0.3) calc(100% - 9px), transparent 100%);
   }
   .settings__tabs::-webkit-scrollbar { display: none; }
   .settings__tab {
