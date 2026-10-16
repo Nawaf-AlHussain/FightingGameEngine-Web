@@ -1961,9 +1961,10 @@ body.fighting {
     50% { transform: rotate(90deg); }
   }
   .rotate-overlay__text h2 {
+    font-family: var(--font-poster);
     font-size: 1.5rem;
-    font-weight: 900;
-    font-style: italic;
+    font-weight: 400;
+    font-style: normal;
     text-transform: uppercase;
     color: var(--white);
     text-shadow: 3px 3px 0 var(--red);
@@ -2438,7 +2439,7 @@ body.fighting {
   font-family: var(--font-display);
 }
 .settings__toggle--on {
-  background: rgba(13,217,255,0.15);
+  background: rgba(49, 67, 214, 0.15);
   border-color: var(--cyan);
 }
 .settings__toggle-knob {
@@ -2577,14 +2578,14 @@ body.fighting {
   color: var(--cyan);
 }
 .settings__keybind-btn--capturing {
-  background: rgba(13,217,255,0.15);
+  background: rgba(49, 67, 214, 0.15);
   color: var(--cyan);
   border-color: var(--cyan);
   animation: keybind-pulse 1s ease-in-out infinite;
 }
 @keyframes keybind-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(13,217,255,0.6); }
-  50%      { box-shadow: 0 0 0 6px rgba(13,217,255,0); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(49, 67, 214, 0.6); }
+  50%      { box-shadow: 0 0 0 6px rgba(49, 67, 214, 0); }
 }
 .settings__keybind-btn--stale {
   border-color: var(--gold);
@@ -2628,17 +2629,17 @@ body.fighting {
   clip-path: polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%);
 }
 .settings__badge--warn {
-  background: rgba(255,200,61,0.15);
+  background: rgba(242, 178, 61, 0.18);
   color: var(--gold);
   border: 1px solid var(--gold);
 }
 .settings__badge--info {
-  background: rgba(13,217,255,0.15);
+  background: rgba(49, 67, 214, 0.15);
   color: var(--cyan);
   border: 1px solid var(--cyan);
 }
 .settings__badge--ok {
-  background: rgba(46,204,113,0.15);
+  background: rgba(67, 160, 88, 0.15);
   color: var(--green);
   border: 1px solid var(--green);
 }
@@ -2786,6 +2787,7 @@ body.fighting {
 .settings__title-main {
   font-family: var(--font-poster);
   font-weight: 400;
+  font-style: normal;
   color: var(--royal);
   -webkit-text-stroke: 0;
   text-shadow: 4px 4px 0 var(--crimson);
@@ -3374,8 +3376,9 @@ body.fighting {
 
 /* ========================================
    MATCH PREPARATION SCREEN — comic VS splash
-   Ink backdrop split by two diagonal print wedges (crimson under P1,
-   royal under P2), Anton names, giant misregistered VS.
+   Paper backdrop with print-shop halftone, split by two diagonal
+   print wedges (crimson under P1, royal under P2), Anton names in
+   ink, giant misregistered VS, portraits in ink comic panels.
    ======================================== */
 .match-prep {
   min-height: 100vh;
@@ -3384,7 +3387,11 @@ body.fighting {
   justify-content: center;
   position: relative;
   padding: 2rem;
-  background: var(--ink);
+  background-color: var(--paper);
+  /* print-shop halftone field (matches the settings/about paper texture) */
+  background-image: radial-gradient(rgba(16, 16, 24, 0.1) 1.2px, transparent 1.4px);
+  background-size: 13px 13px;
+  color: var(--ink);
   overflow: hidden;
 }
 /* Diagonal print wedges — flat color fields, transform-free (static) */
@@ -3395,7 +3402,7 @@ body.fighting {
   bottom: -10%;
   left: -18%;
   width: 52%;
-  background: rgba(232, 40, 60, 0.13);
+  background: rgba(232, 40, 60, 0.16);
   transform: skewX(-14deg);
   pointer-events: none;
 }
@@ -3406,7 +3413,7 @@ body.fighting {
   bottom: -10%;
   right: -18%;
   width: 52%;
-  background: rgba(49, 67, 214, 0.16);
+  background: rgba(49, 67, 214, 0.2);
   transform: skewX(-14deg);
   pointer-events: none;
 }
@@ -3433,7 +3440,7 @@ body.fighting {
 .match-prep__fight-num {
   font-size: 0.7rem;
   letter-spacing: 0.3em;
-  color: var(--gold);
+  color: var(--crimson);
   font-weight: 600;
   margin-bottom: 1.5rem;
 }
@@ -3467,7 +3474,7 @@ body.fighting {
   font-size: 1.55rem;
   font-weight: 400;
   text-transform: uppercase;
-  color: var(--paper);
+  color: var(--ink);
   letter-spacing: 0.03em;
   line-height: 1;
   max-width: 220px;
@@ -3476,16 +3483,17 @@ body.fighting {
   white-space: nowrap;
 }
 
-/* VS portraits — the 256px big-portrait PNGs, the showpiece of this screen */
+/* VS portraits — the 256px big-portrait PNGs, the showpiece of this screen.
+   Ink comic panels on the paper page. */
 .match-prep__portrait-box {
   width: 180px;
   height: 180px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.4);
-  border: 2px solid var(--ink-soft);
-  box-shadow: 5px 5px 0 rgba(0,0,0,0.5);
+  background: var(--ink);
+  border: 2px solid var(--ink);
+  box-shadow: 6px 6px 0 rgba(16, 16, 24, 0.3);
   overflow: hidden;
 }
 .match-prep__player--p1 .match-prep__portrait-box { border-left: 3px solid var(--p1-color); }
@@ -3500,11 +3508,10 @@ body.fighting {
 .match-prep__portrait.loaded { opacity: 1; }
 /* Letter tile when a character has no extracted portrait */
 .match-prep__portrait-fallback {
+  font-family: var(--font-poster);
   font-size: 3.2rem;
-  font-weight: 900;
-  font-style: italic;
-  color: var(--gray);
-  opacity: 0.6;
+  color: var(--paper);
+  opacity: 0.45;
 }
 @media (max-width: 560px) {
   .match-prep__portrait-box { width: 118px; height: 118px; }
@@ -3515,7 +3522,7 @@ body.fighting {
   font-size: clamp(3rem, 8vw, 4.6rem);
   font-weight: 400;
   text-transform: uppercase;
-  color: var(--paper);
+  color: var(--ink);
   line-height: 1;
   letter-spacing: 0.02em;
   text-shadow: 5px 5px 0 var(--crimson);
@@ -3525,7 +3532,7 @@ body.fighting {
   padding: 0.7rem 1.6rem;
   background: var(--paper);
   border: 2px solid var(--ink);
-  box-shadow: 4px 4px 0 rgba(0,0,0,0.6);
+  box-shadow: 4px 4px 0 rgba(16, 16, 24, 0.35);
   display: inline-block;
   clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
 }

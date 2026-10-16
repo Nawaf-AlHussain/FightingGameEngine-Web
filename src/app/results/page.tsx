@@ -130,7 +130,12 @@ export default function ResultsPage() {
   return (
     <Suspense fallback={
       <div className="min-h-screen bg-black flex items-center justify-center">
-        <span className="text-gray-500 font-mono text-sm">Loading...</span>
+        <span
+          className="font-mono text-sm"
+          style={{ color: 'rgba(242,236,218,0.6)', letterSpacing: '0.2em' }}
+        >
+          Loading...
+        </span>
       </div>
     }>
       <ResultsPageInner />
