@@ -131,38 +131,46 @@ export async function GET(
 
     const cacheable = upstream.cacheable;
 
-    // Buffered path: the ONLY path that may declare a Content-Length, taken
-    // whenever the body is small enough to hold once. The declared length is
-    // the actual served length — never the upstream's (compressed) header.
+    // Size pre-check from the upstream's declared Content-Length. The header
+    // may LIE SMALL (undici transfer-compression reports the compressed wire
+    // size) but it can never LIE BIG, so a declared length above the buffer
+    // limit means the real body is also above it — stream the body untouched
+    // and never pay the buffer. No Content-Length is declared downstream (we
+    // cannot know the true decompressed size) — see the content-length rule.
+    const declaredLen = Number(res.headers.get('content-length') || 0);
+    if (declaredLen > VERIFY_BUFFER_LIMIT && res.body) {
+      const headers = baseHeaders(contentType, cacheable ? CACHEABLE : UNCACHEABLE);
+      const etag = res.headers.get('etag');
+      if (etag) headers.set('ETag', etag);
+      const lm = res.headers.get('last-modified');
+      if (lm) headers.set('Last-Modified', lm);
+      return new NextResponse(res.body, { status: 200, headers });
+    }
+
+    // Buffered path: buffer once and serve the buffer, at any size. The
+    // declared length is the actual served length — never the upstream's
+    // (compressed) header. If the buffer still exceeds the limit (a small
+    // lying header over a big real body, or a chunked upstream with no
+    // length at all), serve it anyway: the memory is already spent and the
+    // byte count is exact. Falling through to a "streaming" path here would
+    // return res.body AFTER arrayBuffer() consumed it — a dead stream that
+    // 500s every download (the >12 MB bug this block replaces).
     if (res.body) {
       try {
         const buf = await res.arrayBuffer();
-        if (buf.byteLength <= VERIFY_BUFFER_LIMIT) {
-          const headers = baseHeaders(contentType, cacheable ? CACHEABLE : UNCACHEABLE);
-          headers.set('Content-Length', String(buf.byteLength));
-          const etag = res.headers.get('etag');
-          if (etag) headers.set('ETag', etag);
-          const lm = res.headers.get('last-modified');
-          if (lm) headers.set('Last-Modified', lm);
-          return new NextResponse(buf, { status: 200, headers });
-        }
+        const headers = baseHeaders(contentType, cacheable ? CACHEABLE : UNCACHEABLE);
+        headers.set('Content-Length', String(buf.byteLength));
+        const etag = res.headers.get('etag');
+        if (etag) headers.set('ETag', etag);
+        const lm = res.headers.get('last-modified');
+        if (lm) headers.set('Last-Modified', lm);
+        return new NextResponse(buf, { status: 200, headers });
       } catch {
         continue; // body read failed mid-transfer — try the next upstream
       }
     }
 
-    // Streaming path (body > 12 MB, or an unreadable stream from the first
-    // upstream reached here after falling through). No Content-Length is
-    // declared — see the content-length rule above; downstream caches see
-    // chunked transfer-encoding and cannot cut the body at a stale length.
-    // GitHub raw streams stay no-store: an unverifiable body must never be
-    // pinned by any cache.
-    const headers = baseHeaders(contentType, cacheable ? CACHEABLE : UNCACHEABLE);
-    const etag = res.headers.get('etag');
-    if (etag) headers.set('ETag', etag);
-    const lm = res.headers.get('last-modified');
-    if (lm) headers.set('Last-Modified', lm);
-    return new NextResponse(res.body, { status: 200, headers });
+    // res.body was null (upstream produced no stream) — try the next upstream.
   }
 
   return NextResponse.json(
