@@ -72,6 +72,30 @@ export default function LocalPlayPage() {
   const [aspect, setAspect] = useState<Aspect>(() =>
     getDisplayModeMarker() === '16:9' ? '16:9-720p' : '4:3'
   );
+
+  // ---- First-visit default: make the displayed RES state authoritative ----
+  // The RES chips render 4:3 as active until a choice is persisted, but the
+  // engine's shipped config is 1280x720 (16:9) and nothing wrote the 4:3
+  // preset yet — so a fresh player who never taps a chip would get a 16:9
+  // fight while the UI promised 4:3 ("zoom fill, zero black bars"). On a
+  // phone in portrait that mismatch is glaring: the promised zero-bar
+  // picture letterboxes into a small strip. Persist the 4:3 preset once on
+  // mount when no display-mode marker exists; user-chosen markers short-
+  // circuit this entirely. The write must beat the fight's engine boot,
+  // which it always does — the player still has to pick fighters + stage.
+  useEffect(() => {
+    if (getDisplayModeMarker() !== null) return;
+    let cancelled = false;
+    void (async () => {
+      const cfg = await loadConfig();
+      if (cancelled || !cfg || getDisplayModeMarker() !== null) return;
+      applyDisplayModeChoice(cfg, '4:3');
+      saveConfig(cfg);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   // NOTE: the old FILL/16:9 display toggle was removed (Frontend 2.1 spec
   // Section 26: "Do not expose controls that appear functional but have no
   // runtime effect"). The /play canvas fitter displays the canvas contain-

@@ -1975,6 +1975,12 @@ canvas#ikemen-canvas {
   pointer-events: none;
 }
 
+/* Short viewports (phones in landscape): the fixed credit collides with
+   mid-flow content (VS cards, stage preview) — drop the watermark. */
+@media (max-height: 500px) {
+  .footer-credit { display: none; }
+}
+
 /* --- Body fighting mode --- */
 body.fighting {
   overflow: hidden;
