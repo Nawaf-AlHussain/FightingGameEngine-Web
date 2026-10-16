@@ -3,9 +3,10 @@
    Retro comic-print / aviation-poster skin inspired by the
    Rocket Squadron Rive showcase: cream paper, royal blue,
    crimson misregistration, ink panels, hard offset shadows.
-   HYBRID theme: lobby/settings/results/progress/about are
-   paper posters; select screens + fight stay ink-dark so
-   character art pops.
+   Every chrome screen (lobby, select screens, settings,
+   results, progress, about) is a paper poster; ink survives
+   only as comic panels *on* the paper and behind the fight
+   canvas so character art pops in-match.
    ======================================== */
 
 /* --- CSS Variables --- */
@@ -757,13 +758,15 @@ button {
   color: var(--royal);
 }
 
-/* --- Character Select — "ink comic cover" --- */
+/* --- Character Select — "paper comic page" (mirrors stage select) --- */
 .cs {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
   padding: 1.1rem 1.5rem 0;
   position: relative;
+  background: var(--paper);
+  color: var(--ink);
   overflow: hidden;
 }
 /* Diagonal print wedges (crimson under P1 side, royal under P2) */
@@ -799,7 +802,7 @@ button {
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  background-image: radial-gradient(rgba(242, 236, 218, 0.05) 1px, transparent 1.2px);
+  background-image: radial-gradient(rgba(16, 22, 64, 0.08) 1px, transparent 1.2px);
   background-size: 16px 16px;
   animation: halftonePan 9s ease-in-out infinite alternate;
 }
@@ -814,7 +817,7 @@ button {
   background:
     linear-gradient(currentColor, currentColor) center / 15px 1.5px no-repeat,
     linear-gradient(currentColor, currentColor) center / 1.5px 15px no-repeat;
-  color: rgba(242, 236, 218, 0.7);
+  color: rgba(16, 22, 64, 0.55);
 }
 .cs__reg--tl { top: 12px; left: 14px; }
 .cs__reg--tr { top: 12px; right: 14px; }
@@ -858,8 +861,8 @@ button {
   font-size: clamp(0.68rem, 1.3vw, 0.88rem);
   letter-spacing: 0.55em;
   text-indent: 0.55em;
-  color: var(--paper);
-  opacity: 0.85;
+  color: var(--ink);
+  opacity: 0.7;
   text-transform: uppercase;
   line-height: 1;
 }
@@ -870,10 +873,8 @@ button {
   line-height: 0.92;
   letter-spacing: 0.01em;
   text-transform: uppercase;
-  color: var(--paper);
-  text-shadow:
-    0.05em -0.038em 0 var(--crimson),
-    0.1em -0.076em 0 var(--royal-deep);
+  color: var(--royal);
+  text-shadow: 0.05em -0.038em 0 var(--crimson);
 }
 .cs__title-sub {
   font-size: 0.72rem;
@@ -924,6 +925,7 @@ button {
   background: var(--paper);
   color: var(--ink);
   border: none;
+  box-shadow: 2.5px 2.5px 0 var(--ink);
   clip-path: polygon(7px 0, 100% 0, calc(100% - 7px) 100%, 0 100%);
   transition: background 0.15s, color 0.15s, transform 0.15s;
 }
@@ -955,6 +957,7 @@ button {
   padding: 0.28rem 0.7rem;
   font-weight: 700;
   text-transform: uppercase;
+  box-shadow: 2.5px 2.5px 0 var(--ink);
   clip-path: polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%);
 }
 .cs__diff-btn {
@@ -967,6 +970,7 @@ button {
   background: var(--paper);
   color: var(--ink);
   border: none;
+  box-shadow: 2.5px 2.5px 0 var(--ink);
   clip-path: polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%);
   transition: background 0.15s, color 0.15s;
 }
@@ -981,7 +985,7 @@ button {
 .cs__mode-desc {
   text-align: center;
   font-size: 0.68rem;
-  color: var(--gray);
+  color: rgba(16, 22, 64, 0.62);
   letter-spacing: 0.06em;
   margin-bottom: 0.5rem;
   z-index: 1;
@@ -1005,14 +1009,14 @@ button {
   flex-direction: column;
   width: min(240px, 36vw);
   background: var(--ink-soft);
-  border: 2px solid var(--gray-dark);
+  border: 2px solid var(--ink);
   clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
   transition: filter 0.2s, border-color 0.2s;
 }
 .cs__plate--p1 { border-color: var(--p1-color); }
 .cs__plate--p2 { border-color: var(--p2-color); }
-.cs__plate--locked.cs__plate--p1 { border-color: var(--paper); filter: drop-shadow(4px 4px 0 var(--p1-color)); }
-.cs__plate--locked.cs__plate--p2 { border-color: var(--paper); filter: drop-shadow(4px 4px 0 var(--p2-color)); }
+.cs__plate--locked.cs__plate--p1 { border-color: var(--ink); filter: drop-shadow(4px 4px 0 var(--p1-color)); }
+.cs__plate--locked.cs__plate--p2 { border-color: var(--ink); filter: drop-shadow(4px 4px 0 var(--p2-color)); }
 .cs__plate-art {
   position: relative;
   height: 88px;
@@ -1112,7 +1116,7 @@ button {
   font-size: 2.1rem;
   font-weight: 400;
   text-transform: uppercase;
-  color: var(--paper);
+  color: var(--ink);
   letter-spacing: 0.04em;
   text-shadow:
     0.055em -0.042em 0 var(--crimson),
@@ -1169,7 +1173,7 @@ button {
 .cs__search-sep {
   width: 2px;
   height: 1.2rem;
-  background: rgba(242, 236, 218, 0.25);
+  background: rgba(16, 22, 64, 0.25);
   flex: none;
   margin: 0 0.2rem;
 }
@@ -1190,7 +1194,7 @@ button {
   gap: 0.55rem;
   padding: 0.36rem 0.9rem;
   background: var(--ink-soft);
-  border: 1px solid var(--gray-dark);
+  border: 1px solid var(--ink);
   clip-path: polygon(9px 0, 100% 0, calc(100% - 9px) 100%, 0 100%);
   font-size: 0.62rem;
   font-weight: 700;
@@ -1233,21 +1237,22 @@ button {
 .cs__card {
   display: flex;
   flex-direction: column;
-  background: var(--ink-soft);
-  border: 2px solid #35354c;
+  background: #f7f2e2;
+  border: 2px solid var(--ink);
+  box-shadow: 2px 2px 0 var(--ink);
   overflow: hidden;
   cursor: pointer;
   transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;
   position: relative;
 }
 .cs__card:hover {
-  border-color: var(--paper);
+  border-color: var(--ink);
   transform: translateY(-2px);
-  box-shadow: 3px 3px 0 var(--crimson);
+  box-shadow: 4px 4px 0 var(--crimson);
 }
 .cs__card--p1 { border-color: var(--p1-color); box-shadow: 3px 3px 0 var(--p1-color); }
 .cs__card--p2 { border-color: var(--p2-color); box-shadow: 3px 3px 0 var(--p2-color); }
-.cs__card--both { border-color: var(--paper); box-shadow: 3px 3px 0 var(--paper); }
+.cs__card--both { border-color: var(--ink); box-shadow: 3px 3px 0 var(--gold); }
 .cs__card--locked { transform: translateY(-3px); }
 .cs__card--greyed img { filter: grayscale(1) brightness(0.4); }
 .cs__card--greyed { opacity: 0.5; }
@@ -1326,14 +1331,14 @@ button {
 }
 .cs__card-stamp--p2 { color: var(--royal); border-color: var(--royal); }
 
-/* Name strip — paper when the fighter is playable */
+/* Name strip — ink print strip under the portrait panel */
 .cs__card-info {
   padding: 3px 4px;
   font-size: 0.53rem;
   font-weight: 600;
   letter-spacing: 0.03em;
-  color: var(--gray);
-  background: rgba(16, 16, 24, 0.72);
+  color: rgba(242, 236, 218, 0.88);
+  background: var(--ink);
   text-transform: uppercase;
   text-align: center;
   white-space: nowrap;
@@ -1355,13 +1360,13 @@ button {
   text-align: center;
   padding: 2.5px;
 }
-.cs__card-download--ok { color: #7ec98f; }
-.cs__card-download--warn { color: var(--gold); }
+.cs__card-download--ok { color: var(--green); font-weight: 800; }
+.cs__card-download--warn { color: #a86a08; }
 .cs__card-download--err { color: var(--crimson); background: rgba(232, 40, 60, 0.12); }
-.cs__card-download--idle { color: var(--gray); }
+.cs__card-download--idle { color: rgba(16, 22, 64, 0.55); }
 .cs__card-progress {
   height: 4px;
-  background: rgba(242, 236, 218, 0.14);
+  background: rgba(16, 22, 64, 0.15);
   position: relative;
 }
 .cs__card-progress-fill {
@@ -1370,7 +1375,7 @@ button {
   transition: width 0.3s;
 }
 
-/* Footer — arcade deck strip */
+/* Footer — paper deck strip (mirrors lobby deck / stage select footer) */
 .cs__footer {
   position: relative;
   z-index: 1;
@@ -1380,16 +1385,17 @@ button {
   gap: 1rem;
   margin: 0.4rem -1.5rem 0;
   padding: 0.7rem 1.5rem;
-  background: rgba(16, 16, 24, 0.92);
-  border-top: 2px solid rgba(49, 67, 214, 0.55);
+  background: var(--paper);
+  border-top: 2px solid rgba(49, 67, 214, 0.35);
 }
 .cs__controls-help {
   font-size: 0.66rem;
-  color: rgba(242, 236, 218, 0.45);
+  color: rgba(16, 22, 64, 0.55);
+  font-weight: 600;
   font-family: var(--font-display);
   letter-spacing: 0.05em;
 }
-.cs__controls-help span { color: var(--paper); }
+.cs__controls-help span { color: var(--royal); }
 .cs__footer-btns { display: flex; gap: 0.6rem; align-items: center; }
 .cs__btn-back {
   padding: 0.5rem 1.1rem;
@@ -1399,12 +1405,12 @@ button {
   text-transform: uppercase;
   font-family: var(--font-display);
   background: transparent;
-  color: rgba(242, 236, 218, 0.75);
-  border: 1.5px solid rgba(242, 236, 218, 0.35);
+  color: var(--royal);
+  border: 1.5px solid rgba(49, 67, 214, 0.5);
   clip-path: polygon(7px 0, 100% 0, calc(100% - 7px) 100%, 0 100%);
   transition: color 0.15s, border-color 0.15s;
 }
-.cs__btn-back:hover { color: var(--paper); border-color: var(--paper); }
+.cs__btn-back:hover { color: var(--crimson); border-color: var(--crimson); }
 .cs__btn-fight {
   font-family: var(--font-poster);
   font-size: 1.02rem;
@@ -1816,20 +1822,12 @@ button {
   background: var(--paper);
   border-top: 2px solid rgba(49, 67, 214, 0.35);
 }
-.ss .cs__controls-help {
-  color: rgba(16, 22, 64, 0.55);
-  font-weight: 600;
-}
-.ss .cs__controls-help span { color: var(--royal); }
-.ss .cs__btn-back {
-  color: var(--royal);
-  border: 1.5px solid rgba(49, 67, 214, 0.5);
-}
-.ss .cs__btn-back:hover {
-  color: var(--crimson);
-  border-color: var(--crimson);
-}
-/* --- Wipe Transition --- */
+.ss .cs__controls-help { font-weight: 600; }
+/* --- Wipe Transition — comic print run ------------------------------
+   A skewed 3-ink press sweep: crimson lead edge → royal halftone plate →
+   paper tail, separated by ink panel gutters. During the cover a
+   rotated NEXT ISSUE stamp pops on the paper plate, then the whole
+   sheet sweeps away to reveal the new page. */
 #wipe {
   position: fixed;
   inset: 0;
@@ -1844,14 +1842,65 @@ button {
   bottom: 0;
   width: 40%;
   transform: skewX(-14deg);
+  border-left: 7px solid var(--ink);
 }
-#wipe .pane:nth-child(1) { background: var(--red);   left: 0%; }
-#wipe .pane:nth-child(2) { background: var(--black); left: 33%; }
-#wipe .pane:nth-child(3) { background: var(--white); left: 66%; }
+#wipe .pane:nth-child(1) { background: var(--crimson); left: 0%; }
+#wipe .pane:nth-child(2) {
+  background: var(--royal); left: 33%;
+}
+/* royal plate: drifting print stripes */
+#wipe .pane:nth-child(2)::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(-55deg, rgba(242, 236, 218, 0.13) 0 10px, transparent 10px 28px);
+}
+#wipe .pane:nth-child(3) { background: var(--paper); left: 66%; }
+/* paper plate: halftone dot field */
+#wipe .pane:nth-child(3)::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(rgba(16, 22, 64, 0.14) 1.2px, transparent 1.4px);
+  background-size: 13px 13px;
+}
+/* NEXT ISSUE stamp — pops on the paper plate while the sheet is up */
+#wipe .stamp {
+  position: absolute;
+  left: 79%;
+  top: 50%;
+  z-index: 2;
+  transform: translate(-50%, -50%) rotate(-8deg) scale(0.4);
+  font-family: var(--font-poster);
+  font-size: clamp(1.4rem, 3.2vw, 2.6rem);
+  letter-spacing: 0.1em;
+  text-indent: 0.1em;
+  white-space: nowrap;
+  background: var(--paper);
+  color: var(--crimson);
+  border: 4px solid var(--ink);
+  box-shadow: 6px 6px 0 var(--ink);
+  padding: 0.08em 0.5em 0.02em;
+  opacity: 0;
+  transition: opacity 0.12s ease-out, transform 0.22s cubic-bezier(0.2, 1.5, 0.4, 1);
+}
+#wipe .stamp::after {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border: 1.5px solid rgba(232, 40, 60, 0.45);
+  pointer-events: none;
+}
+#wipe.covered .stamp,
+#wipe.active .stamp,
+#wipe.exiting .stamp {
+  opacity: 1;
+  transform: translate(-50%, -50%) rotate(-8deg) scale(1);
+}
 #wipe .flash {
   position: absolute;
   inset: 0;
-  background: var(--white);
+  background: var(--paper);
   opacity: 0;
 }
 
