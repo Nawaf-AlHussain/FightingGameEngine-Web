@@ -1259,7 +1259,7 @@ button {
 
 .cs__card-portrait {
   aspect-ratio: 3/3;
-  background: var(--ink);
+  background: var(--royal-deep);
   position: relative;
   overflow: hidden;
 }
@@ -1271,7 +1271,7 @@ button {
   justify-content: center;
   font-family: var(--font-poster);
   font-size: 1.6rem;
-  color: rgba(242, 236, 218, 0.16);
+  color: var(--paper);
 }
 .cs__card-portrait img {
   position: absolute;
@@ -1371,7 +1371,8 @@ button {
 }
 .cs__card-progress-fill {
   height: 100%;
-  background: repeating-linear-gradient(-55deg, var(--crimson) 0 6px, var(--royal) 6px 12px);
+  /* single-ink print bar: crimson stripes over darker crimson */
+  background: repeating-linear-gradient(-55deg, var(--crimson) 0 6px, var(--red-dark) 6px 12px);
   transition: width 0.3s;
 }
 
@@ -1804,7 +1805,8 @@ button {
 }
 .ss__card-progress-fill {
   height: 100%;
-  background: repeating-linear-gradient(-55deg, var(--gold) 0 6px, var(--ink) 6px 12px);
+  /* single-ink print bar: crimson stripes over darker crimson */
+  background: repeating-linear-gradient(-55deg, var(--crimson) 0 6px, var(--red-dark) 6px 12px);
   transition: width 0.3s;
 }
 
@@ -1882,7 +1884,7 @@ button {
   box-shadow: 6px 6px 0 var(--ink);
   padding: 0.08em 0.5em 0.02em;
   opacity: 0;
-  transition: opacity 0.12s ease-out, transform 0.22s cubic-bezier(0.2, 1.5, 0.4, 1);
+  transition: opacity 0.1s ease-out, transform 0.16s cubic-bezier(0.2, 1.6, 0.35, 1);
 }
 #wipe .stamp::after {
   content: '';
@@ -1891,6 +1893,9 @@ button {
   border: 1.5px solid rgba(232, 40, 60, 0.45);
   pointer-events: none;
 }
+/* On the animate-in sweep the sheet needs 0.4s to arrive — hold the pop
+   until it lands so the stamp doesn't fire over the crimson/royal plates. */
+#wipe.active .stamp { transition-delay: 0.3s; }
 #wipe.covered .stamp,
 #wipe.active .stamp,
 #wipe.exiting .stamp {

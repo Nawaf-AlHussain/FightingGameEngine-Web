@@ -64,7 +64,7 @@ export default function Loading() {
           style={{
             width: '40%',
             height: '100%',
-            background: 'repeating-linear-gradient(90deg, var(--crimson, #e8283c) 0 10px, var(--paper, #f2ecda) 10px 20px)',
+            background: 'var(--crimson, #e8283c)',
             animation: 'fge-loading-bar 1.1s ease-in-out infinite',
           }}
         />
