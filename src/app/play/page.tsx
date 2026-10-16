@@ -1565,13 +1565,24 @@ function PlayPageInner() {
           style={{
             position: 'fixed', inset: 0, zIndex: 40,
             display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-            gap: '0.9rem', background: '#0a0a0c',
+            gap: '0.9rem',
+            backgroundColor: 'var(--paper, #f2ecda)',
+            backgroundImage: 'radial-gradient(rgba(16,16,24,0.1) 1.2px, transparent 1.4px)',
+            backgroundSize: '13px 13px',
+            color: 'var(--ink, #101018)',
           }}
         >
-          <h1 style={{ fontSize: '2rem', letterSpacing: '0.2em', fontWeight: 800, color: '#eee' }}>
+          <div style={{ fontSize: '0.65rem', letterSpacing: '0.35em', color: 'var(--crimson, #e8283c)', fontWeight: 700 }}>
+            ISSUE No. 03 — THE NETWORK
+          </div>
+          <h1 style={{
+            fontFamily: 'var(--font-poster)', fontSize: '2.6rem', letterSpacing: '0.04em',
+            color: 'var(--ink, #101018)', textShadow: '4px 4px 0 var(--crimson, #e8283c)',
+            lineHeight: 1, textTransform: 'uppercase', margin: '0 0 0.5rem',
+          }}>
             ONLINE PLAY
           </h1>
-          <div style={{ fontSize: '0.65rem', letterSpacing: '0.25em', color: '#888', marginBottom: '1rem' }}>
+          <div style={{ fontSize: '0.65rem', letterSpacing: '0.25em', color: 'var(--gray)', marginBottom: '1rem' }}>
             PICK FIGHTERS ON THE SITE — NO ENGINE MENUS
           </div>
           <GameButton variant="primary" onClick={() => handleNetRolePick('host')}>
@@ -1593,14 +1604,17 @@ function PlayPageInner() {
             gap: '0.8rem', pointerEvents: 'none', background: 'transparent',
           }}
         >
-          <div style={{ fontSize: '0.8rem', letterSpacing: '0.25em', color: 'var(--gold, #d9a92f)', fontWeight: 700 }}>
+          <div style={{
+            fontFamily: 'var(--font-poster)', fontSize: '1.1rem', letterSpacing: '0.25em',
+            color: 'var(--paper, #f2ecda)', textShadow: '3px 3px 0 var(--crimson, #e8283c)',
+          }}>
             {!netBridgeStarted
               ? 'LOADING GAME DATA…'
               : netRole === 'host'
               ? 'WAITING FOR YOUR FRIEND…'
               : 'CONNECTING TO THE HOST…'}
           </div>
-          <div style={{ fontSize: '0.65rem', letterSpacing: '0.15em', color: '#888', maxWidth: 440, textAlign: 'center' }}>
+          <div style={{ fontSize: '0.65rem', letterSpacing: '0.15em', color: 'rgba(242,236,218,0.65)', maxWidth: 440, textAlign: 'center' }}>
             {netBridgeStarted
               ? netRole === 'host'
                 ? 'Create a room in the NETPLAY panel and share the room code.'
@@ -1615,7 +1629,7 @@ function PlayPageInner() {
         </div>
       )}
       {netPhase === 'charselect' && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 40, overflowY: 'auto', background: '#0a0a0c' }}>
+        <div style={{ position: 'fixed', inset: 0, zIndex: 40, overflowY: 'auto', background: 'var(--ink, #101018)' }}>
           <CharacterSelect
             isTouch={isTouch}
             online={{
@@ -1631,7 +1645,7 @@ function PlayPageInner() {
         </div>
       )}
       {(netPhase === 'stageselect' || netPhase === 'waiting') && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 40, overflowY: 'auto', background: '#0a0a0c' }}>
+        <div style={{ position: 'fixed', inset: 0, zIndex: 40, overflowY: 'auto', background: 'var(--ink, #101018)' }}>
           <StageSelect
             isTouch={isTouch}
             spectate={netPhase === 'waiting'}
@@ -1642,7 +1656,7 @@ function PlayPageInner() {
         </div>
       )}
       {netPhase === 'error' && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0a0a0c' }}>
+        <div style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(16,16,24,0.9)' }}>
           <ErrorState
             title="ONLINE MATCH ENDED"
             message={netError || 'The connection to your opponent was lost.'}
@@ -1692,7 +1706,12 @@ export default function PlayPage() {
   return (
     <Suspense fallback={
       <div className="min-h-screen bg-black flex items-center justify-center">
-        <span className="text-gray-500 font-mono text-sm">Loading...</span>
+        <span
+          className="font-mono text-sm"
+          style={{ color: 'rgba(242,236,218,0.6)', letterSpacing: '0.2em' }}
+        >
+          Loading...
+        </span>
       </div>
     }>
       <PlayPageInner />

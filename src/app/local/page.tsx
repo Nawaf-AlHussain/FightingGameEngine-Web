@@ -224,7 +224,7 @@ export default function LocalPlayPage() {
         display: 'flex',
         gap: 6,
         alignItems: 'center',
-        background: 'rgba(13,13,13,0.85)',
+        background: 'rgba(16,16,24,0.85)',
         padding: '6px 10px',
         clipPath: 'polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%)',
       }}

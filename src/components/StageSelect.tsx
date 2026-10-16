@@ -692,7 +692,7 @@ export default function StageSelect({
             position: 'fixed',
             inset: 0,
             zIndex: 60,
-            background: 'rgba(8,8,10,0.72)',
+            background: 'rgba(16,16,24,0.82)',
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
@@ -707,7 +707,7 @@ export default function StageSelect({
             style={{
               fontSize: '0.8rem',
               letterSpacing: '0.25em',
-              color: 'var(--gold, #d9a92f)',
+              color: 'var(--gold)',
               fontWeight: 700,
             }}
           >
