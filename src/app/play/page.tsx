@@ -1601,12 +1601,26 @@ function PlayPageInner() {
           style={{
             position: 'fixed', inset: 0, zIndex: 40,
             display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-            gap: '0.8rem', pointerEvents: 'none', background: 'transparent',
+            gap: '0.9rem', pointerEvents: 'none',
+            // Opaque paper page (same treatment as the role screen): the
+            // engine boots BEHIND this overlay to produce the netplay build
+            // hash, and its big "NOW LOADING" splash used to bleed through
+            // the old transparent background and collide with this copy.
+            backgroundColor: 'var(--paper, #f2ecda)',
+            backgroundImage: 'radial-gradient(rgba(16,16,24,0.1) 1.2px, transparent 1.4px)',
+            backgroundSize: '13px 13px',
+            color: 'var(--ink, #101018)',
           }}
         >
           <div style={{
-            fontFamily: 'var(--font-poster)', fontSize: '1.1rem', letterSpacing: '0.25em',
-            color: 'var(--paper, #f2ecda)', textShadow: '3px 3px 0 var(--crimson, #e8283c)',
+            fontSize: '0.65rem', letterSpacing: '0.35em', color: 'var(--crimson, #e8283c)', fontWeight: 700,
+          }}>
+            ISSUE No. 03 — THE NETWORK
+          </div>
+          <div style={{
+            fontFamily: 'var(--font-poster)', fontSize: '2.2rem', letterSpacing: '0.04em',
+            color: 'var(--ink, #101018)', textShadow: '4px 4px 0 var(--crimson, #e8283c)',
+            lineHeight: 1, textTransform: 'uppercase', textAlign: 'center',
           }}>
             {!netBridgeStarted
               ? 'LOADING GAME DATA…'
@@ -1614,7 +1628,7 @@ function PlayPageInner() {
               ? 'WAITING FOR YOUR FRIEND…'
               : 'CONNECTING TO THE HOST…'}
           </div>
-          <div style={{ fontSize: '0.65rem', letterSpacing: '0.15em', color: 'rgba(242,236,218,0.65)', maxWidth: 440, textAlign: 'center' }}>
+          <div style={{ fontSize: '0.65rem', letterSpacing: '0.15em', color: 'var(--gray-dark, #4a4a56)', maxWidth: 440, textAlign: 'center' }}>
             {netBridgeStarted
               ? netRole === 'host'
                 ? 'Create a room in the NETPLAY panel and share the room code.'
