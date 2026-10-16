@@ -2963,6 +2963,40 @@ body.fighting {
 .settings .footer-credit { color: rgba(16,16,24,0.42); }
 
 /* ========================================
+   SETTINGS — short viewports (phones in landscape, ~390px tall)
+   The default stack (title + tabs + 60vh body + footer in flow) is
+   ~525px tall here: SAVE/BACK land below the fold and rows scroll in
+   a second, nested context. Cap the page to the viewport instead,
+   keep the tab rail on one scrollable line, and let the rows region
+   be the single scroll area with the footer acting as an
+   always-visible action bar.
+   ======================================== */
+@media (max-height: 500px) {
+  .settings {
+    height: 100vh;
+    height: 100dvh;
+  }
+  .settings__title { margin-bottom: 0.25rem; }
+  .settings__title-main { font-size: 1.25rem; }
+  .settings__title-sub { margin-top: 0.1rem; }
+  .settings__tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    justify-content: flex-start;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    margin-bottom: 0.4rem;
+  }
+  .settings__tabs::-webkit-scrollbar { display: none; }
+  .settings__body {
+    max-height: none;
+    flex: 1;
+    min-height: 0;
+  }
+  .settings__footer { padding: 0.5rem 0.5rem 0.6rem; }
+}
+
+/* ========================================
    PROGRESS SCREEN (between fights)
    ======================================== */
 .progress {
