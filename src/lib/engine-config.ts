@@ -231,6 +231,7 @@ export function clearPersistedConfig(): void {
   try {
     localStorage.removeItem(DISPLAY_MODE_STORAGE_KEY);
     localStorage.removeItem(DISPLAY_MODE_STORAGE_KEY_LEGACY);
+    localStorage.removeItem(DISPLAY_MODE_STORAGE_KEY_LEGACY_V1);
   } catch {
     // ignore
   }
@@ -336,16 +337,22 @@ export type DisplayModeChoice = keyof typeof DISPLAY_MODE_PRESETS;
  * renders at a genuine 4:3 canvas, so the single contain-fit presentation
  * is correct for every mode.
  */
-export const DISPLAY_MODE_STORAGE_KEY = 'engine-display-mode';
-/** Pre-rename key; still read once for returning players. */
+export const DISPLAY_MODE_STORAGE_KEY = 'engine-display-mode-v2';
+/** Pre-v2 keys; NO LONGER READ. Every marker written before the v2 bump is
+ * untrustworthy: an earlier build auto-persisted the '4:3' preset on the
+ * first /local visit, so those markers do not represent user choices — and
+ * 4:3 is a broken mode pending a redo. The default (no marker) is 16:9.
+ * Listed only so reset flows can wipe them. */
 export const DISPLAY_MODE_STORAGE_KEY_LEGACY = 'ikemen-display-mode';
+export const DISPLAY_MODE_STORAGE_KEY_LEGACY_V1 = 'engine-display-mode';
 
 export type DisplayModeMarker = '4:3' | '16:9';
 
 /** Read the persisted display-mode marker (null = never selected/migrated). */
 export function getDisplayModeMarker(): DisplayModeMarker | null {
   try {
-    const v = localStorage.getItem(DISPLAY_MODE_STORAGE_KEY) ?? localStorage.getItem(DISPLAY_MODE_STORAGE_KEY_LEGACY);
+    // Only the v2 key counts — pre-v2 markers are invalidated (see above).
+    const v = localStorage.getItem(DISPLAY_MODE_STORAGE_KEY);
     return v === '4:3' || v === '16:9' ? v : null;
   } catch {
     return null;
@@ -355,7 +362,10 @@ export function getDisplayModeMarker(): DisplayModeMarker | null {
 function setDisplayModeMarker(mode: DisplayModeMarker): void {
   try {
     localStorage.setItem(DISPLAY_MODE_STORAGE_KEY, mode);
-    try { localStorage.removeItem(DISPLAY_MODE_STORAGE_KEY_LEGACY); } catch { /* best-effort */ }
+    try {
+      localStorage.removeItem(DISPLAY_MODE_STORAGE_KEY_LEGACY);
+      localStorage.removeItem(DISPLAY_MODE_STORAGE_KEY_LEGACY_V1);
+    } catch { /* best-effort */ }
   } catch {
     // ignore — fitter falls back to the contain (16:9) presentation
   }
@@ -401,17 +411,16 @@ export function applyDisplayModeChoice(cfg: ConfigData, choice: DisplayModeChoic
 /**
  * Reconstruct the active display-mode choice from the persisted marker and
  * the config resolution — used by Settings/local UIs to show the current
- * selection. Stale pre-marker configs whose resolution is 4:3 map to '4:3'
- * (that resolution could only have been written by an older 4:3 preset).
+ * selection. No marker = the 16:9 default (a 4:3 reading requires an
+ * explicit v2 marker; resolution heuristics would re-introduce the
+ * auto-4:3 default this bump removed). A 1920x1080 canvas still reads as
+ * the 1080p flavor of the default.
  */
 export function getDisplayModeChoice(cfg: ConfigData): DisplayModeChoice {
   if (getDisplayModeMarker() === '4:3') return '4:3';
   const gw = getInt(cfg, 'Video', 'GameWidth');
   const gh = getInt(cfg, 'Video', 'GameHeight');
-  if (gw && gh && gw > 0 && gh > 0) {
-    if (Math.abs(gw / gh - 4 / 3) < 0.01) return '4:3';
-    if (gw === 1920 && gh === 1080) return '16:9-1080p';
-  }
+  if (gw === 1920 && gh === 1080) return '16:9-1080p';
   return '16:9-720p';
 }
 
