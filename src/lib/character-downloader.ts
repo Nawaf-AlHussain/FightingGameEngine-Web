@@ -41,6 +41,8 @@ import {
   isStageCached,
   getCachedCharacterIds,
   getCachedStageIds,
+  purgeCharacter,
+  purgeStage,
   type CachedAsset,
   type CachedFileData,
 } from './character-cache';
@@ -510,6 +512,83 @@ function emitProgress(inflight: InflightDownload, pct: number, msg: string): voi
  *          (so the caller can inject without another round-trip), or null when
  *          the character was already cached / a concurrent call downloaded it.
  */
+// ===========================================================================
+// Download integrity (the "character does not appear in the fight" bug)
+// ===========================================================================
+//
+// A 200 response is NOT proof the bytes are complete. A truncated body
+// (flaky mobile network, serverless mid-stream cut) used to be cached as a
+// valid record: res.ok was true, so the transactional partial-download rule
+// never fired. The engine then panicked at sff parse time ("...carnage_sff.sff
+// EOF" in f_quickMatch) and the character never appeared in the fight — with
+// the poisoned record replaying on EVERY attempt, because a record that
+// satisfies the file-name list looks cached forever.
+//
+// Two defenses live here:
+//   1. fetchFileVerified — compares the body against Content-Length (our
+//      /api/cdn route relays it; binaries are served uncompressed, and when
+//      content-encoding is present the check is skipped because the wire
+//      length no longer describes the decoded blob) with one retry, then a
+//      hard failure so the transactional rule keeps it out of the cache.
+//   2. filesRecordLooksValid — magic-byte sniff at the CACHE-READ boundary
+//      (sff: "ElecbyteSpr"/"AFAICF", snd: "ElecbyteSnd", plus no-empty-file
+//      for everything). A damaged record is purged once and reported as a
+//      cache miss, so the existing download fallback re-downloads it. A ref
+//      is only healed once per session: if a FRESH record still fails the
+//      sniff (an exotic magic this build does not know), it is injected
+//      anyway and the engine decides — never a purge loop.
+
+async function fetchFileVerified(url: string, filename: string): Promise<Blob> {
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const res = await fetch(url, { cache: 'force-cache' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    // Skip the check when the payload was transfer-compressed: content-length
+    // then describes the compressed wire size, not blob.size.
+    if (res.headers.get('content-encoding')) return blob;
+    const cl = Number(res.headers.get('content-length'));
+    if (!Number.isFinite(cl) || cl <= 0 || blob.size === cl) return blob;
+    console.warn(`[cache] ${filename}: body ${blob.size}B != content-length ${cl}B (attempt ${attempt})`);
+  }
+  throw new Error('truncated body (content-length mismatch after retry)');
+}
+
+const SFF_MAGICS = ['ElecbyteSpr', 'AFAICF'];
+const SND_MAGIC = 'ElecbyteSnd';
+
+async function blobHead(data: CachedFileData, n: number): Promise<string> {
+  const bytes = data instanceof Blob
+    ? new Uint8Array(await data.slice(0, n).arrayBuffer())
+    : data.slice(0, n);
+  return String.fromCharCode(...bytes);
+}
+
+async function filesRecordLooksValid(files: Record<string, CachedFileData>): Promise<boolean> {
+  for (const [name, data] of Object.entries(files)) {
+    const size = data instanceof Blob ? data.size : data?.byteLength ?? 0;
+    if (!data || size === 0) return false;
+    const lower = name.toLowerCase();
+    if (lower.endsWith('.sff')) {
+      const head = await blobHead(data, 11);
+      if (!SFF_MAGICS.some((m) => head.startsWith(m))) return false;
+    } else if (lower.endsWith('.snd')) {
+      const head = await blobHead(data, 11);
+      if (!head.startsWith(SND_MAGIC)) return false;
+    }
+  }
+  return true;
+}
+
+// Refs already healed this session — see the filesRecordLooksValid comment.
+const healedOnce = new Set<string>();
+
+function rememberHealed(kind: 'char' | 'stage', key: string): boolean {
+  const k = kind + ':' + key;
+  if (healedOnce.has(k)) return false;
+  healedOnce.add(k);
+  return true;
+}
+
 export async function downloadCharacterToCache(
   char: CharacterInfo,
   onProgress?: (pct: number, msg: string) => void
@@ -571,13 +650,7 @@ export async function downloadCharacterToCache(
       await Promise.all(batch.map(async (filename) => {
         const url = CDN_PROXY_BASE + source + '/' + char.id + '/' + filename + assetVersionQuery(char);
         try {
-          const res = await fetch(url, { cache: 'force-cache' });
-          if (!res.ok) {
-            console.warn(`Failed to download ${filename}: ${res.status}`);
-            failed.push(filename);
-            return;
-          }
-          downloadedFiles[filename] = await res.blob();
+          downloadedFiles[filename] = await fetchFileVerified(url, filename);
           completed++;
           emitProgress(entry, Math.round((completed / total) * 100), `Downloaded ${filename}`);
         } catch (e) {
@@ -662,13 +735,7 @@ export async function downloadStageToCache(
     await Promise.all(files.map(async (filename) => {
       const url = CDN_PROXY_BASE + 'stages/' + filename + assetVersionQuery(stage);
       try {
-        const res = await fetch(url, { cache: 'force-cache' });
-        if (!res.ok) {
-          console.warn(`Failed to download ${filename}: ${res.status}`);
-          failed.push(filename);
-          return;
-        }
-        downloadedFiles[filename] = await res.blob();
+        downloadedFiles[filename] = await fetchFileVerified(url, filename);
         completed++;
         emitProgress(entry, Math.round((completed / total) * 100), `Downloaded ${filename}`);
       } catch (e) {
@@ -728,7 +795,21 @@ export async function getCachedCharacterFiles(
   ref: string
 ): Promise<Record<string, CachedFileData> | null> {
   const cached = await getCachedCharacter(ref);
-  return cached ? cached.files : null;
+  if (!cached) return null;
+  // POISONED-CACHE SELF-HEAL at the read boundary: a record with an empty
+  // file or a garbage-magic sff/snd is purged ONCE and reported as a cache
+  // miss, so the caller's download fallback re-downloads it. Truncated
+  // (but well-formed-header) records are caught by the engine-death purge
+  // in play/page.tsx — the sff header survives truncation, so no sniff can
+  // see those.
+  if (!(await filesRecordLooksValid(cached.files))) {
+    if (rememberHealed('char', ref)) {
+      await purgeCharacter(ref);
+      return null;
+    }
+    console.warn(`[cache] ${ref}: record still fails validation after a heal — injecting anyway (engine decides)`);
+  }
+  return cached.files;
 }
 
 /** Read half of injectCachedStage — see getCachedCharacterFiles. */
@@ -736,7 +817,15 @@ export async function getCachedStageFiles(
   stageId: string
 ): Promise<Record<string, CachedFileData> | null> {
   const cached = await getCachedStage(stageId);
-  return cached ? cached.files : null;
+  if (!cached) return null;
+  if (!(await filesRecordLooksValid(cached.files))) {
+    if (rememberHealed('stage', stageId)) {
+      await purgeStage(stageId);
+      return null;
+    }
+    console.warn(`[cache] stage ${stageId}: record still fails validation after a heal — injecting anyway`);
+  }
+  return cached.files;
 }
 
 /**
@@ -905,4 +994,47 @@ export async function downloadAndInjectStage(
 
   console.warn(`[cache] stage ${stage.id} still not injectable — session-only download (will re-download next boot)`);
   await downloadStage(stage, onProgress);
+}
+
+/**
+ * POISONED-CACHE SELF-HEAL (engine-death trigger).
+ *
+ * A truncated/corrupt cached asset makes the engine panic at parse time and
+ * the panic text names the VFS path, e.g.:
+ *   Panic: ...f_quickMatch: chars/Carnage_MMV/Carnage_MMV.def:
+ *   chars/Carnage_MMV/resource/carnage_sff.sff
+ *   EOF
+ * Purge the implicated match records so RETRY re-downloads them instead of
+ * replaying the same poisoned bytes on every attempt ("character does not
+ * appear in the fight"). Only refs whose VFS id is actually named in the
+ * panic text are purged — unrelated deaths never cost a re-download.
+ * Returns the purged ids for the error-screen wording.
+ */
+export async function purgeAssetsMentionedByPanic(
+  panicText: string,
+  p1Ref: string,
+  p2Ref: string,
+  stageRef?: string
+): Promise<string[]> {
+  const purged: string[] = [];
+  try {
+    for (const ref of [p1Ref, p2Ref]) {
+      if (!ref) continue;
+      const id = splitCharRef(ref).id;
+      if (!id || purged.includes(id)) continue;
+      if (panicText.includes(`chars/${id}/`)) {
+        await purgeCharacter(ref);
+        healedOnce.delete('char:' + ref);
+        purged.push(id);
+      }
+    }
+    if (stageRef && panicText.includes(`stages/${stageRef}`)) {
+      await purgeStage(stageRef);
+      healedOnce.delete('stage:' + stageRef);
+      purged.push(stageRef);
+    }
+  } catch (e) {
+    console.warn('[cache] panic-triggered purge failed (best-effort):', e);
+  }
+  return purged;
 }
