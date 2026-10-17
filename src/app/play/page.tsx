@@ -719,8 +719,14 @@ function PlayPageInner() {
           if (!canvas || canvas.width <= 0 || canvas.height <= 0) return false;
 
           const viewport = window.visualViewport;
-          const viewportWidth = viewport?.width || window.innerWidth;
-          const viewportHeight = viewport?.height || window.innerHeight;
+          // html.phone-landscape (game.css) zooms the root to 0.7 on phones
+          // in landscape: the layout viewport is 1/0.7x the physical units
+          // that visualViewport/innerWidth report, while style px are layout
+          // units — unscale the measurement so the canvas still fills the
+          // physical screen. Keep in sync with the 0.7 in game.css.
+          const ZOOM = document.documentElement.classList.contains('phone-landscape') ? 0.7 : 1;
+          const viewportWidth = (viewport?.width || window.innerWidth) / ZOOM;
+          const viewportHeight = (viewport?.height || window.innerHeight) / ZOOM;
 
           const aspect = canvas.width / canvas.height;
 

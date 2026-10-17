@@ -353,6 +353,56 @@ button {
   cursor: pointer;
 }
 
+/* ========================================
+   PHONE LANDSCAPE — zoom-out treatment
+   ========================================
+   Phones held sideways get the desktop layout scaled down to fit,
+   instead of bespoke squeezed layouts that overlapped (the lobby
+   poster masthead collided with the menu column at ~390px-tall
+   viewports, and every page needed its own short-height patch).
+
+   html zoom 0.7 expands the layout viewport to ~1.43x (1206x557 CSS
+   px on an 844x390 phone) while rendering at 70%. Two engine facts
+   need compensation:
+   - vh/dvh/vw units resolve against the PHYSICAL viewport (390px),
+     NOT the zoomed layout viewport — every full-height page root and
+     the fight body lock must divide by 0.7 to still fill the screen.
+   - window.innerWidth / visualViewport.width report physical units
+     (844) while style px are layout units — the JS canvas fitter
+     divides its measurement by 0.7 (see fitCanvasToViewport in
+     play/page.tsx). Media queries also stay physical, so the
+     existing max-height landscape patches keep working underneath.
+
+   The class is set pre-paint by the inline script in layout.tsx from
+   screen dimensions (device dims are zoom-stable and orientation-
+   stable, so the toggle can never oscillate) and re-evaluated on
+   rotate/resize. 'zoom-override' in localStorage ('on'/'off') is the
+   manual escape hatch, mirroring input-mode-override. Tablets (short
+   edge > 520 CSS px) and desktops are never zoomed. */
+html.phone-landscape {
+  zoom: 0.7;
+}
+/* Full-height page roots: 100vh/dvh resolve to the physical viewport
+   under root zoom — divide by 0.7 so they still fill the screen. */
+html.phone-landscape body,
+html.phone-landscape .lobby,
+html.phone-landscape .cs,
+html.phone-landscape .ss,
+html.phone-landscape .settings,
+html.phone-landscape .progress,
+html.phone-landscape .results,
+html.phone-landscape .about,
+html.phone-landscape .match-prep,
+html.phone-landscape .min-h-screen {
+  min-height: calc(100vh / 0.7);
+  min-height: calc(100dvh / 0.7);
+}
+html.phone-landscape body.fighting {
+  width: calc(100vw / 0.7);
+  height: calc(100vh / 0.7);
+  height: calc(100dvh / 0.7);
+}
+
 /* --- Utility: angular clip-path shapes --- */
 .clip-corner {
   clip-path: polygon(12px 0, 100% 0, calc(100% - 12px) 100%, 0 100%);
