@@ -12,6 +12,7 @@ import {
   getStageDefPath,
   injectCharacterFiles,
   injectStageFiles,
+  purgeAssetsMentionedByPanic,
   charRef,
   splitCharRef,
 } from '@/lib/character-downloader';
@@ -1371,7 +1372,25 @@ function PlayPageInner() {
         if (crashLine) {
           cleanup();
           log('ENGINE CRASHED: ' + crashLine);
-          setBootError('The game engine crashed (' + crashLine.slice(0, 200) + '). Send a screenshot of this screen when reporting — expand Technical Details below to see how far the boot got.' + bootDetails());
+          // POISONED-CACHE SELF-HEAL: a truncated/corrupt cached asset (sff
+          // cut mid-stream by a flaky network — the header survives, so no
+          // sniff can see it) panics the engine at parse time and the panic
+          // text names the VFS path. Purge the implicated match records so
+          // RETRY re-downloads them, instead of replaying the same poisoned
+          // bytes on every attempt ("character does not appear in the fight").
+          let healedNote = '';
+          try {
+            const crashIdx = engineTail.indexOf(crashLine);
+            const panicText = engineTail.slice(crashIdx, crashIdx + 30).join('\n');
+            const purged = await purgeAssetsMentionedByPanic(panicText, effP1, effP2, effStage);
+            if (purged.length) {
+              log('CACHE HEAL: purged damaged records for: ' + purged.join(', '));
+              healedNote = ' The cached copy of ' + purged.join(' and ') +
+                ' was damaged and has been deleted — press RETRY to re-download it.';
+            }
+          } catch { /* healing is best-effort; the error screen still shows */ }
+          setBootError('The game engine crashed (' + crashLine.slice(0, 200) + ').' + healedNote +
+            ' Send a screenshot of this screen when reporting — expand Technical Details below to see how far the boot got.' + bootDetails());
           return;
         }
 

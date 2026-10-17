@@ -242,6 +242,39 @@ export async function isCharacterCached(id: string, requiredFiles?: string[], mv
   return namesSatisfy(Object.keys(record.files), requiredFiles);
 }
 
+/**
+ * Delete a single character record (payload + meta). Used by the
+ * poisoned-cache self-heal: a record whose bytes fail validation (truncated
+ * sff/snd from a mid-stream cut, garbage payload) must be re-downloadable,
+ * otherwise it replays the same panic on every fight forever.
+ */
+export async function purgeCharacter(id: string): Promise<void> {
+  try {
+    const db = await openDB();
+    const tx = db.transaction([CHAR_STORE, CHAR_META_STORE], 'readwrite');
+    tx.objectStore(CHAR_STORE).delete(id);
+    tx.objectStore(CHAR_META_STORE).delete(id);
+    await txDone(tx);
+    console.log(`[cache] purged damaged character record: ${id}`);
+  } catch (e) {
+    console.warn('[cache] purgeCharacter failed (best-effort):', e);
+  }
+}
+
+/** Stage half of purgeCharacter — see that comment. */
+export async function purgeStage(id: string): Promise<void> {
+  try {
+    const db = await openDB();
+    const tx = db.transaction([STAGE_STORE, STAGE_META_STORE], 'readwrite');
+    tx.objectStore(STAGE_STORE).delete(id);
+    tx.objectStore(STAGE_META_STORE).delete(id);
+    await txDone(tx);
+    console.log(`[cache] purged damaged stage record: ${id}`);
+  } catch (e) {
+    console.warn('[cache] purgeStage failed (best-effort):', e);
+  }
+}
+
 // --- Stage caching ---
 
 export async function cacheStage(id: string, files: Record<string, CachedFileData>, mv?: string): Promise<void> {
