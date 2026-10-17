@@ -844,12 +844,17 @@
     // stages (e.g. UIU_Fountain).
     //
     // Rule:
-    //   marker '4:3' or a 4:3 resolution from a stale preset (no marker)
+    //   marker '4:3' (v2 key ONLY — pre-v2 markers are invalidated because
+    //     an earlier build auto-wrote them on the first /local visit) or an
+    //     explicit 4:3 choice
     //     -> GameWidth/GameHeight = 960/720, FA = 4,3, KeepAspect = 1,
     //        marker '4:3'
-    //   marker '16:9' or anything else (16:9 path)
-    //     -> resolution/KeepAspect untouched, FA healed to -1,-1 (broken
-    //        half-configs from the old standalone settings UI)
+    //   anything else — INCLUDING no marker, the 16:9 default
+    //     -> FA healed to -1,-1 (broken half-configs from the old standalone
+    //        settings UI); orphaned 4:3 canvases (960x720 left by the
+    //        previous normalization, 640x480 from the stretch era) are
+    //        bumped back to 1280x720 so the 16:9 fight fills the canvas
+    //        edge-to-edge; other resolutions are kept
     //   always -> Config.ZoomActive = 1, Debug.ForceStageAutoZoom = 1
     // The engine re-persists its (normalized) config on its next save, so
     // localStorage heals itself after the first boot.
@@ -861,12 +866,15 @@
         const gw = /^\s*GameWidth\s*=\s*(\d+)\s*$/mi.exec(text);
         const gh = /^\s*GameHeight\s*=\s*(\d+)\s*$/mi.exec(text);
         let marker = null;
-        try { marker = localStorage.getItem('engine-display-mode') || localStorage.getItem('ikemen-display-mode'); } catch (e) { /* best-effort */ }
-        // An explicit marker wins (the user's choice); with no marker, a 4:3
-        // resolution can only come from a stale pre-marker 4:3 preset.
-        const is43 = marker === '4:3' ? true
-          : marker === '16:9' ? false
-          : !!(gw && gh && Math.abs(+gw[1] / +gh[1] - 4 / 3) < 0.01);
+        // v2 key ONLY: pre-v2 markers ('engine-display-mode',
+        // 'ikemen-display-mode') are invalidated — an earlier build
+        // auto-wrote '4:3' on the first /local visit, so they do not
+        // represent user choices. No marker = the 16:9 default.
+        try { marker = localStorage.getItem('engine-display-mode-v2'); } catch (e) { /* best-effort */ }
+        // An explicit v2 marker wins (the user's choice). Resolution
+        // heuristics deliberately do NOT infer a mode anymore — a stale
+        // 4:3 resolution without a marker is an orphan to heal to 16:9.
+        const is43 = marker === '4:3';
 
         // Align a key if present; insert it under its section header if the
         // key is missing (creating the whole section at the end if needed).
@@ -897,16 +905,25 @@
           ensureKey('FightAspectHeight', 3, 'Video');
           ensureKey('KeepAspect', 1, 'Video');
           try {
-            const cur = localStorage.getItem('engine-display-mode') || localStorage.getItem('ikemen-display-mode');
+            const cur = localStorage.getItem('engine-display-mode-v2');
             if (cur !== '4:3') {
-              localStorage.setItem('engine-display-mode', '4:3');
+              localStorage.setItem('engine-display-mode-v2', '4:3');
             }
           } catch (e) { /* marker best-effort */ }
         } else {
-          // 16:9 path — heal broken half-configs only (FA must be -1,-1);
-          // resolution and KeepAspect stay untouched (historical behavior).
+          // 16:9 path (also the no-marker default) — heal broken
+          // half-configs (FA must be -1,-1), and bump orphaned 4:3
+          // canvases (960x720 left by the previous native-4:3
+          // normalization, 640x480 from the stretch era) back to the
+          // shipped 1280x720 so the 16:9 fight fills the canvas
+          // edge-to-edge instead of letterboxing inside a 4:3 frame.
+          // Any other resolution is kept (e.g. a chosen 1080p canvas).
           ensureKey('FightAspectWidth', -1, 'Video');
           ensureKey('FightAspectHeight', -1, 'Video');
+          if (gw && gh && Math.abs(+gw[1] / +gh[1] - 4 / 3) < 0.01) {
+            ensureKey('GameWidth', 1280, 'Video');
+            ensureKey('GameHeight', 720, 'Video');
+          }
         }
         // Stage zoom — enabled for every display mode (see comment above).
         ensureKey('ZoomActive', 1, 'Config');
