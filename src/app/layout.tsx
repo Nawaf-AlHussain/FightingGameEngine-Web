@@ -47,6 +47,36 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <head>
+        {/* PHONE LANDSCAPE zoom-out — must run pre-paint (no layout flash).
+            Screens report device dimensions that follow orientation but are
+            immune to CSS zoom, so the toggle is stable (no oscillation loop).
+            Landscape phones (short edge <= 520 CSS px) get html.zoom 0.7 —
+            the desktop layout scaled to fit; see game.css PHONE LANDSCAPE
+            block for the vh/dvh/innerWidth compensation notes. Tablets and
+            desktops never zoom. 'zoom-override' ('on'/'off') in localStorage
+            is the manual escape hatch, mirroring input-mode-override. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function () {
+  var KEY = 'zoom-override';
+  function phoneLandscape() {
+    try {
+      var o = localStorage.getItem(KEY);
+      if (o === 'on') return true;
+      if (o === 'off') return false;
+    } catch (e) {}
+    var w = screen.width, h = screen.height;
+    return w > h && Math.min(w, h) > 0 && Math.min(w, h) <= 520;
+  }
+  function apply() {
+    document.documentElement.classList.toggle('phone-landscape', phoneLandscape());
+  }
+  apply();
+  window.addEventListener('orientationchange', apply);
+  window.addEventListener('resize', apply);
+})();`,
+          }}
+        />
         <link rel="manifest" href="/manifest.json" />
         <meta name="theme-color" content="#000000" />
         <meta name="mobile-web-app-capable" content="yes" />
