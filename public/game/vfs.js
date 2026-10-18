@@ -696,12 +696,26 @@
       // download. Raw pak stays as the fallback (old browsers, missing
       // artifact); both are stamped so no cache layer can mix builds.
       let bodyStream = null;
+      try { performance.mark('boot:pak:start'); } catch (e) { /* marks are advisory */ }
       if (typeof DecompressionStream === 'function' && pakSize > 0) {
         try {
           const gzRes = await fetch(pakBase + data.pack + '.gz' + stamp, { cache: 'default' });
           if (!gzRes.ok) throw new Error('HTTP ' + gzRes.status);
           if (!gzRes.body) throw new Error('no body');
-          bodyStream = gzRes.body.pipeThrough(new DecompressionStream('gzip'));
+          // Off-main-thread gunzip first (boot-decompress.ts via the page):
+          // the inflate work lands in a worker instead of competing with the
+          // wasm compile during the cold-boot pile-up. null = declined
+          // (kill-switch / unsupported, body untouched) -> exact old inline
+          // path. A throw AFTER the transfer means the body is consumed;
+          // the catch below re-fetches the raw pak (same contract as the
+          // corrupt-.gz fallback).
+          const hook = globalThis.engineGzipDecode;
+          if (hook) {
+            const s = await hook(gzRes.body, 'pak');
+            bodyStream = s || gzRes.body.pipeThrough(new DecompressionStream('gzip'));
+          } else {
+            bodyStream = gzRes.body.pipeThrough(new DecompressionStream('gzip'));
+          }
         } catch (e) {
           console.warn('[vfs] compressed pak unavailable (' + (e && e.message || e) + '), using raw pak');
           bodyStream = null;
@@ -728,6 +742,7 @@
       if (received !== pakSize) {
         throw new Error('[vfs] pak size mismatch: got ' + received + ', manifest says ' + pakSize);
       }
+      try { performance.mark('boot:pak:ready'); } catch (e) { /* advisory */ }
       for (const [vpath, [offset, length]] of Object.entries(data.files)) {
         if (length > 0) {
           contents.set(vpath, pak.subarray(offset, offset + length));

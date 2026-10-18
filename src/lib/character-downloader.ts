@@ -809,6 +809,20 @@ async function fileBytes(data: CachedFileData): Promise<Uint8Array> {
   return data;
 }
 
+/** Main-thread yield budget for the injection loops (cold-boot pile-up
+ *  fix). Materializing a multi-MB Blob deserializes on the main thread;
+ *  back-to-back files would keep the thread pinned and the boot log
+ *  frozen. After ~1 MB of materialized bytes we hand the thread back for
+ *  one macrotask so pending paints/inputs/timers get a slot. The
+ *  one-file-at-a-time ORDER is untouched — this only adds pauses between
+ *  files, never reorders or parallelizes them. */
+const INJECT_YIELD_BYTES = 1 << 20;
+async function injectYield(pendingBytes: number): Promise<boolean> {
+  if (pendingBytes < INJECT_YIELD_BYTES) return false;
+  await new Promise((r) => setTimeout(r, 0));
+  return true;
+}
+
 /**
  * Read a character's cached files WITHOUT injecting — the read half of
  * injectCachedCharacter, split out so the boot page can fetch P1, P2 and
@@ -887,10 +901,14 @@ export async function injectCharacterFiles(
 
   const { id } = splitCharRef(ref);
   let count = 0;
+  let sinceYield = 0;
   for (const [filename, data] of Object.entries(files)) {
+    const u8 = await fileBytes(data);
+    sinceYield += u8.byteLength;
     const vpath = `chars/${id}/${filename}`;
-    g.engineInjectFile(vpath, await fileBytes(data));
+    g.engineInjectFile(vpath, u8);
     count++;
+    if (await injectYield(sinceYield)) sinceYield = 0;
   }
   console.log(`[cache] Injected ${count} files for character: ${ref} -> chars/${id}/`);
   return true;
@@ -911,10 +929,14 @@ export async function injectStageFiles(
   }
 
   let count = 0;
+  let sinceYield = 0;
   for (const [filename, data] of Object.entries(files)) {
+    const u8 = await fileBytes(data);
+    sinceYield += u8.byteLength;
     const vpath = `stages/${filename}`;
-    g.engineInjectFile(vpath, await fileBytes(data));
+    g.engineInjectFile(vpath, u8);
     count++;
+    if (await injectYield(sinceYield)) sinceYield = 0;
   }
   console.log(`[cache] Injected ${count} files for stage: ${stageId}`);
   return true;
@@ -957,9 +979,13 @@ async function injectRecord(
     return false;
   }
   let count = 0;
+  let sinceYield = 0;
   for (const [filename, data] of Object.entries(files)) {
-    g.engineInjectFile(vpathFor(filename), await fileBytes(data));
+    const u8 = await fileBytes(data);
+    sinceYield += u8.byteLength;
+    g.engineInjectFile(vpathFor(filename), u8);
     count++;
+    if (await injectYield(sinceYield)) sinceYield = 0;
   }
   console.log(`[cache] Injected ${count} files for ${label}`);
   return true;

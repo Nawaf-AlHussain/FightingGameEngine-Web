@@ -21,6 +21,7 @@ import RotateOverlay from '@/components/RotateOverlay';
 import { ErrorState, GameButton } from '@/components/ui';
 import { readFightResult, clearFightResult, processFightResult, getCurrentModeState, markFightStart } from '@/lib/game-modes';
 import { getDisplayModeMarker } from '@/lib/engine-config';
+import { engineGzipDecode } from '@/lib/boot-decompress';
 import CharacterSelect from '@/components/CharacterSelect';
 import StageSelect from '@/components/StageSelect';
 
@@ -223,6 +224,76 @@ if (typeof document !== 'undefined') {
       document.head.appendChild(link);
     }
   }
+}
+
+// Expose the off-main-thread gunzip to vfs.js (which is plain JS with no
+// imports): engineVfsInit's pak path calls globalThis.engineGzipDecode and
+// falls back to its inline DecompressionStream when the hook returns null
+// (kill-switch localStorage 'fg-boot-worker'='off' / unsupported browser /
+// dead worker). Module scope so BOTH engineVfsInit call sites (net=1
+// preboot + local boot) are covered from the first tick.
+if (typeof window !== 'undefined') {
+  (window as unknown as Record<string, unknown>).engineGzipDecode =
+    (stream: ReadableStream<Uint8Array>, label: string) => engineGzipDecode(stream, label);
+}
+
+// ---- Boot timing beacons (cold-boot pile-up instrumentation) -------------
+// Marks land at the phase boundaries below (wasm compile, pak decode, P1/
+// P2/stage injection, engine start); a long-task observer counts main-thread
+// stalls >50ms from boot start. One compact '[boot-timing]' line is logged
+// right before go.run() — greppable before/after evidence for the pile-up
+// work, and a permanent free diagnostic for future boot regressions.
+interface BootTiming {
+  t0: number;
+  longTasks: { n: number; total: number; max: number };
+  observer?: PerformanceObserver;
+}
+let bootTiming: BootTiming | null = null;
+
+function bootTimingStart(): void {
+  bootTiming = { t0: performance.now(), longTasks: { n: 0, total: 0, max: 0 } };
+  try {
+    const obs = new PerformanceObserver((list) => {
+      if (!bootTiming) return;
+      for (const e of list.getEntries()) {
+        bootTiming.longTasks.n++;
+        bootTiming.longTasks.total += e.duration;
+        if (e.duration > bootTiming.longTasks.max) bootTiming.longTasks.max = e.duration;
+      }
+    });
+    obs.observe({ type: 'longtask', buffered: false } as PerformanceObserverInit);
+    bootTiming.observer = obs;
+  } catch {
+    /* longtask unsupported (Safari pre-16.4?) — phases still measured */
+  }
+}
+
+function bootPhase(name: string): void {
+  try { performance.mark('boot:' + name); } catch { /* advisory */ }
+}
+
+function bootTimingSummary(): string {
+  const dur = (startMark: string, endMark: string): number => {
+    try {
+      performance.measure(startMark + '→' + endMark, startMark, endMark);
+      const m = performance.getEntriesByName(startMark + '→' + endMark).slice(-1)[0] as PerformanceMeasure;
+      return Math.round(m.duration);
+    } catch {
+      return -1;
+    }
+  };
+  const parts = [
+    'wasm=' + dur('boot:wasm:start', 'boot:wasm:ready') + 'ms',
+    'pak=' + dur('boot:pak:start', 'boot:pak:ready') + 'ms',
+    'records=' + dur('boot:records:start', 'boot:records:ready') + 'ms',
+    'p1=' + dur('boot:p1:start', 'boot:p1:ready') + 'ms',
+    'p2=' + dur('boot:p2:start', 'boot:p2:ready') + 'ms',
+    'stage=' + dur('boot:stage:start', 'boot:stage:ready') + 'ms',
+  ];
+  const lt = bootTiming?.longTasks;
+  const bootMs = bootTiming ? Math.round(performance.now() - bootTiming.t0) : -1;
+  const ltPart = lt ? ` | longtasks=${lt.n} total=${Math.round(lt.total)}ms max=${Math.round(lt.max)}ms` : '';
+  return `[boot-timing] boot=${bootMs}ms ${parts.join(' ')}${ltPart}`;
 }
 
 function PlayPageInner() {
@@ -527,6 +598,11 @@ function PlayPageInner() {
     async function bootEngine() {
       const boot = bootRef.current;
       if (!boot) return;
+
+      // Main-thread stall instrumentation runs from boot start to engine
+      // start (long tasks >50ms are counted; one summary line logs right
+      // before go.run). StrictMode double-mount just resets the counters.
+      bootTimingStart();
 
       // Online (net=1) fights return to the lobby — there is no website
       // select session to go back to mid-flow. Computed here because the
@@ -1177,15 +1253,18 @@ function PlayPageInner() {
           // once is free; the injection loops below stay strictly SERIAL —
           // one file materialized at a time (phone-memory rule).
           log('Loading characters from cache...');
+          bootPhase('records:start');
           const [p1Files, p2Files, stageFiles] = await Promise.all([
             isBundledChar(effP1) ? Promise.resolve(null) : getCachedCharacterFiles(effP1),
             isBundledChar(effP2) ? Promise.resolve(null) : getCachedCharacterFiles(effP2),
             isBundledStage(effStage) ? Promise.resolve(null) : getCachedStageFiles(effStage),
           ]);
+          bootPhase('records:ready');
           if (cancelled) return;
 
           // P1: inject from the in-hand record, fallback to download
           if (!isBundledChar(effP1)) {
+            bootPhase('p1:start');
             if (p1Files && await injectCharacterFiles(effP1, p1Files)) {
               log(`P1 loaded from cache: ${effP1}`);
               p1Path = splitCharRef(effP1).id;
@@ -1210,10 +1289,12 @@ function PlayPageInner() {
                 if (netMode) throw new Error(`Character "${effP1}" is not in the assets manifest - it cannot be loaded for this online match. Both players must pick a fighter that exists in the roster.`);
               }
             }
+            bootPhase('p1:ready');
           }
 
           // P2: inject from the in-hand record, fallback to download
           if (!isBundledChar(effP2)) {
+            bootPhase('p2:start');
             if (p2Files && await injectCharacterFiles(effP2, p2Files)) {
               log(`P2 loaded from cache: ${effP2}`);
               p2Path = splitCharRef(effP2).id;
@@ -1233,6 +1314,7 @@ function PlayPageInner() {
                 if (netMode) throw new Error(`Character "${effP2}" is not in the assets manifest - it cannot be loaded for this online match. Both players must pick a fighter that exists in the roster.`);
               }
             }
+            bootPhase('p2:ready');
           }
 
           // Stage: inject from the in-hand record, fallback to download.
@@ -1240,6 +1322,7 @@ function PlayPageInner() {
           // resolved from the record's own file list — same rule
           // getStageDefPath applies); only the miss path fetches it.
           if (!isBundledStage(effStage)) {
+            bootPhase('stage:start');
             if (stageFiles && await injectStageFiles(effStage, stageFiles)) {
               log(`Stage loaded from cache: ${effStage}`);
               const defFile = Object.keys(stageFiles).find(f => f.endsWith('.def'));
@@ -1265,6 +1348,7 @@ function PlayPageInner() {
                 throw new Error(`Stage "${effStage}" is not in the assets manifest. Pick a stage from the stage list.`);
               }
             }
+            bootPhase('stage:ready');
           }
         }
 
@@ -1339,6 +1423,15 @@ function PlayPageInner() {
         document.addEventListener('click', clickHandler);
 
         // --- 11. Run the engine ---
+        // Paint first, measure, THEN hand the thread to the engine: go.run()
+        // is one long main-thread block (Go wasm is single-threaded here), so
+        // without this yield the last boot-log lines ("Engine starting...")
+        // would only render after the first engine frame. The summary line
+        // also closes the long-task observation window here — everything
+        // after this point is the engine's own boot, not the JS pipeline.
+        log(bootTimingSummary());
+        try { bootTiming?.observer?.disconnect(); } catch { /* advisory */ }
+        await new Promise((r) => setTimeout(r, 0));
         setEngineRunning(true);
         scheduleVfsPrefetch();
         // Mark fight start time for Time Attack duration tracking.
@@ -1796,14 +1889,30 @@ async function instantiateEngineWasm(
   stamp: string,
   log: (s: string) => void,
 ) {
+  bootPhase('wasm:start');
   const qs = stamp ? '?v=' + encodeURIComponent(stamp) : '';
   if (typeof DecompressionStream === 'function' && stamp) {
     try {
       const res = await fetchFn('/game/engine.wasm.gz' + qs, { cache: 'default' });
       if (res.ok && res.body) {
-        const wasmStream = res.body.pipeThrough(new DecompressionStream('gzip'));
+        // Worker gunzip first (off the main thread — cold-boot pile-up).
+        // null = declined (kill-switch / unsupported, body untouched) ->
+        // identical inline path as before. A worker failure AFTER the body
+        // transferred leaves nothing to inline-decompress: catch maps it to
+        // null and the pipeThrough below throws on the consumed body, which
+        // the outer catch routes to the raw-wasm path (rare; same contract
+        // as the corrupt-.gz fallback).
+        let s: ReadableStream<Uint8Array> | null = null;
+        try {
+          s = await engineGzipDecode(res.body, 'wasm');
+        } catch (e) {
+          log('Worker gunzip failed (' + (e instanceof Error ? e.message : String(e)) + '), using raw wasm.');
+        }
+        const wasmStream = s ?? res.body.pipeThrough(new DecompressionStream('gzip'));
         const wasmRes = new Response(wasmStream, { headers: { 'Content-Type': 'application/wasm' } });
-        return await WebAssembly.instantiateStreaming(wasmRes, go.importObject as any);
+        const out = await WebAssembly.instantiateStreaming(wasmRes, go.importObject as any);
+        bootPhase('wasm:ready');
+        return out;
       }
       log('Compressed wasm unavailable (HTTP ' + res.status + '), falling back to raw.');
     } catch (e) {
@@ -1812,11 +1921,15 @@ async function instantiateEngineWasm(
   }
   const res = await fetchFn('/game/engine.wasm' + qs, { cache: 'no-cache' });
   try {
-    return await WebAssembly.instantiateStreaming(res.clone(), go.importObject as any);
+    const out = await WebAssembly.instantiateStreaming(res.clone(), go.importObject as any);
+    bootPhase('wasm:ready');
+    return out;
   } catch {
     log('Streaming compile failed, buffering...');
     const bytes = await res.arrayBuffer();
-    return WebAssembly.instantiate(bytes, go.importObject as any);
+    const out = await WebAssembly.instantiate(bytes, go.importObject as any);
+    bootPhase('wasm:ready');
+    return out;
   }
 }
 
