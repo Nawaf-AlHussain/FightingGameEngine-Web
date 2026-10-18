@@ -1804,10 +1804,11 @@ html.phone-landscape body.fighting {
   color: var(--paper);
   text-shadow: 3px 3px 0 rgba(16, 16, 24, 0.75);
 }
-/* Stage thumbnails: <stage>.png next to the stage .def in the Assets repo,
-   served via the CDN proxy. Fades in over the letter tile once loaded; a
-   missing thumbnail (404) keeps the letter tile underneath. In the preview
-   panel the halftone-dot overlay prints over the photo (comic texture). */
+/* Stage thumbnails: stages/thumbs/<stage>.jpg in the Assets repo (512x288
+   JPEG, ~30-50 KB each), served via the CDN proxy. Fades in over the letter
+   tile once loaded; a missing thumbnail (404) keeps the letter tile
+   underneath. In the preview panel the halftone-dot overlay prints over
+   the photo (comic texture). */
 .ss__card-portrait img,
 .ss__preview-portrait img {
   position: absolute;

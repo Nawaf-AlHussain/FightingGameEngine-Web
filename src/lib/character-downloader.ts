@@ -114,24 +114,24 @@ export function portraitUrl(char: { portrait?: string } | undefined | null): str
 }
 
 /**
- * Browser URL for a stage's thumbnail PNG, served through the same CDN
- * proxy as game files. Convention: the thumbnail is <stage>.png sitting
- * NEXT TO the stage .def in the Assets repo ("stages/DU_Campus.png" for
- * "stages/DU_Campus.def"), so when the manifest carries no explicit
- * `thumb` field we derive the path from the .def basename + the repo
- * folder encoded in cdnBase (".../Assets@main/stages/"). Stages without
- * a .def (or a manifest without cdnBase) get no URL — the UI then keeps
- * the letter tile.
+ * Browser URL for a stage's thumbnail, served through the same CDN proxy
+ * as game files. Convention: the thumbnail is a 512x288 JPEG at
+ * "stages/thumbs/<stage>.jpg" in the Assets repo (regeneratable from the
+ * full-res renders via scripts/gen-stage-thumbs.py). The full-res
+ * "<stage>.png" renders that used to sit next to the .def are 2-3 MB each
+ * — never fetch them for the grid (9 stages ≈ 23 MB for images displayed
+ * at ~200x96 CSS px). When the manifest carries an explicit `thumb` field
+ * it wins; stages without a thumbs/<base>.jpg keep the letter tile.
  */
 export function stageThumbUrl(stage: StageInfo | undefined | null): string | undefined {
   if (!stage) return undefined;
   if (stage.thumb) return `${CDN_PROXY_BASE}${stage.thumb}`;
   const def = stage.files.find(f => f.toLowerCase().endsWith('.def'));
   if (!def) return undefined;
-  const base = def.slice(def.lastIndexOf('/') + 1).replace(/\.def$/i, '.png');
+  const base = def.slice(def.lastIndexOf('/') + 1).replace(/\.def$/i, '');
   const m = stage.cdnBase.match(/Assets@main\/(.+)$/);
   const dir = m ? m[1] : 'stages/';
-  return `${CDN_PROXY_BASE}${dir}${base}`;
+  return `${CDN_PROXY_BASE}${dir}thumbs/${base}.jpg`;
 }
 
 export interface StageInfo {
@@ -143,9 +143,9 @@ export interface StageInfo {
   bundled: boolean;
   cdnBase: string;
   files: string[];
-  /** Repo-root-relative path of a hand-made thumbnail PNG
-   *  ("stages/DU_Campus.png"). Optional — the UI falls back to a derived
-   *  <def-basename>.png URL next to the stage .def, then to a letter tile. */
+  /** Repo-root-relative path of a hand-made thumbnail
+   *  ("stages/thumbs/DU_Campus.jpg"). Optional — the UI falls back to a
+   *  derived thumbs/<def-basename>.jpg URL, then to a letter tile. */
   thumb?: string;
 }
 

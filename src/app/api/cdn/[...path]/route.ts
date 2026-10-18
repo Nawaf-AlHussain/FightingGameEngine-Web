@@ -67,7 +67,8 @@ const contentTypes: Record<string, string> = {
   ogg: 'audio/ogg', wav: 'audio/wav', mp3: 'audio/mpeg',
   ttf: 'font/ttf', otf: 'font/otf', st: 'text/plain',
   dat: 'application/octet-stream', txt: 'text/plain',
-  png: 'image/png',
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+  webp: 'image/webp', gif: 'image/gif',
 };
 
 const CACHEABLE = 'public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800';

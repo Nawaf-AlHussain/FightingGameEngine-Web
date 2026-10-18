@@ -27,9 +27,9 @@ interface LocalStage {
   description: string;
   sizeMB: number;
   bundled: boolean;
-  /** CDN-proxy URL of the stage thumbnail PNG (<stage>.png next to the
-   *  .def in the Assets repo), or undefined when it can't be derived —
-   *  the card then keeps its letter tile. */
+  /** CDN-proxy URL of the stage thumbnail (512x288 JPEG at
+   *  stages/thumbs/<stage>.jpg in the Assets repo), or undefined when it
+   *  can't be derived — the card then keeps its letter tile. */
   thumb?: string;
 }
 
@@ -755,7 +755,7 @@ export default function StageSelect({
 
 /** Stage thumbnail with fade-in on load (CSS shows it once .loaded is set;
  *  the letter tile underneath stays visible until then — and forever when
- *  no <stage>.png exists in the Assets repo yet).
+ *  no thumbs/<stage>.jpg exists in the Assets repo yet).
  *  ONE silent retry on error: opening the grid fires one /api/cdn request
  *  per stage at once, and while the edge cache is still cold a few could
  *  come back 429/503 (upstream throttling). A single delayed re-request
