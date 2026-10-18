@@ -3889,3 +3889,75 @@ body.fighting {
   .lobby__deck { padding: 0 14px; }
   .lobby__deck-side--right { display: none; }
 }
+
+/* ========================================
+   BOOT STATS HUD (real-phone verification)
+   Enabled via ?bootstats=1 (persisted until ?bootstats=0). Top-left pill
+   with the engine-pipeline total; tap expands the phase table + COPY.
+   Verification tooling only — never rendered for normal players.
+   ======================================== */
+.bootstats {
+  position: fixed;
+  top: calc(12px + env(safe-area-inset-top, 0px));
+  left: calc(12px + env(safe-area-inset-left, 0px));
+  z-index: 60;
+}
+.bootstats__pill {
+  appearance: none;
+  border: 2px solid var(--black);
+  background: var(--white);
+  color: var(--black);
+  font-family: var(--font-poster);
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  padding: 5px 11px 3px;
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.65);
+  cursor: pointer;
+}
+.bootstats__panel {
+  margin-top: 6px;
+  background: var(--white);
+  border: 2px solid var(--black);
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.65);
+  padding: 8px 10px;
+  width: max-content;
+  max-width: min(78vw, 300px);
+}
+.bootstats__rows {
+  margin: 0;
+  font-family: ui-monospace, 'Courier New', monospace;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--black);
+  white-space: pre;
+}
+.bootstats__btnrow {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.bootstats__btn {
+  appearance: none;
+  border: 2px solid var(--black);
+  background: var(--cyan);
+  color: var(--white);
+  font-family: var(--font-poster);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  padding: 4px 10px 2px;
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.65);
+  cursor: pointer;
+}
+.bootstats__btn--x {
+  background: var(--white);
+  color: var(--red);
+  padding-inline: 7px;
+}
+/* Same notch offset treatment as the touch exit button */
+@supports (padding: env(safe-area-inset-top)) {
+  .bootstats {
+    top: calc(12px + env(safe-area-inset-top));
+    left: calc(12px + env(safe-area-inset-left));
+  }
+}

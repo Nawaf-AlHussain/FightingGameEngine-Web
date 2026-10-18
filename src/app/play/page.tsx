@@ -21,7 +21,7 @@ import RotateOverlay from '@/components/RotateOverlay';
 import { ErrorState, GameButton } from '@/components/ui';
 import { readFightResult, clearFightResult, processFightResult, getCurrentModeState, markFightStart } from '@/lib/game-modes';
 import { getDisplayModeMarker } from '@/lib/engine-config';
-import { engineGzipDecode } from '@/lib/boot-decompress';
+import { engineGzipDecode, bootGzStats } from '@/lib/boot-decompress';
 import CharacterSelect from '@/components/CharacterSelect';
 import StageSelect from '@/components/StageSelect';
 
@@ -237,6 +237,27 @@ if (typeof window !== 'undefined') {
     (stream: ReadableStream<Uint8Array>, label: string) => engineGzipDecode(stream, label);
 }
 
+// ---- Real-phone verification switches (no desktop tooling needed) --------
+// Query params are read once at module eval — BEFORE any boot work — and
+// persisted, so a warm-boot reload or later navigation keeps the setup:
+//   ?bootworker=off  pin the old inline gunzip path (A/B baseline)
+//   ?bootworker=on   clear the pin (off-thread worker path again)
+//   ?bootstats=1     show the boot-stats HUD after boot (top-left pill)
+//   ?bootstats=0     hide it again
+// 'fg-boot-worker' is boot-decompress.ts's kill-switch key; 'fg-boot-stats'
+// only gates the HUD. Both stick until explicitly flipped via the param.
+if (typeof window !== 'undefined') {
+  try {
+    const q = new URLSearchParams(window.location.search);
+    const bw = q.get('bootworker');
+    if (bw === 'off') localStorage.setItem('fg-boot-worker', 'off');
+    else if (bw === 'on') localStorage.removeItem('fg-boot-worker');
+    const bs = q.get('bootstats');
+    if (bs === '1') localStorage.setItem('fg-boot-stats', '1');
+    else if (bs === '0') localStorage.removeItem('fg-boot-stats');
+  } catch { /* storage blocked — HUD and switches just stay default */ }
+}
+
 // ---- Boot timing beacons (cold-boot pile-up instrumentation) -------------
 // Marks land at the phase boundaries below (wasm compile, pak decode, P1/
 // P2/stage injection, engine start); a long-task observer counts main-thread
@@ -272,7 +293,18 @@ function bootPhase(name: string): void {
   try { performance.mark('boot:' + name); } catch { /* advisory */ }
 }
 
-function bootTimingSummary(): string {
+// Structured summary — `text` is the same greppable '[boot-timing]' line as
+// before; the numeric fields feed the boot-stats HUD (?bootstats=1) so the
+// numbers can be read and copied on the phone itself.
+interface BootStats {
+  boot: number;  // engine pipeline total (bootTimingStart -> summary)
+  pre: number;   // navigation start -> bootTimingStart (bundle + hydration)
+  wasm: number; pak: number; records: number; p1: number; p2: number; stage: number;
+  ltN: number; ltTotal: number; ltMax: number;
+  text: string;
+}
+
+function bootTimingSummary(): BootStats {
   const dur = (startMark: string, endMark: string): number => {
     try {
       performance.measure(startMark + '→' + endMark, startMark, endMark);
@@ -282,18 +314,109 @@ function bootTimingSummary(): string {
       return -1;
     }
   };
-  const parts = [
-    'wasm=' + dur('boot:wasm:start', 'boot:wasm:ready') + 'ms',
-    'pak=' + dur('boot:pak:start', 'boot:pak:ready') + 'ms',
-    'records=' + dur('boot:records:start', 'boot:records:ready') + 'ms',
-    'p1=' + dur('boot:p1:start', 'boot:p1:ready') + 'ms',
-    'p2=' + dur('boot:p2:start', 'boot:p2:ready') + 'ms',
-    'stage=' + dur('boot:stage:start', 'boot:stage:ready') + 'ms',
-  ];
-  const lt = bootTiming?.longTasks;
+  const wasm = dur('boot:wasm:start', 'boot:wasm:ready');
+  const pak = dur('boot:pak:start', 'boot:pak:ready');
+  const records = dur('boot:records:start', 'boot:records:ready');
+  const p1 = dur('boot:p1:start', 'boot:p1:ready');
+  const p2 = dur('boot:p2:start', 'boot:p2:ready');
+  const stage = dur('boot:stage:start', 'boot:stage:ready');
+  const lt = bootTiming?.longTasks ?? { n: 0, total: 0, max: 0 };
+  // performance.now() counts from navigation start, so the captured t0 IS
+  // the pre-boot cost (bundle download + hydration before bootEngine ran).
   const bootMs = bootTiming ? Math.round(performance.now() - bootTiming.t0) : -1;
-  const ltPart = lt ? ` | longtasks=${lt.n} total=${Math.round(lt.total)}ms max=${Math.round(lt.max)}ms` : '';
-  return `[boot-timing] boot=${bootMs}ms ${parts.join(' ')}${ltPart}`;
+  const preMs = bootTiming ? Math.round(bootTiming.t0) : -1;
+  const ltPart = ` | longtasks=${lt.n} total=${Math.round(lt.total)}ms max=${Math.round(lt.max)}ms`;
+  const text = `[boot-timing] boot=${bootMs}ms pre=${preMs}ms wasm=${wasm}ms pak=${pak}ms records=${records}ms p1=${p1}ms p2=${p2}ms stage=${stage}ms${ltPart}`;
+  return {
+    boot: bootMs, pre: preMs, wasm, pak, records, p1, p2, stage,
+    ltN: lt.n, ltTotal: Math.round(lt.total), ltMax: Math.round(lt.max), text,
+  };
+}
+
+// ---- Boot-stats HUD (real-phone verification readout) ---------------------
+// Small top-left pill with the pipeline total; tap expands the phase table
+// plus COPY, which puts the '[boot-timing]' line + device tags on the
+// clipboard for pasting straight into a chat report. Mounted only when the
+// persisted fg-boot-stats flag is on (set via ?bootstats=1) — normal players
+// never see it, and it carries zero gameplay behavior.
+function BootStatsHud({ stats }: { stats: BootStats }) {
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const gz = bootGzStats();
+
+  const copy = async (): Promise<void> => {
+    const nav = navigator as unknown as { deviceMemory?: number };
+    const dev = `${nav.deviceMemory ?? '?'}GB/${navigator.hardwareConcurrency || '?'}c`;
+    const text = [
+      stats.text,
+      `pre=${stats.pre}ms gz=worker×${gz.worker}+inline×${gz.inline} dev=${dev}`,
+      'ua=' + navigator.userAgent,
+    ].join('\n');
+    let ok = false;
+    try {
+      await navigator.clipboard.writeText(text);
+      ok = true;
+    } catch { /* denied (e.g. unfocused tab) — legacy path below */ }
+    if (!ok) {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      } catch { /* give up — numbers remain readable in the panel */ }
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1600);
+  };
+
+  const row = (label: string, ms: number): string =>
+    label.padEnd(8) + (ms < 0 ? 'n/a' : ms + 'ms');
+
+  return (
+    <div className="bootstats">
+      <button
+        type="button"
+        className="bootstats__pill"
+        onClick={() => setOpen(o => !o)}
+        aria-label="Toggle boot stats"
+      >
+        BOOT {stats.boot >= 0 ? (stats.boot / 1000).toFixed(2) + 's' : '?'}
+      </button>
+      {open && (
+        <div className="bootstats__panel">
+          <pre className="bootstats__rows">
+{row('boot', stats.boot) + '\n' +
+  row('pre', stats.pre) + '\n' +
+  row('wasm', stats.wasm) + '\n' +
+  row('pak', stats.pak) + '\n' +
+  row('records', stats.records) + '\n' +
+  row('p1', stats.p1) + '\n' +
+  row('p2', stats.p2) + '\n' +
+  row('stage', stats.stage) + '\n' +
+  `longtask ${stats.ltN}× ${stats.ltTotal}ms max=${stats.ltMax}ms\n` +
+  `gz       worker×${gz.worker} inline×${gz.inline}`}
+          </pre>
+          <div className="bootstats__btnrow">
+            <button type="button" className="bootstats__btn" onClick={copy}>
+              {copied ? 'COPIED' : 'COPY'}
+            </button>
+            <button
+              type="button"
+              className="bootstats__btn bootstats__btn--x"
+              onClick={() => setOpen(false)}
+              aria-label="Close boot stats"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function PlayPageInner() {
@@ -310,6 +433,15 @@ function PlayPageInner() {
   // The hidden boot log's tail is embedded in the error's "Technical
   // Details" (see bootDetails in bootEngine).
   const [bootError, setBootError] = useState<string | null>(null);
+
+  // Boot-stats HUD (?bootstats=1 — real-phone verification readout). The
+  // payload arrives from bootEngine right before the engine starts; the
+  // visibility flag is read post-mount because localStorage is client-only.
+  const [bootStats, setBootStats] = useState<BootStats | null>(null);
+  const [bootStatsOn, setBootStatsOn] = useState(false);
+  useEffect(() => {
+    try { setBootStatsOn(localStorage.getItem('fg-boot-stats') === '1'); } catch { /* private */ }
+  }, []);
 
   // ---- Online (net=1) flow state ----
   // bootEngine() runs the preboot (game data + netplay bridge), then parks
@@ -1429,7 +1561,9 @@ function PlayPageInner() {
         // would only render after the first engine frame. The summary line
         // also closes the long-task observation window here — everything
         // after this point is the engine's own boot, not the JS pipeline.
-        log(bootTimingSummary());
+        const bootSummary = bootTimingSummary();
+        log(bootSummary.text);
+        setBootStats(bootSummary); // HUD readout (?bootstats=1)
         try { bootTiming?.observer?.disconnect(); } catch { /* advisory */ }
         await new Promise((r) => setTimeout(r, 0));
         setEngineRunning(true);
@@ -1826,6 +1960,12 @@ function PlayPageInner() {
           ✕
         </button>
       )}
+
+      {/* Boot-stats HUD — real-phone verification readout (?bootstats=1).
+          Top-left (the touch exit ✕ owns top-right). Tapping it also
+          re-focuses the engine canvas via the document click handler, so it
+          cannot steal input from the game. */}
+      {bootStatsOn && bootStats && <BootStatsHud stats={bootStats} />}
 
       {/* Touch controls are loaded via vanilla JS (public/game/touch.js)
           in the useEffect above. No React component needed — the script

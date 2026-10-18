@@ -35,6 +35,19 @@ let workerDead = false;
 let seq = 0;
 const pending = new Map<number, Pending>();
 let transferSupported: boolean | null = null; // null = not probed yet
+// Session counters for the boot-stats HUD (real-phone verification): a null
+// return here is the caller's signal to use its inline DecompressionStream
+// path, so counting at the return sites is an honest worker-vs-inline tally.
+let workerSuccesses = 0;
+let inlineFallbacks = 0;
+
+/** How many .gz streams went through the worker vs the inline fallback this
+ *  session. Rendered in the boot-stats HUD so a phone screenshot proves
+ *  which path actually ran (the kill-switch flag alone can lie if the
+ *  worker silently fell back). */
+export function bootGzStats(): { worker: number; inline: number } {
+  return { worker: workerSuccesses, inline: inlineFallbacks };
+}
 
 function killSwitched(): boolean {
   try {
@@ -111,15 +124,16 @@ export async function engineGzipDecode(
   stream: ReadableStream<Uint8Array>,
   label: string,
 ): Promise<ReadableStream<Uint8Array> | null> {
-  if (killSwitched()) return null;
-  if (typeof Worker !== 'function') return null;
-  if (!probeTransferSupport()) return null;
+  if (killSwitched()) { inlineFallbacks++; return null; }
+  if (typeof Worker !== 'function') { inlineFallbacks++; return null; }
+  if (!probeTransferSupport()) { inlineFallbacks++; return null; }
 
   let w: Worker;
   try {
     w = await ensureWorker();
   } catch {
     dropWorker();
+    inlineFallbacks++;
     return null;
   }
 
@@ -131,6 +145,7 @@ export async function engineGzipDecode(
         w.postMessage({ id, op: 'gunzip', stream }, [stream]);
       },
     );
+    if (reply.stream) workerSuccesses++;
     return reply.stream ?? null;
   } catch (e) {
     pending.delete(id);
