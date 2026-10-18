@@ -11,6 +11,7 @@ import {
   downloadStageToCache,
   getCachedStageIds,
   getStages,
+  isStageAvailable,
   isStageCached,
   stageThumbUrl,
   type StageInfo,
@@ -118,13 +119,32 @@ export default function StageSelect({
     setLoading(true);
     setError(null);
     getStages()
-      .then((cdnStages: StageInfo[]) => {
+      .then(async (cdnStages: StageInfo[]) => {
         if (cancelled) return;
+        // ---- CDN availability probe (stress-test find) ----
+        // The upstream Assets manifest has drifted from the repo's stages/
+        // folder before (7 of its 10 entries pointed at files that no longer
+        // exist) and picking such a stage hard-failed at fight boot with
+        // "Failed to download 2/2 file(s)". Probe each stage's files with
+        // 1-byte ranged requests and drop the entries the CDN definitively
+        // 404s. Probe FAILURES (network flake, throttle) keep the stage —
+        // only an unambiguous 404 removes it. Re-probed on every RETRY so
+        // the button can recover after upstream heals.
+        const available = await Promise.all(cdnStages.map(s => isStageAvailable(s)));
+        if (cancelled) return;
+        const kept = cdnStages.filter((_, i) => available[i]);
+        if (kept.length !== cdnStages.length) {
+          const dropped = cdnStages
+            .filter((_, i) => !available[i])
+            .map(s => s.id)
+            .join(', ');
+          console.warn(`[select] manifest stages missing on the CDN (hidden from the list): ${dropped}`);
+        }
         const infoMap: Record<string, StageInfo> = {};
-        for (const s of cdnStages) infoMap[s.id] = s;
+        for (const s of kept) infoMap[s.id] = s;
         setStageInfos(infoMap);
         const merged: LocalStage[] = [
-          ...cdnStages.map(s => ({
+          ...kept.map(s => ({
             id: s.id,
             displayName: s.displayName,
             description: s.description || `By ${s.author}`,
@@ -143,6 +163,9 @@ export default function StageSelect({
         } catch {
           // storage unavailable — default to the first stage
         }
+        // The cursor may have been moved while probes were in flight —
+        // clamp it into the (possibly shrunken) list.
+        setSelectedIndex(i => (merged.length ? Math.min(i, merged.length - 1) : 0));
         setLoading(false);
       })
       .catch((err: unknown) => {

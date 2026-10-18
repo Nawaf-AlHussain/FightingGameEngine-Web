@@ -149,6 +149,32 @@ export interface StageInfo {
   thumb?: string;
 }
 
+/**
+ * Definitive existence check for one stage .def on the CDN (stress-test
+ * find). Returns false ONLY when the upstream answered 404 — the file is
+ * really gone; network failures / throttling / any other status return true
+ * so a flaky connection can never blank out stages that actually exist.
+ *
+ * Used by StageSelect to prune manifest entries whose files no longer exist
+ * upstream (the Assets manifest has drifted from the stages/ folder before —
+ * 7 of its 10 entries once 404'd at fight boot). Only the .def is probed:
+ * it is the stage's keystone file (~1.5 KB, so the plain GET is negligible —
+ * the proxy route does not forward Range, by design) and it always
+ * disappears together with the rest of the stage.
+ */
+export async function isStageAvailable(info: StageInfo): Promise<boolean> {
+  const def = info.files.find(f => f.toLowerCase().endsWith('.def')) || info.files[0];
+  if (!def) return true;
+  try {
+    const res = await fetch(`${CDN_PROXY_BASE}stages/${encodeURIComponent(def)}`);
+    try { await res.body?.cancel(); } catch { /* already consumed/closed */ }
+    if (res.status === 404) return false;
+    return true;
+  } catch {
+    return true; // network error ≠ missing file — fail open
+  }
+}
+
 interface AssetsManifest {
   version: number;
   sources?: RosterSource[];

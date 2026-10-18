@@ -114,7 +114,18 @@ export async function GET(
     try {
       // 15s cap: a stalled upstream (throttling, edge hang) must fail over
       // fast — a character download waits on this before the fight can start.
-      res = await fetch(upstream.url, { signal: AbortSignal.timeout(15_000) });
+      //
+      // Accept-Encoding: identity (stress-test find) — undici's default
+      // "accept-encoding: gzip" made the declared Content-Length LIE SMALL
+      // (compressed wire size) while res.body arrived decompressed, so the
+      // size pre-check below misrouted big files into the buffered path
+      // (a 20 MB .sff gzips under the 12 MB limit and eats a full 20 MB
+      // buffer) and every honesty assumption here degraded. Identity keeps
+      // the declared length equal to the true body size.
+      res = await fetch(upstream.url, {
+        signal: AbortSignal.timeout(15_000),
+        headers: { 'Accept-Encoding': 'identity' },
+      });
     } catch {
       continue; // network error / timeout — try the next upstream
     }
