@@ -7,9 +7,9 @@ import CharacterSelect, {
 } from '@/components/CharacterSelect';
 import StageSelect from '@/components/StageSelect';
 import RotateOverlay from '@/components/RotateOverlay';
+import FullscreenToggle from '@/components/FullscreenToggle';
 import { useWipeNavigation } from '@/components/WipeTransition';
 import { useIsTouchDevice } from '@/lib/use-touch-device';
-import { loadConfig, applyDisplayModeChoice, getDisplayModeMarker, type DisplayModeChoice, saveConfig } from '@/lib/engine-config';
 import { startMode, type ProgressionMode } from '@/lib/game-modes';
 import { getCharacters, charRef, splitCharRef, DEFAULT_SOURCE } from '@/lib/character-downloader';
 import { prewarmEngineAssets } from '@/lib/engine-prewarm';
@@ -27,9 +27,6 @@ if (typeof window !== 'undefined') {
 // ---------------------------------------------------------------------------
 
 type Screen = 'select' | 'stage-select';
-
-/** The /local RES quick-set mirrors the Settings Display Mode choices. */
-type Aspect = Extract<DisplayModeChoice, '4:3' | '16:9-720p'>;
 
 interface LockInResult {
   p1Id: string;
@@ -53,10 +50,17 @@ const DIFFICULTY_TO_AI: Record<Difficulty, number> = {
 };
 
 // ---------------------------------------------------------------------------
-// Resolution toggle: maps the RES quick-set to the display-mode presets.
-// These are written to localStorage config.ini (the authoritative source)
-// via applyDisplayModeChoice, NOT passed as URL params. vfs.js picks them
-// up via restorePersisted() on next boot.
+// NOTE: no resolution quick-set here anymore. The old RES 4:3/16:9 chips
+// (a Settings-UI duplicate pinned over the roster) are gone — display mode
+// is chosen in Settings → Display Mode, persisted to config.ini, and
+// vfs.js applies it on engine boot. The top-right slot now holds the
+// fullscreen toggle (components/FullscreenToggle.tsx).
+//
+// History: an earlier build defaulted the chips to 4:3 and auto-persisted
+// that preset on first visit, silently making 4:3 the default for every
+// fresh visitor (4:3 is a broken mode pending a redo). The pre-v2 markers
+// that effect wrote were invalidated by the marker key bump to
+// 'engine-display-mode-v2' — see engine-config.ts.
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
@@ -69,50 +73,6 @@ export default function LocalPlayPage() {
 
   const [screen, setScreen] = useState<Screen>('select');
   const [lockIn, setLockIn] = useState<LockInResult | null>(null);
-  const [aspect, setAspect] = useState<Aspect>(() =>
-    getDisplayModeMarker() === '4:3' ? '4:3' : '16:9-720p'
-  );
-
-  // ---- Default is 16:9 — nothing is written on mount ----
-  // The shipped engine config is 1280x720 (16:9) and the RES chips show
-  // 16:9 as active until the player taps one, so UI and engine agree with
-  // zero writes. (An earlier build did the opposite: the chips defaulted
-  // to 4:3 and a first-visit effect persisted that preset to "make the UI
-  // truthful" — which silently made 4:3 the default for every fresh
-  // visitor. 4:3 is a broken mode pending a redo, so both the auto-write
-  // and the reversed chip default are gone; the pre-v2 markers that effect
-  // wrote were invalidated by the marker key bump to
-  // 'engine-display-mode-v2' — see engine-config.ts.) Tapping a chip
-  // still persists the choice explicitly; explicit choices always win.
-  // NOTE: the old FILL/16:9 display toggle was removed (Frontend 2.1 spec
-  // Section 26: "Do not expose controls that appear functional but have no
-  // runtime effect"). The /play canvas fitter displays the canvas contain-
-  // fitted at its intrinsic aspect for every display mode (the 4:3 mode
-  // renders at a genuine 4:3 canvas, so no mode-specific presentation).
-
-  // ---- When the RES toggle changes, write it to the authoritative config ----
-  // This makes the /local RES toggle a "quick set" shortcut that writes to
-  // the same localStorage config the Settings UI writes to. No separate
-  // URL param — Settings UI is the single source of truth.
-  //
-  // applyDisplayModeChoice writes GameWidth/GameHeight, the FightAspect
-  // pair, KeepAspect, the stage-zoom keys and the display-mode marker in
-  // one call (a bare resolution write is not enough — partial states
-  // letterbox or stretch). 4:3 renders a genuine 4:3 picture (960x720,
-  // FightAspect=4,3 — the engine's native 4:3): more vertical stage
-  // content, zero bars, zero distortion. 16:9 shows every stage at its
-  // native widescreen aspect.
-  //
-  // IMPORTANT: we load the config ONCE, apply the preset, then save ONCE.
-  // Calling setConfigValue twice would race (two independent load→modify→
-  // save cycles where the second save overwrites the first).
-  const handleAspectChange = useCallback(async (newAspect: Aspect) => {
-    setAspect(newAspect);
-    const cfg = await loadConfig();
-    if (!cfg) return;
-    applyDisplayModeChoice(cfg, newAspect);
-    saveConfig(cfg);
-  }, []);
 
   // ---- Character lock-in: save state, advance to stage select ----
   const handleLockIn = useCallback(
@@ -216,61 +176,15 @@ export default function LocalPlayPage() {
     setScreen('select');
   }, []);
 
-  // ---- Aspect ratio toggle (writes to localStorage, NOT URL) ----
-  const aspectButtons: { id: Aspect; label: string; hint: string }[] = [
-    { id: '4:3', label: '4:3', hint: '720p render · zoom fill, zero black bars' },
-    { id: '16:9-720p', label: '16:9', hint: '720p HD · native aspect' },
-  ];
-
   // -----------------------------------------------------------------------
   // Render
   // -----------------------------------------------------------------------
-
-  const aspectToggle = (
-    <div
-      style={{
-        position: 'fixed',
-        top: 12,
-        right: 12,
-        zIndex: 50,
-        display: 'flex',
-        gap: 6,
-        alignItems: 'center',
-        background: 'rgba(16,16,24,0.85)',
-        padding: '6px 10px',
-        clipPath: 'polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%)',
-      }}
-    >
-      <span
-        style={{
-          fontSize: '0.65rem',
-          letterSpacing: '0.15em',
-          color: 'var(--gray)',
-          fontWeight: 600,
-        }}
-      >
-        RES
-      </span>
-      {aspectButtons.map(r => (
-        <button
-          key={r.id}
-          type="button"
-          onClick={() => handleAspectChange(r.id)}
-          title={r.hint}
-          className={`cs__diff-btn${aspect === r.id ? ' cs__diff-btn--active' : ''}`}
-          style={{ cursor: 'pointer' }}
-        >
-          {r.label}
-        </button>
-      ))}
-    </div>
-  );
 
   if (screen === 'stage-select' && lockIn) {
     return (
       <div>
         {isTouch && <RotateOverlay />}
-        {aspectToggle}
+        <FullscreenToggle />
         <StageSelect
           onSelect={handleStageSelect}
           onCancel={handleCancelStage}
@@ -283,7 +197,7 @@ export default function LocalPlayPage() {
   return (
     <div>
       {isTouch && <RotateOverlay />}
-      {aspectToggle}
+      <FullscreenToggle />
       <CharacterSelect
         onLockIn={handleLockIn}
         onCancel={handleCancelSelect}

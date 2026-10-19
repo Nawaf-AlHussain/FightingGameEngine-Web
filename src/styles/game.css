@@ -2158,6 +2158,45 @@ body.fighting {
 }
 
 /* ========================================
+   FULLSCREEN TOGGLE (/local, top right)
+   ========================================
+   Replaces the old RES 4:3/16:9 quick-set chip. Same slot, same ink
+   chip chrome, one icon instead of three labels. The component hides
+   itself where the Fullscreen API is missing (iPhone Safari), so the
+   style never renders a dead control. */
+.fs-toggle {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 36px;
+  padding: 0;
+  background: rgba(16, 16, 24, 0.85);
+  color: var(--paper);
+  border: none;
+  cursor: pointer;
+  clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
+  transition: color 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.fs-toggle:hover { color: var(--crimson); }
+.fs-toggle--on,
+.fs-toggle--on:hover { color: var(--gold); }
+
+@media (orientation: landscape) and (max-height: 500px) {
+  .fs-toggle {
+    top: 6px;
+    right: 6px;
+    width: 36px;
+    height: 30px;
+  }
+}
+
+/* ========================================
    MOBILE RESPONSIVE UI
    ======================================== */
 
@@ -2172,7 +2211,7 @@ body.fighting {
 
   /* Character select */
   .cs { padding: 0.5rem 0.5rem 0; }
-  /* clear the resolution toggle pinned top-right */
+  /* clear the fullscreen toggle pinned top-right */
   .cs__title { padding-top: 34px; }
   .cs__title-hero { font-size: clamp(2.1rem, 10.5vw, 2.9rem); }
   .cs__title-pre  { font-size: 0.62rem; letter-spacing: 0.4em; }
@@ -2327,7 +2366,7 @@ body.fighting {
 
 /* ---- Mobile: ≤ 480px (small phones) ---- */
 @media (max-width: 480px) {
-  /* keep the masthead kicker clear of the resolution toggle */
+  /* keep the masthead kicker clear of the fullscreen toggle */
   .cs__title,
   .ss__title { padding-top: 46px; }
   .cs__kicker,

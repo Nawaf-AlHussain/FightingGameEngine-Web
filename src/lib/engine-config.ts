@@ -200,8 +200,8 @@ export function saveConfig(data: ConfigData): void {
  *
  * This is a convenience helper that loads the current config (from
  * localStorage or shipped default), modifies one key, and saves it
- * back. Used by the /local RES toggle to write GameWidth/GameHeight
- * to the same authoritative config that the Settings UI writes to.
+ * back. Used by the Settings UI to write GameWidth/GameHeight
+ * to the same authoritative config.
  *
  * If the config can't be loaded (network error + no localStorage),
  * this is a no-op.

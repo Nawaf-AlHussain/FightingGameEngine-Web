@@ -910,9 +910,9 @@ function PlayPageInner() {
         const training = searchParams.get('training') || '0';
         const time = searchParams.get('time') || '99';
         // NOTE: 'aspect' URL param is no longer used. The display mode is
-        // controlled by the Settings UI (or /local RES toggle) via the
-        // persisted config.ini (written by applyDisplayModeChoice). vfs.js
-        // reads the config on boot; this is the single source of truth.
+        // controlled by the Settings UI via the persisted config.ini
+        // (written by applyDisplayModeChoice). vfs.js reads the config on
+        // boot; this is the single source of truth.
         //
         // Presentation (ONE path for every display mode): the canvas is
         // displayed at its intrinsic aspect ratio, fitted to the largest
@@ -1296,13 +1296,13 @@ function PlayPageInner() {
           throw new Error('This browser cannot create a WebGL2 context, so the game engine cannot start. In Chrome: Settings > System > "Use graphics acceleration" must be ON, and chrome://gpu must list WebGL2. Update the browser or its GPU drivers, then retry.');
         }
 
-        // --- 6. Resolution is controlled by Settings UI / localStorage ---
+        // --- 6. Resolution is controlled by Settings UI ---
         // Previously, /play set a global aspect override here, and vfs.js
         // used it to overwrite GameWidth/GameHeight in config.ini. Now that
         // Settings UI is authoritative (vfs.js no longer overwrites), we
         // don't set any aspect override at all. The engine boots with whatever
         // GameWidth/GameHeight is in localStorage config.ini (set by the
-        // Settings UI or the /local RES toggle).
+        // Settings UI).
 
         // --- 7. PARALLEL LOAD: VFS (.pak) + WASM simultaneously ---
         // Both downloads start at the same time instead of sequentially.
