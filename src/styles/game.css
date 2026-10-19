@@ -809,11 +809,14 @@ html.phone-landscape body.fighting {
 }
 
 /* --- Character Select — "paper comic page" (mirrors stage select) --- */
+/* Fixed-height column: masthead/toolbar/plates/step/footer take what they
+   need, the grid owns EXACTLY the rest (no page scroll, no 76vh guess). */
 .cs {
-  min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
-  padding: 1.1rem 1.5rem 0;
+  padding: 0.5rem 1rem 0;
   position: relative;
   background: var(--paper);
   color: var(--ink);
@@ -872,10 +875,11 @@ html.phone-landscape body.fighting {
 .cs__reg--tl { top: 12px; left: 14px; }
 .cs__reg--tr { top: 12px; right: 14px; }
 
-/* Masthead — kicker + two-deck Anton headline */
+/* Masthead — kicker + two-deck Anton headline (compact: the roster is the
+   star of this page; every px shaved here feeds the grid) */
 .cs__title {
   text-align: center;
-  margin-bottom: 0.8rem;
+  margin-bottom: 0.3rem;
   z-index: 1;
   position: relative;
 }
@@ -883,8 +887,8 @@ html.phone-landscape body.fighting {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 14px;
-  font-size: 0.58rem;
+  gap: 10px;
+  font-size: 0.52rem;
   font-weight: 700;
   letter-spacing: 0.42em;
   text-indent: 0.42em;
@@ -892,7 +896,7 @@ html.phone-landscape body.fighting {
   color: var(--cyan);
 }
 .cs__kicker-rule {
-  width: 52px;
+  width: 40px;
   height: 2px;
   background: var(--crimson);
   opacity: 0.85;
@@ -902,13 +906,13 @@ html.phone-landscape body.fighting {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.1rem;
-  margin: 0.3rem 0 0.35rem;
+  gap: 0.05rem;
+  margin: 0.15rem 0 0.1rem;
 }
 .cs__title-pre {
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: clamp(0.68rem, 1.3vw, 0.88rem);
+  font-size: clamp(0.55rem, 1vw, 0.68rem);
   letter-spacing: 0.55em;
   text-indent: 0.55em;
   color: var(--ink);
@@ -918,16 +922,16 @@ html.phone-landscape body.fighting {
 }
 .cs__title-hero {
   font-family: var(--font-poster);
-  font-size: clamp(2.5rem, 5.6vw, 4.1rem);
+  font-size: clamp(1.5rem, 2.9vw, 2.2rem);
   font-weight: 400;
-  line-height: 0.92;
+  line-height: 0.95;
   letter-spacing: 0.01em;
   text-transform: uppercase;
   color: var(--royal);
   text-shadow: 0.05em -0.038em 0 var(--crimson);
 }
 .cs__title-sub {
-  font-size: 0.72rem;
+  font-size: 0.62rem;
   letter-spacing: 0.4em;
   text-indent: 0.4em;
   color: var(--cyan);
@@ -955,19 +959,30 @@ html.phone-landscape body.fighting {
   white-space: nowrap;
 }
 
+/* Toolbar — mode + difficulty + roster + search in ONE wrapping row */
+.cs__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem 0.6rem;
+  margin-bottom: 0.3rem;
+  z-index: 1;
+  position: relative;
+}
+
 /* Mode bar — skewed print chips (paper fill, crimson when active) */
 .cs__mode-bar {
   display: flex;
-  gap: 0.45rem;
+  gap: 0.35rem;
   justify-content: center;
   flex-wrap: wrap;
-  margin-bottom: 0.45rem;
   z-index: 1;
   position: relative;
 }
 .cs__mode-btn {
-  padding: 0.4rem 0.95rem;
-  font-size: 0.66rem;
+  padding: 0.28rem 0.75rem;
+  font-size: 0.62rem;
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -990,10 +1005,10 @@ html.phone-landscape body.fighting {
 /* Difficulty / roster source — segmented chips, royal when active */
 .cs__difficulty-bar {
   display: flex;
-  gap: 0.4rem;
+  gap: 0.35rem;
   align-items: center;
   justify-content: center;
-  margin-bottom: 0.4rem;
+  margin-bottom: 0;
   z-index: 1;
   position: relative;
   flex-wrap: wrap;
@@ -1031,25 +1046,13 @@ html.phone-landscape body.fighting {
 }
 .cs__diff-btn--active:hover { background: var(--royal-deep); color: var(--paper); }
 
-/* Mode description */
-.cs__mode-desc {
-  text-align: center;
-  font-size: 0.68rem;
-  color: rgba(16, 22, 64, 0.62);
-  letter-spacing: 0.06em;
-  margin-bottom: 0.5rem;
-  z-index: 1;
-  position: relative;
-  min-height: 1rem;
-}
-
-/* VS bar — poster fight-card plates */
+/* VS bar — poster fight-card plates (compact: slim art band) */
 .cs__vs-bar {
   display: flex;
   align-items: stretch;
   justify-content: center;
-  gap: 1.4rem;
-  margin-bottom: 0.65rem;
+  gap: 0.9rem;
+  margin-bottom: 0.3rem;
   z-index: 1;
   position: relative;
 }
@@ -1057,7 +1060,7 @@ html.phone-landscape body.fighting {
   position: relative;
   display: flex;
   flex-direction: column;
-  width: min(240px, 36vw);
+  width: min(210px, 30vw);
   background: var(--ink-soft);
   border: 2px solid var(--ink);
   clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
@@ -1069,7 +1072,7 @@ html.phone-landscape body.fighting {
 .cs__plate--locked.cs__plate--p2 { border-color: var(--ink); filter: drop-shadow(4px 4px 0 var(--p2-color)); }
 .cs__plate-art {
   position: relative;
-  height: 88px;
+  height: 56px;
   background: var(--royal-deep);
   overflow: hidden;
 }
@@ -1080,7 +1083,7 @@ html.phone-landscape body.fighting {
   align-items: center;
   justify-content: center;
   font-family: var(--font-poster);
-  font-size: 3rem;
+  font-size: 2rem;
   color: rgba(242, 236, 218, 0.1);
 }
 .cs__plate-img {
@@ -1112,21 +1115,21 @@ html.phone-landscape body.fighting {
   top: 50%;
   transform: translateY(-50%) rotate(-7deg);
   font-family: var(--font-poster);
-  font-size: 0.85rem;
+  font-size: 0.7rem;
   letter-spacing: 0.08em;
   background: var(--paper);
   color: var(--crimson);
   border: 2px solid var(--crimson);
-  padding: 0 7px;
-  line-height: 1.5;
+  padding: 0 6px;
+  line-height: 1.4;
   animation: stampIn 0.35s cubic-bezier(0.2, 1.4, 0.4, 1) backwards;
 }
 .cs__plate-meta {
-  padding: 0.42rem 0.6rem 0.5rem;
+  padding: 0.24rem 0.5rem 0.3rem;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 1px;
+  gap: 0;
   text-align: center;
   min-width: 0;
 }
@@ -1142,11 +1145,11 @@ html.phone-landscape body.fighting {
 .cs__plate--p2 .cs__player-tag-label { color: var(--p2-color); }
 .cs__player-tag-name {
   font-family: var(--font-poster);
-  font-size: 1.02rem;
+  font-size: 0.9rem;
   letter-spacing: 0.03em;
   color: var(--paper);
   text-transform: uppercase;
-  line-height: 1.12;
+  line-height: 1.1;
   max-width: 100%;
   white-space: nowrap;
   overflow: hidden;
@@ -1163,7 +1166,7 @@ html.phone-landscape body.fighting {
 .cs__vs {
   align-self: center;
   font-family: var(--font-poster);
-  font-size: 2.1rem;
+  font-size: 1.5rem;
   font-weight: 400;
   text-transform: uppercase;
   color: var(--ink);
@@ -1173,26 +1176,24 @@ html.phone-landscape body.fighting {
     0.11em -0.084em 0 var(--royal-deep);
 }
 
-/* Search — paper slip */
+/* Search — paper slip (inside the toolbar row) */
 .cs__search {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  margin-bottom: 0.45rem;
   z-index: 1;
-  justify-content: center;
   position: relative;
 }
 .cs__search-input {
   background: var(--paper);
   border: 2px solid var(--ink);
   color: var(--ink);
-  padding: 0.32rem 0.75rem;
-  font-size: 0.72rem;
+  padding: 0.24rem 0.6rem;
+  font-size: 0.66rem;
   font-family: var(--font-display);
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  width: 210px;
+  width: 160px;
   outline: none;
   box-shadow: 3px 3px 0 rgba(16, 16, 24, 0.9);
   transition: box-shadow 0.15s;
@@ -1237,16 +1238,16 @@ html.phone-landscape body.fighting {
   position: relative;
   z-index: 1;
   width: min(540px, 92%);
-  margin: 0 auto 0.55rem;
+  margin: 0 auto 0.25rem;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 0.55rem;
-  padding: 0.36rem 0.9rem;
+  padding: 0.22rem 0.9rem;
   background: var(--ink-soft);
   border: 1px solid var(--ink);
   clip-path: polygon(9px 0, 100% 0, calc(100% - 9px) 100%, 0 100%);
-  font-size: 0.62rem;
+  font-size: 0.58rem;
   font-weight: 700;
   letter-spacing: 0.24em;
   text-indent: 0.24em;
@@ -1267,22 +1268,31 @@ html.phone-landscape body.fighting {
 .cs__step--ready { border-color: var(--paper); color: var(--gold); }
 .cs__step--ready::before { border-left-color: var(--gold); }
 
-/* Character grid */
+/* Character grid — density first: the grid owns ALL leftover height inside
+   the fixed-height column and the column ladder shrinks the cards. */
 .cs__grid {
   display: grid;
-  grid-template-columns: repeat(10, 1fr);
-  gap: 4px;
+  grid-template-columns: repeat(13, 1fr);
+  /* max-content rows: auto rows let a height-constrained grid SQUEEZE rows
+     into the visible box (portraits collapse to slivers); max-content keeps
+     each card at its natural size and scrolls instead. */
+  grid-auto-rows: max-content;
+  gap: 3px;
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  padding: 0.35rem;
+  padding: 2px;
   z-index: 1;
   position: relative;
-  max-height: 76vh;
+  align-content: start;
+  overscroll-behavior: contain;
 }
-@media (max-width: 1400px) { .cs__grid { grid-template-columns: repeat(8, 1fr); } }
-@media (max-width: 1100px) { .cs__grid { grid-template-columns: repeat(6, 1fr); } }
-@media (max-width: 800px) { .cs__grid { grid-template-columns: repeat(4, 1fr); } }
-@media (max-width: 600px) { .cs__grid { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 1600px) { .cs__grid { grid-template-columns: repeat(12, 1fr); } }
+@media (max-width: 1400px) { .cs__grid { grid-template-columns: repeat(11, 1fr); } }
+@media (max-width: 1100px) { .cs__grid { grid-template-columns: repeat(9, 1fr); } }
+@media (max-width: 800px)  { .cs__grid { grid-template-columns: repeat(7, 1fr); } }
+@media (max-width: 600px)  { .cs__grid { grid-template-columns: repeat(5, 1fr); } }
+@media (max-width: 400px)  { .cs__grid { grid-template-columns: repeat(4, 1fr); } }
 
 .cs__card {
   display: flex;
@@ -1320,7 +1330,7 @@ html.phone-landscape body.fighting {
   align-items: center;
   justify-content: center;
   font-family: var(--font-poster);
-  font-size: 1.6rem;
+  font-size: 1.1rem;
   color: var(--paper);
 }
 .cs__card-portrait img {
@@ -1383,8 +1393,8 @@ html.phone-landscape body.fighting {
 
 /* Name strip — ink print strip under the portrait panel */
 .cs__card-info {
-  padding: 3px 4px;
-  font-size: 0.53rem;
+  padding: 2px 3px;
+  font-size: 0.5rem;
   font-weight: 600;
   letter-spacing: 0.03em;
   color: rgba(242, 236, 218, 0.88);
@@ -1401,23 +1411,40 @@ html.phone-landscape body.fighting {
   border-top: 2px solid var(--ink);
 }
 
-/* Download state strips */
+/* Download state strips — overlay chips on the portrait's bottom-right
+   (were a dedicated strip under the info row: one wasted row per card,
+   and progress cards grew 4px taller than the rest). */
 .cs__card-download {
-  font-size: 0.55rem;
-  letter-spacing: 0.1em;
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  z-index: 3;
+  max-width: calc(100% - 4px);
+  font-size: 0.5rem;
+  letter-spacing: 0.08em;
   font-weight: 700;
   text-transform: uppercase;
   text-align: center;
-  padding: 2.5px;
+  padding: 1px 4px;
+  background: rgba(16, 16, 24, 0.85);
+  border: 1px solid rgba(242, 236, 218, 0.25);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
 }
-.cs__card-download--ok { color: var(--green); font-weight: 800; }
-.cs__card-download--warn { color: #a86a08; }
-.cs__card-download--err { color: var(--crimson); background: rgba(232, 40, 60, 0.12); }
-.cs__card-download--idle { color: rgba(16, 22, 64, 0.55); }
+.cs__card-download--ok { color: #7ed88f; }
+.cs__card-download--warn { color: var(--gold); }
+.cs__card-download--err { color: #ff8f9c; background: rgba(143, 22, 38, 0.92); }
+.cs__card-download--idle { color: var(--gold); }
 .cs__card-progress {
-  height: 4px;
-  background: rgba(16, 22, 64, 0.15);
-  position: relative;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: rgba(16, 22, 64, 0.35);
+  z-index: 3;
 }
 .cs__card-progress-fill {
   height: 100%;
@@ -1434,8 +1461,8 @@ html.phone-landscape body.fighting {
   justify-content: space-between;
   align-items: center;
   gap: 1rem;
-  margin: 0.4rem -1.5rem 0;
-  padding: 0.7rem 1.5rem;
+  margin: 0.3rem -1rem 0;
+  padding: 0.4rem 1rem;
   background: var(--paper);
   border-top: 2px solid rgba(49, 67, 214, 0.35);
 }
@@ -2206,8 +2233,8 @@ body.fighting {
   .cs__player-tag-status { font-size: 0.46rem; letter-spacing: 0.18em; }
   .cs__vs { font-size: 1.3rem; }
 
-  /* Grid — tighten gaps */
-  .cs__grid { gap: 2px; max-height: 56vh; }
+  /* Grid — tighter gaps (height comes from the flex column; no max-height) */
+  .cs__grid { gap: 2px; }
   .cs__card-info { font-size: 0.5rem; padding: 1px 2px; }
   .cs__card-download { font-size: 0.5rem; padding: 1px; }
   .cs__card-cursor { font-size: 0.48rem; padding: 1px 5px; }
@@ -2307,8 +2334,8 @@ body.fighting {
   .ss__kicker { font-size: 0.44rem; letter-spacing: 0.16em; gap: 5px; }
   .cs__kicker .cs__kicker-rule,
   .ss__kicker .cs__kicker-rule { width: 14px; }
-  /* Even smaller grid: 3 columns */
-  .cs__grid { grid-template-columns: repeat(3, 1fr) !important; }
+  /* Grid columns follow the base ladder (5 cols at ≤600, 4 at ≤400) —
+     the old forced 3-col !important fought it and is gone. */
   .ss__grid { grid-template-columns: repeat(2, 1fr); }
 
   /* VS bar — make tags smaller */
@@ -2320,14 +2347,20 @@ body.fighting {
 
 /* ---- Landscape phones (short height) ---- */
 @media (max-height: 500px) and (orientation: landscape) {
-  /* Compact mode bar to save vertical space */
-  .cs__title { margin-bottom: 0.25rem; }
-  .cs__title-main { font-size: 1.5rem; }
-  .cs__title-sub { font-size: 0.6rem; }
-  .cs__mode-bar { margin-bottom: 0.15rem; }
+  /* Compact chrome — the grid must stay the biggest element on screen */
+  .cs { padding-top: 0.25rem; }
+  .cs__title { margin-bottom: 0.15rem; }
+  .cs__title-hero { font-size: 1.2rem; }
+  .cs__title-pre { font-size: 0.5rem; }
+  .cs__title-sub { display: none; }
+  .cs__toolbar { margin-bottom: 0.15rem; gap: 0.15rem 0.5rem; }
+  .cs__mode-btn, .cs__diff-btn { padding: 0.2rem 0.55rem; font-size: 0.55rem; box-shadow: 2px 2px 0 var(--ink); }
   .cs__vs-bar { margin-bottom: 0.15rem; }
-  .cs__grid { max-height: 50vh; }
-  .cs__footer { padding: 0.25rem; }
+  .cs__plate-art { height: 36px; }
+  .cs__player-tag-name { font-size: 0.72rem; }
+  .cs__vs { font-size: 1.1rem; }
+  .cs__step { margin-bottom: 0.15rem; padding: 0.15rem 0.7rem; }
+  .cs__footer { padding: 0.25rem 1rem; }
 }
 
 /* ---- Fight exit button: landscape orientation tweaks ---- */

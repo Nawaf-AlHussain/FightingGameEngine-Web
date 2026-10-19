@@ -115,7 +115,10 @@ const DIFFICULTIES: { id: Difficulty; label: string }[] = [
   { id: 'hard', label: 'Hard' },
 ];
 
-// Number of columns in the character grid (must match .cs__grid in game.css).
+// Fallback column count for keypresses before the grid has rendered (rare).
+// The CSS grid densifies per breakpoint, so the LIVE count is read from the
+// DOM at runtime — a hardcoded constant breaks up/down steps on every
+// breakpoint but one.
 const GRID_COLS = 10;
 
 // localStorage key persisting the chosen roster source across visits.
@@ -404,6 +407,8 @@ export default function CharacterSelect({
   // roster-source switch can never move it onto an invisible character.
   // Page keys jump two rows at a time for 100+ rosters.
   const filteredIndicesRef = useRef<number[]>([]);
+  // Grid element — read for the live column count (cursor row steps).
+  const gridRef = useRef<HTMLDivElement>(null);
   const moveCursor = useCallback(
     (player: 1 | 2, dir: 'up' | 'down' | 'left' | 'right' | 'home' | 'end' | 'pageup' | 'pagedown') => {
       const setter = player === 1 ? setP1 : setP2;
@@ -411,7 +416,14 @@ export default function CharacterSelect({
         if (prev.locked) return prev; // can't move while locked
         const list = filteredIndicesRef.current;
         if (list.length === 0) return prev;
-        const cols = GRID_COLS;
+        // Live column count — the CSS grid densifies per breakpoint, so the
+        // up/down step must match what is actually rendered. Reading the
+        // used 'gridTemplateColumns' track list beats duplicating every CSS
+        // breakpoint here in JS.
+        const g = gridRef.current;
+        const cols = g
+          ? Math.max(1, getComputedStyle(g).gridTemplateColumns.trim().split(/\s+/).length)
+          : GRID_COLS;
         let pos = list.indexOf(prev.index);
         if (pos === -1) return { ...prev, index: list[0] }; // filtered out — snap
         switch (dir) {
@@ -1037,67 +1049,120 @@ export default function CharacterSelect({
         )}
       </header>
 
-      {/* Mode bar (online: fixed versus — no mode/difficulty pickers) */}
-      {!online && (
-        <div className="cs__mode-bar" role="tablist" aria-label="Game mode">
-          {MODES.map(m => (
-            <button
-              key={m.id}
-              type="button"
-              role="tab"
-              aria-selected={mode === m.id}
-              className={`cs__mode-btn${mode === m.id ? ' cs__mode-btn--active' : ''}`}
-              onClick={() => setMode(m.id)}
-            >
-              {m.label}
-            </button>
-          ))}
-        </div>
-      )}
+      {/* Toolbar — mode, difficulty, roster source and search share ONE
+          wrapping row. They used to stack as four rows (~130px of chrome
+          before the grid); the mode blurb moved into button tooltips. */}
+      <div className="cs__toolbar">
+        {/* Mode bar (online: fixed versus — no mode/difficulty pickers) */}
+        {!online && (
+          <div className="cs__mode-bar" role="tablist" aria-label="Game mode">
+            {MODES.map(m => (
+              <button
+                key={m.id}
+                type="button"
+                role="tab"
+                aria-selected={mode === m.id}
+                title={m.description}
+                className={`cs__mode-btn${mode === m.id ? ' cs__mode-btn--active' : ''}`}
+                onClick={() => setMode(m.id)}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+        )}
 
-      {/* Difficulty bar (only for AI modes) */}
-      {showDifficulty && (
-        <div className="cs__difficulty-bar" aria-label="AI difficulty">
-          <span>DIFFICULTY</span>
-          {DIFFICULTIES.map(d => (
-            <button
-              key={d.id}
-              type="button"
-              className={`cs__diff-btn${difficulty === d.id ? ' cs__diff-btn--active' : ''}`}
-              onClick={() => setDifficulty(d.id)}
-            >
-              {d.label}
-            </button>
-          ))}
-        </div>
-      )}
+        {/* Difficulty (only for AI modes) */}
+        {showDifficulty && (
+          <div className="cs__difficulty-bar" aria-label="AI difficulty">
+            <span>DIFFICULTY</span>
+            {DIFFICULTIES.map(d => (
+              <button
+                key={d.id}
+                type="button"
+                className={`cs__diff-btn${difficulty === d.id ? ' cs__diff-btn--active' : ''}`}
+                onClick={() => setDifficulty(d.id)}
+              >
+                {d.label}
+              </button>
+            ))}
+          </div>
+        )}
 
-      {/* Mode description (hidden online — versus is the only mode) */}
-      {!online && (
-        <div className="cs__mode-desc">
-          {MODES.find(m => m.id === mode)?.description}
-        </div>
-      )}
+        {/* Roster source picker — which chars* folder the grid shows.
+            Hidden when the manifest only has the default source. */}
+        {!loading && !error && sources.length > 1 && (
+          <div className="cs__difficulty-bar" aria-label="Roster source">
+            <span>ROSTER</span>
+            {sources.map(s => (
+              <button
+                key={s.id}
+                type="button"
+                className={`cs__diff-btn${activeSource === s.id ? ' cs__diff-btn--active' : ''}`}
+                onClick={() => handleSourceChange(s.id)}
+                title={`Characters from the ${s.id}/ folder`}
+              >
+                {s.label.toUpperCase()}
+              </button>
+            ))}
+          </div>
+        )}
 
-      {/* Roster source picker — which chars* folder the grid shows.
-          Rendered BEFORE the character grid; hidden when the manifest only
-          has the default source (so nothing changes for classic rosters). */}
-      {!loading && !error && sources.length > 1 && (
-        <div className="cs__difficulty-bar" aria-label="Roster source">
-          <span>ROSTER</span>
-          {sources.map(s => (
+        {/* Search + view filter — "/" focuses the field from anywhere.
+            ON DEVICE narrows the grid to cached characters so you can pick
+            with zero download wait. */}
+        {!loading && !error && roster.length > 10 && (
+          <div className="cs__search">
+            <input
+              ref={searchInputRef}
+              type="text"
+              className="cs__search-input"
+              placeholder="SEARCH…"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              onKeyDown={e => {
+                // Enter leaves the field (grid keys resume); Esc clears it.
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  e.currentTarget.blur();
+                } else if (e.key === 'Escape') {
+                  e.preventDefault();
+                  setSearchQuery('');
+                  e.currentTarget.blur();
+                }
+              }}
+              title="Press / to focus — Esc clears"
+              aria-label="Search characters"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                className="cs__search-clear"
+                onClick={() => setSearchQuery('')}
+                aria-label="Clear search"
+              >
+                ✕
+              </button>
+            )}
+            <span className="cs__search-sep" aria-hidden="true" />
             <button
-              key={s.id}
               type="button"
-              className={`cs__diff-btn${activeSource === s.id ? ' cs__diff-btn--active' : ''}`}
-              onClick={() => handleSourceChange(s.id)}
-              title={`Characters from the ${s.id}/ folder`}
+              className={`cs__diff-btn${!readyOnly ? ' cs__diff-btn--active' : ''}`}
+              onClick={() => setReadyOnly(false)}
             >
-              {s.label.toUpperCase()}
+              ALL
             </button>
-          ))}
-        </div>
-      )}
+            <button
+              type="button"
+              className={`cs__diff-btn${readyOnly ? ' cs__diff-btn--active' : ''}`}
+              onClick={() => setReadyOnly(true)}
+              title="Only characters already cached on this device"
+            >
+              ON DEVICE
+            </button>
+          </div>
+        )}
+      </div>
 
       {/* VS bar: shows each player's current pick + lock status */}
       <div className="cs__vs-bar">
@@ -1118,60 +1183,7 @@ export default function CharacterSelect({
         />
       </div>
 
-      {/* Search + view filter — "/" focuses the field from anywhere.
-          ON DEVICE narrows the grid to cached characters so you can pick
-          with zero download wait. */}
-      {!loading && !error && roster.length > 10 && (
-        <div className="cs__search">
-          <input
-            ref={searchInputRef}
-            type="text"
-            className="cs__search-input"
-            placeholder="SEARCH…"
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            onKeyDown={e => {
-              // Enter leaves the field (grid keys resume); Esc clears it.
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                e.currentTarget.blur();
-              } else if (e.key === 'Escape') {
-                e.preventDefault();
-                setSearchQuery('');
-                e.currentTarget.blur();
-              }
-            }}
-            title="Press / to focus — Esc clears"
-            aria-label="Search characters"
-          />
-          {searchQuery && (
-            <button
-              type="button"
-              className="cs__search-clear"
-              onClick={() => setSearchQuery('')}
-              aria-label="Clear search"
-            >
-              ✕
-            </button>
-          )}
-          <span className="cs__search-sep" aria-hidden="true" />
-          <button
-            type="button"
-            className={`cs__diff-btn${!readyOnly ? ' cs__diff-btn--active' : ''}`}
-            onClick={() => setReadyOnly(false)}
-          >
-            ALL
-          </button>
-          <button
-            type="button"
-            className={`cs__diff-btn${readyOnly ? ' cs__diff-btn--active' : ''}`}
-            onClick={() => setReadyOnly(true)}
-            title="Only characters already cached on this device"
-          >
-            ON DEVICE
-          </button>
-        </div>
-      )}
+      {/* Search + view filter — moved into the toolbar above */}
 
       {/* Pick-step strip — whose turn it is (screen-reader announced) */}
       {!loading && !error && (
@@ -1179,7 +1191,7 @@ export default function CharacterSelect({
       )}
 
       {/* Character grid */}
-      <div className="cs__grid" role="grid" aria-label="Character roster">
+      <div className="cs__grid" ref={gridRef} role="grid" aria-label="Character roster">
         {loading && (
           <div
             style={{
@@ -1414,33 +1426,36 @@ const CharacterCard = memo(function CharacterCard({
             LOCKED
           </span>
         )}
+        {/* Download/cached status overlays ON the portrait (was a dedicated
+            strip under the info row — one wasted row per card, and progress
+            cards grew 4px taller than the rest). */}
+        {char.bundled ? (
+          <div className="cs__card-download cs__card-download--ok">BUNDLED</div>
+        ) : cached ? (
+          <div className="cs__card-download cs__card-download--ok">✓ CACHED</div>
+        ) : ds?.status === 'downloading' ? (
+          <>
+            <div className="cs__card-download cs__card-download--warn">
+              {ds.progress}%
+            </div>
+            <div className="cs__card-progress" aria-hidden="true">
+              <div
+                className="cs__card-progress-fill"
+                style={{ width: `${ds.progress}%` }}
+              />
+            </div>
+          </>
+        ) : ds?.status === 'error' ? (
+          <div className="cs__card-download cs__card-download--err">
+            ⚠ FAILED — TAP TO RETRY
+          </div>
+        ) : (
+          <div className="cs__card-download cs__card-download--idle">
+            {char.sizeMB.toFixed(1)} MB
+          </div>
+        )}
       </div>
       <div className="cs__card-info">{char.displayName}</div>
-      {char.bundled ? (
-        <div className="cs__card-download cs__card-download--ok">BUNDLED</div>
-      ) : cached ? (
-        <div className="cs__card-download cs__card-download--ok">✓ CACHED</div>
-      ) : ds?.status === 'downloading' ? (
-        <>
-          <div className="cs__card-download cs__card-download--warn">
-            DOWNLOADING · {ds.progress}%
-          </div>
-          <div className="cs__card-progress" aria-hidden="true">
-            <div
-              className="cs__card-progress-fill"
-              style={{ width: `${ds.progress}%` }}
-            />
-          </div>
-        </>
-      ) : ds?.status === 'error' ? (
-        <div className="cs__card-download cs__card-download--err">
-          ⚠ FAILED — TAP TO RETRY
-        </div>
-      ) : (
-        <div className="cs__card-download cs__card-download--idle">
-          DOWNLOAD · {char.sizeMB.toFixed(1)} MB
-        </div>
-      )}
     </div>
   );
 });
