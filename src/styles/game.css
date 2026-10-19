@@ -24,7 +24,6 @@
   --cyan:       #3143d6;  /* royal blue (legacy name kept) */
   --gray:       #8a8474;  /* warm muted */
   --gray-dark:  #2c2c3a;
-  --gold:       #f2b23d;
   --green:      #43a058;
   /* Semantic aliases — the comic voice */
   --paper:      #f2ecda;
@@ -147,7 +146,7 @@ input:focus-visible,
 }
 .game-panel--p1 { border-color: var(--p1-color); box-shadow: 5px 5px 0 var(--p1-glow); }
 .game-panel--p2 { border-color: var(--p2-color); box-shadow: 5px 5px 0 var(--p2-glow); }
-.game-panel--warning { border-color: var(--gold); }
+.game-panel--warning { border-color: var(--crimson); }
 
 /* ScreenTitle — Anton poster voice */
 .screen-title {
@@ -333,7 +332,7 @@ input:focus-visible,
 }
 .download-badge--bundled { color: var(--green); }
 .download-badge--cached { color: var(--green); }
-.download-badge--downloading { color: var(--gold); }
+.download-badge--downloading { color: var(--paper); }
 .download-badge--error { color: var(--red); }
 .download-badge--idle { color: var(--gray); }
 
@@ -1265,8 +1264,8 @@ html.phone-landscape body.fighting {
 }
 .cs__step--p1::before { border-left-color: var(--p1-color); }
 .cs__step--p2::before { border-left-color: var(--p2-color); }
-.cs__step--ready { border-color: var(--paper); color: var(--gold); }
-.cs__step--ready::before { border-left-color: var(--gold); }
+.cs__step--ready { border-color: var(--paper); color: var(--paper); }
+.cs__step--ready::before { border-left-color: var(--paper); }
 
 /* Character grid — density first: the grid owns ALL leftover height inside
    the fixed-height column and the column ladder shrinks the cards. */
@@ -1312,7 +1311,8 @@ html.phone-landscape body.fighting {
 }
 .cs__card--p1 { border-color: var(--p1-color); box-shadow: 3px 3px 0 var(--p1-color); }
 .cs__card--p2 { border-color: var(--p2-color); box-shadow: 3px 3px 0 var(--p2-color); }
-.cs__card--both { border-color: var(--ink); box-shadow: 3px 3px 0 var(--gold); }
+/* Two-tone P1/P2 hard shadow — both cursors share this card */
+.cs__card--both { border-color: var(--ink); box-shadow: 3px 3px 0 var(--p1-color), 6px 6px 0 var(--p2-color); }
 .cs__card--locked { transform: translateY(-3px); }
 .cs__card--greyed img { filter: grayscale(1) brightness(0.4); }
 .cs__card--greyed { opacity: 0.5; }
@@ -1434,9 +1434,9 @@ html.phone-landscape body.fighting {
   pointer-events: none;
 }
 .cs__card-download--ok { color: #7ed88f; }
-.cs__card-download--warn { color: var(--gold); }
+.cs__card-download--warn { color: var(--paper); }
 .cs__card-download--err { color: #ff8f9c; background: rgba(143, 22, 38, 0.92); }
-.cs__card-download--idle { color: var(--gold); }
+.cs__card-download--idle { color: var(--paper-dim); }
 .cs__card-progress {
   position: absolute;
   left: 0;
@@ -1666,7 +1666,7 @@ html.phone-landscape body.fighting {
   font-size: 0.52rem;
   letter-spacing: 0.32em;
   text-indent: 0.32em;
-  color: var(--gold);
+  color: var(--crimson);
   font-weight: 700;
   text-transform: uppercase;
 }
@@ -1695,7 +1695,7 @@ html.phone-landscape body.fighting {
   clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%);
 }
 .ss__status--ok { background: var(--royal); color: var(--paper); }
-.ss__status--warn { background: var(--gold); color: var(--ink); }
+.ss__status--warn { background: var(--crimson); color: var(--paper); }
 .ss__status--idle { color: var(--gray); padding-left: 0; clip-path: none; }
 
 /* View-filter chips + random (paper side) */
@@ -1874,7 +1874,7 @@ html.phone-landscape body.fighting {
   text-transform: uppercase;
 }
 .ss__card-download--ready { background: var(--royal); color: var(--paper); }
-.ss__card-download--downloading { background: var(--ink); color: var(--gold); }
+.ss__card-download--downloading { background: var(--ink); color: var(--paper); }
 .ss__card-download--error { background: var(--crimson); color: var(--paper); }
 .ss__card-download--idle { color: rgba(16, 22, 64, 0.55); padding-top: 5px; }
 .ss__card-progress {
@@ -2185,7 +2185,7 @@ body.fighting {
 }
 .fs-toggle:hover { color: var(--crimson); }
 .fs-toggle--on,
-.fs-toggle--on:hover { color: var(--gold); }
+.fs-toggle--on:hover { color: var(--crimson); }
 
 @media (orientation: landscape) and (max-height: 500px) {
   .fs-toggle {
@@ -2612,7 +2612,7 @@ body.fighting {
 /* Reload badge (⟳ icon next to label) */
 .settings__reload-badge {
   display: inline-block;
-  color: var(--gold);
+  color: var(--crimson);
   font-size: 0.75rem;
   font-weight: 900;
 }
@@ -2784,13 +2784,13 @@ body.fighting {
   50%      { box-shadow: 0 0 0 6px rgba(49, 67, 214, 0); }
 }
 .settings__keybind-btn--stale {
-  border-color: var(--gold);
-  color: var(--gold);
+  border-color: var(--crimson);
+  color: var(--crimson);
 }
 .settings__keybind-stale,
 .settings__keybind-error {
   font-size: 0.65rem;
-  color: var(--gold);
+  color: var(--paper-dim);
   font-family: var(--font-mono);
   text-align: right;
   max-width: 200px;
@@ -2825,9 +2825,9 @@ body.fighting {
   clip-path: polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%);
 }
 .settings__badge--warn {
-  background: rgba(242, 178, 61, 0.18);
-  color: var(--gold);
-  border: 1px solid var(--gold);
+  background: rgba(232, 40, 60, 0.18);
+  color: var(--crimson);
+  border: 1px solid var(--crimson);
 }
 .settings__badge--info {
   background: rgba(49, 67, 214, 0.15);
@@ -2864,7 +2864,7 @@ body.fighting {
   border-color: var(--white);
 }
 .settings__btn--back { color: var(--gray); }
-.settings__btn--discard { color: var(--gold); border-color: var(--gold); }
+.settings__btn--discard { color: var(--paper); border-color: var(--paper); }
 .settings__btn--reset { color: var(--red); border-color: var(--red); }
 .settings__btn--save {
   background: var(--red);
@@ -3052,15 +3052,15 @@ body.fighting {
   0%, 100% { box-shadow: 0 0 0 0 rgba(49,67,214,0.55); }
   50%      { box-shadow: 0 0 0 6px rgba(49,67,214,0); }
 }
-.settings__keybind-stale { color: #a3652c; }
+.settings__keybind-stale { color: var(--royal); }
 .settings__keybind-error { color: var(--crimson); }
-.settings__badge--warn { background: rgba(242,178,61,0.18); color: #8a5a10; border: 1px solid #a3652c; }
+.settings__badge--warn { background: rgba(232,40,60,0.12); color: var(--crimson); border: 1px solid var(--crimson); }
 .settings__badge--info { background: rgba(49,67,214,0.12); color: var(--royal); border: 1px solid var(--royal); }
 .settings__badge--ok { background: rgba(67,160,88,0.15); color: #2c7040; border: 1px solid #2c7040; }
 .settings__btn { background: var(--paper); color: #5c5747; border-color: rgba(16,16,24,0.4); }
 .settings__btn:hover { color: var(--ink); border-color: var(--ink); }
 .settings__btn--back { color: #5c5747; }
-.settings__btn--discard { color: #a3652c; border-color: #a3652c; }
+.settings__btn--discard { color: var(--royal); border-color: var(--royal); }
 .settings__btn--reset { color: var(--crimson); border-color: var(--crimson); }
 .settings__btn--save {
   background: var(--crimson);
@@ -3278,7 +3278,7 @@ body.fighting {
   transition: color 0.2s;
 }
 .progress__dot--done { color: var(--green); }
-.progress__dot--current { color: var(--gold); animation: dotPulse 1s ease-in-out infinite; }
+.progress__dot--current { color: var(--crimson); animation: dotPulse 1s ease-in-out infinite; }
 @keyframes dotPulse {
   0%, 100% { transform: scale(1); }
   50% { transform: scale(1.2); }

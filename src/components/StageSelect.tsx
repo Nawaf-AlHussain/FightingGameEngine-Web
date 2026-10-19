@@ -670,7 +670,7 @@ export default function StageSelect({
                 {selectedStage.displayName}
               </span>
               {!selectedReady && (
-                <span style={{ color: 'var(--gold)', marginLeft: '0.5rem' }}>
+                <span style={{ color: 'var(--crimson)', marginLeft: '0.5rem' }}>
                   · {selectionStatus}
                 </span>
               )}
@@ -730,7 +730,7 @@ export default function StageSelect({
             style={{
               fontSize: '0.8rem',
               letterSpacing: '0.25em',
-              color: 'var(--gold)',
+              color: 'var(--paper)',
               fontWeight: 700,
             }}
           >

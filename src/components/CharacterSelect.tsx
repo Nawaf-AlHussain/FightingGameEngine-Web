@@ -1298,7 +1298,7 @@ export default function CharacterSelect({
               className="cs__fight-status"
               style={{
                 fontSize: '0.65rem',
-                color: 'var(--gold)',
+                color: 'var(--crimson)',
                 letterSpacing: '0.15em',
                 alignSelf: 'center',
                 marginRight: '0.5rem',
