@@ -273,38 +273,52 @@
     }
   }
 
-  // --- 4:3 stage camera clamp (the "black sky above the stage" fix) ---
+  // --- 4:3 stage camera clamp + view fit (the "black bars" fixes) ---
   // In the 4:3 display mode the engine renders the fight at a 960x720
-  // framebuffer with FightAspect=4,3. For a 16:9-designed stage the view is
-  // TALLER than the stage's design area; the engine camera's aspectcorrection
-  // places that extra height above the ground line (whatever the stage's
-  // overdrawlow cannot cover below). The vertical pan ceiling ([Camera]
-  // boundhigh) is stage-author geometry from the 16:9 era: following a
-  // jumping character, the camera can now look above the painted
-  // background - black sky. 16:9 never sees this because its view top sits
-  // (missingU - belowU) stage units lower.
+  // framebuffer with FightAspect=4,3. For a 16:9-designed stage that view is
+  // (720/scl - localcoordH) stage units TALLER than the design area, and the
+  // engine camera's aspectcorrection splits the extra height AROUND the
+  // design: min(missingU/2, overdrawlow) lands BELOW the design bottom, the
+  // rest above the design top. These stages' art ends at the design bottom
+  // (the below-ground strip INSIDE the design is the last painted row:
+  // floor front + reflections), so the below-design half of the split is a
+  // solid black bar with the reflections rendering right at its top edge.
+  // That is the "black bar where shadows/reflections can also be seen".
+  // (The above-design half had the mirror problem on pans: the 16:9-era
+  // [Camera] boundhigh let the camera rise past the declared sky - black
+  // sky when following a jump. 16:9 sees neither: its view is exactly the
+  // design area.)
   //
-  // The engine's own pan clamp (camera.go boundY) works in stage
-  // coordinates and does NOT account for the aspectcorrection framing, so
-  // the fix is to hand the engine a tighter ceiling, exactly like a stage
-  // author porting their stage to 4:3 would declare:
+  // A pure reframe cannot fix the bottom bar: the 4:3 view (816u for
+  // 1088-wide stages) is taller than the stage's total vertical art
+  // (design + declared sky = 732u), so ~84u of out-of-art pixels exist at
+  // ANY framing. The view must FIT the art. Done at the VFS serving layer
+  // (no WASM rebuild), exactly like a stage author porting their stage:
   //
-  //   scl       = 960 / localcoordW            (4:3 preset GameWidth)
-  //   missingU  = 720/scl - localcoordH        (extra stage units the view adds)
-  //   belowU    = min(missingU/2, overdrawlow) (part placed below ground)
-  //   aboveU    = missingU - belowU            (part placed ABOVE the design top)
-  //   boundhigh = -max(0, overdrawhigh - aboveU)
+  //   scl      = 960 / localcoordW             (4:3 preset GameWidth)
+  //   missingU = 720/scl - localcoordH         (extra stage units the view adds)
+  //   fitW     = (localcoordH + overdrawhigh) / 0.75
+  //            -> window becomes design height + declared sky headroom
+  //   overdrawlow = 0 -> the (now smaller) extra height lands entirely
+  //                      above the design, never below its bottom edge
+  //   boundhigh = -max(0, overdrawhigh - aboveU2), aboveU2 = missingU2
+  //            -> 0 by construction: the fitted view already tops out at
+  //               the declared sky, so any up-pan would expose black
   //
-  // i.e. the camera may still pan, but only into the headroom the stage
-  // actually declares (overdrawhigh) beyond the already-raised framing.
-  // Jumping characters stay visible because the 4:3 view at rest already
-  // shows far more vertical than any normal jump reaches - that taller
-  // view is the entire point of the mode. Only ever TIGHTENS: a stage
-  // whose declared headroom already covers the taller view is untouched,
-  // stages without an explicit boundhigh are untouched (boundhigh default
-  // 0 means the engine never pans up anyway), and legacy 320x240-family
-  // stages (missingU <= 0) fit natively and are untouched. Never applied
-  // in 16:9 - that path stays byte-identical.
+  // Effects, all deterministic from the def text (online-safe: both peers
+  // patch identically): zero black at rest AND while panning; the stage
+  // renders ~11% larger (zoom-fill - the honest cost of fitting a 4:3
+  // window to 16:9-authored art); characters keep their exact on-screen
+  // size (their scale follows GameWidth, not the stage); the design's own
+  // below-ground strip (floor front + reflections) stays visible at the
+  // screen bottom. Never applied in 16:9 - that path stays byte-identical.
+  //
+  // Constraints honored: only 16:9-family stages are patched (missingU > 0;
+  // legacy 320x240-family stages fit natively and are untouched); stages
+  // without an explicit boundhigh skip the clamp step (default 0 = engine
+  // never pans up anyway); integer outputs only (the engine parses these
+  // keys with ReadI32); idempotent by construction (a fitted def re-parses
+  // to the same fitW/odl/pan budget and rewrites nothing).
   let effective43 = false;
   function setEffective43(v) {
     effective43 = v; // flips mid-session via online display-mode adoption
@@ -326,11 +340,12 @@
     return out;
   }
   const STAGE43_DEF_RE = /^(?:data\/)?stages\/[^/]*\.def$/i;
-  // Re-runs on every open (no memo): the rewrite is idempotent by the
-  // `target <= bh` guard, and a background prefetch may legitimately
-  // re-materialize the ORIGINAL bytes into `contents` after the first
-  // patch - a later open must re-patch them. The scan cost is a ~10-40KB
-  // text regex, once per stage per open. 
+  // Re-runs on every open (no memo): the rewrites are idempotent (a fitted
+  // def re-parses to the same fitW / overdrawlow=0 / pan budget and changes
+  // nothing), and a background prefetch may legitimately re-materialize the
+  // ORIGINAL bytes into `contents` after the first patch - a later open
+  // must re-patch them. The scan cost is a ~10-40KB text regex, once per
+  // stage per open.
   function patchStageDef43(vpath) {
     if (!effective43 || !STAGE43_DEF_RE.test(vpath)) return;
     const buf = contents.get(vpath);
@@ -347,25 +362,63 @@
       };
       const cam = sectionBody('Camera');
       const lc = /^\s*localcoord\s*=\s*(\d+)\s*,\s*(\d+)/im.exec(sectionBody('StageInfo'));
-      const bh = num(cam, 'boundhigh');
-      if (!lc || bh === null) return; // unknown geometry, or no up-pan (default 0) to fix
-      const scl = 960 / +lc[1];
-      const missingU = 720 / scl - +lc[2];
+      if (!lc) return; // unknown geometry
+      const localW = +lc[1], localH = +lc[2];
+      const scl = 960 / localW;
+      const missingU = 720 / scl - localH;
       if (!(missingU > 0)) return; // legacy 4:3-family stage: fits natively
       const odh = Math.max(0, num(cam, 'overdrawhigh') || 0);
       const odl = Math.max(0, num(cam, 'overdrawlow') || 0);
-      const aboveU = missingU - Math.min(missingU / 2, odl);
-      const target = -Math.max(0, odh - aboveU);
-      if (target <= bh) return; // declared headroom already covers the taller view
-      const patchedText = text.replace(
-        /^(\s*boundhigh\s*=\s*)(-?\d+(?:\.\d+)?)/im,
-        (m, p1) => p1 + String(target)
-      );
-      if (patchedText === text) return;
-      contents.set(vpath, latin1ToBytes(patchedText));
-      console.log('[vfs] 4:3 camera clamp: ' + vpath + ' boundhigh ' + bh + ' -> ' + target
-        + ' (taller view +' + Math.round(aboveU) + 'u above design, declared headroom '
-        + Math.round(odh) + 'u)');
+
+      // Step 1 - fit the view to the stage's vertical art (the bottom
+      // "black bar with reflections" fix): shrink the 4:3 window to design
+      // height + declared sky headroom and zero overdrawlow so the whole
+      // extra height lands above the design, never below its bottom edge.
+      const fitW = Math.round((localH + odh) / 0.75);
+      let patchedText = text;
+      if (fitW !== localW) {
+        const next = patchedText.replace(
+          /^(\s*localcoord\s*=\s*)(\d+)(\s*,\s*\d+)/im,
+          (m, p1, p2, p3) => p1 + String(fitW) + p3
+        );
+        if (next !== patchedText) {
+          patchedText = next;
+          console.log('[vfs] 4:3 view fit: ' + vpath + ' localcoord ' + localW + ' -> ' + fitW
+            + ' (window ' + Math.round(0.75 * fitW) + 'u = design ' + localH + 'u + declared sky '
+            + Math.round(odh) + 'u; the old view was +' + Math.round(missingU) + 'u over design, '
+            + Math.round(Math.min(missingU / 2, odl)) + 'u of it below the design = the black bar)');
+        }
+      }
+      if (/^\s*overdrawlow\s*=\s*/im.test(patchedText)) {
+        const next = patchedText.replace(
+          /^(\s*overdrawlow\s*=\s*)-?\d+(?:\.\d+)?/im,
+          (m, p1) => p1 + '0'
+        );
+        if (next !== patchedText) patchedText = next;
+      }
+
+      // Step 2 - pan ceiling, recomputed for the fitted view: the window now
+      // tops out exactly at the declared sky headroom, so the remaining
+      // up-pan budget is zero. Only ever tightens the effective pan.
+      const bh = num(cam, 'boundhigh');
+      if (bh !== null) {
+        const scl2 = 960 / fitW;
+        const missingU2 = 720 / scl2 - localH;
+        const panBudget = Math.max(0, Math.round(odh - missingU2));
+        if (-Math.min(bh, 0) > panBudget + 0.01) {
+          const next = patchedText.replace(
+            /^(\s*boundhigh\s*=\s*)(-?\d+(?:\.\d+)?)/im,
+            (m, p1) => p1 + String(-panBudget)
+          );
+          if (next !== patchedText) {
+            patchedText = next;
+            console.log('[vfs] 4:3 camera clamp: ' + vpath + ' boundhigh ' + bh + ' -> ' + (-panBudget)
+              + ' (fitted view tops out at the declared sky headroom)');
+          }
+        }
+      }
+
+      if (patchedText !== text) contents.set(vpath, latin1ToBytes(patchedText));
     } catch (e) { /* an unparseable def must never break the fight */ }
   }
 
