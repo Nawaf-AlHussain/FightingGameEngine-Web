@@ -273,6 +273,102 @@
     }
   }
 
+  // --- 4:3 stage camera clamp (the "black sky above the stage" fix) ---
+  // In the 4:3 display mode the engine renders the fight at a 960x720
+  // framebuffer with FightAspect=4,3. For a 16:9-designed stage the view is
+  // TALLER than the stage's design area; the engine camera's aspectcorrection
+  // places that extra height above the ground line (whatever the stage's
+  // overdrawlow cannot cover below). The vertical pan ceiling ([Camera]
+  // boundhigh) is stage-author geometry from the 16:9 era: following a
+  // jumping character, the camera can now look above the painted
+  // background - black sky. 16:9 never sees this because its view top sits
+  // (missingU - belowU) stage units lower.
+  //
+  // The engine's own pan clamp (camera.go boundY) works in stage
+  // coordinates and does NOT account for the aspectcorrection framing, so
+  // the fix is to hand the engine a tighter ceiling, exactly like a stage
+  // author porting their stage to 4:3 would declare:
+  //
+  //   scl       = 960 / localcoordW            (4:3 preset GameWidth)
+  //   missingU  = 720/scl - localcoordH        (extra stage units the view adds)
+  //   belowU    = min(missingU/2, overdrawlow) (part placed below ground)
+  //   aboveU    = missingU - belowU            (part placed ABOVE the design top)
+  //   boundhigh = -max(0, overdrawhigh - aboveU)
+  //
+  // i.e. the camera may still pan, but only into the headroom the stage
+  // actually declares (overdrawhigh) beyond the already-raised framing.
+  // Jumping characters stay visible because the 4:3 view at rest already
+  // shows far more vertical than any normal jump reaches - that taller
+  // view is the entire point of the mode. Only ever TIGHTENS: a stage
+  // whose declared headroom already covers the taller view is untouched,
+  // stages without an explicit boundhigh are untouched (boundhigh default
+  // 0 means the engine never pans up anyway), and legacy 320x240-family
+  // stages (missingU <= 0) fit natively and are untouched. Never applied
+  // in 16:9 - that path stays byte-identical.
+  let effective43 = false;
+  function setEffective43(v) {
+    effective43 = v; // flips mid-session via online display-mode adoption
+  }
+  // Byte-faithful latin1 round-trip: stage defs are ASCII keys but often
+  // carry cp1252 bytes in comments/names, and TextDecoder('utf-8') would
+  // silently replace those (displayname mangling). charCodeAt/ff keeps
+  // every original byte exactly.
+  function bytesToLatin1(buf) {
+    let s = '';
+    for (let i = 0; i < buf.length; i += 0x8000) {
+      s += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+    }
+    return s;
+  }
+  function latin1ToBytes(s) {
+    const out = new Uint8Array(s.length);
+    for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i) & 0xff;
+    return out;
+  }
+  const STAGE43_DEF_RE = /^(?:data\/)?stages\/[^/]*\.def$/i;
+  // Re-runs on every open (no memo): the rewrite is idempotent by the
+  // `target <= bh` guard, and a background prefetch may legitimately
+  // re-materialize the ORIGINAL bytes into `contents` after the first
+  // patch - a later open must re-patch them. The scan cost is a ~10-40KB
+  // text regex, once per stage per open. 
+  function patchStageDef43(vpath) {
+    if (!effective43 || !STAGE43_DEF_RE.test(vpath)) return;
+    const buf = contents.get(vpath);
+    if (!buf) return; // not materialized yet - retried on the next open
+    try {
+      const text = bytesToLatin1(buf);
+      const sectionBody = (name) => {
+        const m = new RegExp('\\[' + name + '\\]([^\\[]*)', 'i').exec(text);
+        return m ? m[1] : '';
+      };
+      const num = (src, key) => {
+        const m = new RegExp('^\\s*' + key + '\\s*=\\s*(-?\\d+(?:\\.\\d+)?)', 'im').exec(src);
+        return m ? parseFloat(m[1]) : null;
+      };
+      const cam = sectionBody('Camera');
+      const lc = /^\s*localcoord\s*=\s*(\d+)\s*,\s*(\d+)/im.exec(sectionBody('StageInfo'));
+      const bh = num(cam, 'boundhigh');
+      if (!lc || bh === null) return; // unknown geometry, or no up-pan (default 0) to fix
+      const scl = 960 / +lc[1];
+      const missingU = 720 / scl - +lc[2];
+      if (!(missingU > 0)) return; // legacy 4:3-family stage: fits natively
+      const odh = Math.max(0, num(cam, 'overdrawhigh') || 0);
+      const odl = Math.max(0, num(cam, 'overdrawlow') || 0);
+      const aboveU = missingU - Math.min(missingU / 2, odl);
+      const target = -Math.max(0, odh - aboveU);
+      if (target <= bh) return; // declared headroom already covers the taller view
+      const patchedText = text.replace(
+        /^(\s*boundhigh\s*=\s*)(-?\d+(?:\.\d+)?)/im,
+        (m, p1) => p1 + String(target)
+      );
+      if (patchedText === text) return;
+      contents.set(vpath, latin1ToBytes(patchedText));
+      console.log('[vfs] 4:3 camera clamp: ' + vpath + ' boundhigh ' + bh + ' -> ' + target
+        + ' (taller view +' + Math.round(aboveU) + 'u above design, declared headroom '
+        + Math.round(odh) + 'u)');
+    } catch (e) { /* an unparseable def must never break the fight */ }
+  }
+
   const vfs = {
     constants: {
       O_WRONLY, O_RDWR, O_CREAT, O_TRUNC, O_APPEND, O_EXCL, O_DIRECTORY: 0o200000,
@@ -294,6 +390,10 @@
           manifest.delete(vpath);
           registerDirsFor(vpath);
         }
+        // 4:3 camera clamp (see patchStageDef43): runs here because every
+        // serving path - pak materialization, CDN fetch, direct injection -
+        // has populated `contents` by the time the engine opens the file.
+        patchStageDef43(vpath);
         const fd = nextFd++;
         fds.set(fd, { vpath, flags });
         callback(null, fd);
@@ -569,6 +669,9 @@
       if (changed) {
         globalThis.engineInjectFile('save/config.ini', new TextEncoder().encode(text));
       }
+      // The adopted host mode also gates the 4:3 stage camera clamp, so
+      // host and guest patch the same stage defs identically.
+      setEffective43(mode === '4:3');
       return mode;
     } catch (e) {
       return null;
@@ -890,6 +993,9 @@
         // heuristics deliberately do NOT infer a mode anymore — a stale
         // 4:3 resolution without a marker is an orphan to heal to 16:9.
         const is43 = marker === '4:3';
+        // Gate for the 4:3 stage camera clamp (patchStageDef43): stage defs
+        // are rewritten as the engine opens them, which happens after this.
+        setEffective43(is43);
 
         // Align a key if present; insert it under its section header if the
         // key is missing (creating the whole section at the end if needed).
