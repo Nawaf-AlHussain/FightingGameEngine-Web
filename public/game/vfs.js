@@ -338,9 +338,14 @@
   // integer outputs only (the engine parses these keys with ReadI32);
   // idempotent by construction (a fitted def re-parses to the same
   // fitW/odl/pan budget/art-half and rewrites nothing).
-  let expandedStage = false;
-  function setExpandedStage(v) {
-    expandedStage = v; // flips mid-session via online display-mode adoption
+  // null = no fit (the 16:9 default path stays byte-identical), 'expanded'
+  // = the EXPANDED STAGE VIEW (16:9 full-bleed max view), 'tall' = the TALL
+  // STAGE VIEW (the restored classic fitted-4:3 window). Both fitted modes
+  // share the exact same fit math — only the canvas aspect differs. Flips
+  // mid-session via online display-mode adoption.
+  let stageFitMode = null;
+  function setStageFitMode(v) {
+    stageFitMode = v;
   }
   // Byte-faithful latin1 round-trip: stage defs are ASCII keys but often
   // carry cp1252 bytes in comments/names, and TextDecoder('utf-8') would
@@ -358,23 +363,29 @@
     for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i) & 0xff;
     return out;
   }
-  // Expanded display-mode render geometry — MUST match the '4:3' preset in
-  // src/lib/engine-config.ts (DISPLAY_MODE_PRESETS['4:3']). The mode key /
-  // marker / online mode string keep their historical '4:3' name; these
-  // values define the actual render: a 1280x720 canvas, FightAspect=16,9.
-  const EXPANDED_GAMEW = 1280;
-  const EXPANDED_GAMEH = 720;
-  const EXPANDED_FA_W = 16;
-  const EXPANDED_FA_H = 9;
-  const STAGE_EXPANDED_DEF_RE = /^(?:data\/)?stages\/[^/]*\.def$/i;
+  // Stage-fit render geometry per mode — MUST match the presets in
+  // src/lib/engine-config.ts (DISPLAY_MODE_PRESETS). 'expanded' is the
+  // historical '4:3' key/marker/mode-string (a 1280x720 canvas,
+  // FightAspect=16,9); 'tall' is the restored classic 4:3 stage view (a
+  // 960x720 canvas, FightAspect=4,3 — the geometry the fitted-4:3 era
+  // shipped and the user approved). Both modes fit the view to the stage's
+  // painted art with the SAME math — only the canvas aspect differs.
+  const STAGE_FIT_MODES = {
+    expanded: { gamew: 1280, gameh: 720, legacyGate: false,
+      fitLabel: 'expanded view fit', clampLabel: 'expanded camera clamp', panLabel: 'expanded pan clamp' },
+    tall:     { gamew: 960,  gameh: 720, legacyGate: true,
+      fitLabel: 'tall view fit',     clampLabel: 'tall camera clamp',     panLabel: 'tall pan clamp' },
+  };
+  const STAGE_FIT_DEF_RE = /^(?:data\/)?stages\/[^/]*\.def$/i;
   // Re-runs on every open (no memo): the rewrites are idempotent (a fitted
   // def re-parses to the same fitW / overdrawlow=0 / pan budget / art-half
   // and changes nothing), and a background prefetch may legitimately
   // re-materialize the ORIGINAL bytes into `contents` after the first
   // patch - a later open must re-patch them. The scan cost is a ~10-40KB
   // text regex, once per stage per open.
-  function patchStageDefExpanded(vpath) {
-    if (!expandedStage || !STAGE_EXPANDED_DEF_RE.test(vpath)) return;
+  function patchStageDefFit(vpath) {
+    const fit = stageFitMode ? STAGE_FIT_MODES[stageFitMode] : null;
+    if (!fit || !STAGE_FIT_DEF_RE.test(vpath)) return;
     const buf = contents.get(vpath);
     if (!buf) return; // not materialized yet - retried on the next open
     try {
@@ -391,6 +402,10 @@
       const lc = /^\s*localcoord\s*=\s*(\d+)\s*,\s*(\d+)/im.exec(sectionBody('StageInfo'));
       if (!lc) return; // unknown geometry
       const localW = +lc[1], localH = +lc[2];
+      // Tall-mode legacy gate (the fitted-4:3 era rule): stages whose 4:3
+      // view does not exceed the design height fit natively and are left
+      // untouched (legacy 320x240-family stages keep their historical look).
+      if (fit.legacyGate && !(localW * fit.gameh / fit.gamew > localH)) return;
       const odh = Math.max(0, num(cam, 'overdrawhigh') || 0);
       // Painted-art half-width per side, derived from the pan bounds (the
       // roster generator matches bounds to art). A missing side assumes
@@ -402,7 +417,7 @@
       // The view is localcoordW*GameH/GameW stage-units tall at zoom 1;
       // widen the design box so it becomes design height + declared sky,
       // capped at the painted art width.
-      const heightToWidth = EXPANDED_GAMEW / EXPANDED_GAMEH; // 16/9
+      const heightToWidth = fit.gamew / fit.gameh; // 16/9 expanded, 4/3 tall
       const targetW = Math.round((localH + odh) * heightToWidth);
       const artCap = Math.floor(2 * Math.min(artLeft, artRight));
       const fitW = Math.min(targetW, artCap);
@@ -419,8 +434,8 @@
       );
       if (next1 !== patchedText) {
         patchedText = next1;
-        console.log('[vfs] expanded view fit: ' + vpath + ' localcoord ' + localW + ' -> ' + fitW
-          + ' (view ' + Math.round(fitW * EXPANDED_GAMEH / EXPANDED_GAMEW) + 'u tall = design ' + localH
+        console.log('[vfs] ' + fit.fitLabel + ': ' + vpath + ' localcoord ' + localW + ' -> ' + fitW
+          + ' (view ' + Math.round(fitW * fit.gameh / fit.gamew) + 'u tall = design ' + localH
           + 'u + declared sky ' + Math.round(odh) + 'u; the 16:9 design was ' + localW + 'u wide)');
       }
       if (/^\s*overdrawlow\s*=\s*/im.test(patchedText)) {
@@ -437,7 +452,7 @@
       // tightens the effective pan.
       const bh = num(cam, 'boundhigh');
       if (bh !== null) {
-        const missingU2 = fitW * EXPANDED_GAMEH / EXPANDED_GAMEW - localH;
+        const missingU2 = fitW * fit.gameh / fit.gamew - localH;
         const panBudget = Math.max(0, Math.round(odh - missingU2));
         if (-Math.min(bh, 0) > panBudget + 0.01) {
           const next = patchedText.replace(
@@ -446,7 +461,7 @@
           );
           if (next !== patchedText) {
             patchedText = next;
-            console.log('[vfs] expanded camera clamp: ' + vpath + ' boundhigh ' + bh + ' -> ' + (-panBudget)
+            console.log('[vfs] ' + fit.clampLabel + ': ' + vpath + ' boundhigh ' + bh + ' -> ' + (-panBudget)
               + ' (fitted view tops out at the declared sky headroom)');
           }
         }
@@ -465,7 +480,7 @@
           );
           if (next !== patchedText) {
             patchedText = next;
-            console.log('[vfs] expanded pan clamp: ' + vpath + ' boundleft ' + bl + ' -> ' + newBL
+            console.log('[vfs] ' + fit.panLabel + ': ' + vpath + ' boundleft ' + bl + ' -> ' + newBL
               + ' (the wider view must stay inside the painted art)');
           }
         }
@@ -479,7 +494,7 @@
           );
           if (next !== patchedText) {
             patchedText = next;
-            console.log('[vfs] expanded pan clamp: ' + vpath + ' boundright ' + br + ' -> ' + newBR
+            console.log('[vfs] ' + fit.panLabel + ': ' + vpath + ' boundright ' + br + ' -> ' + newBR
               + ' (the wider view must stay inside the painted art)');
           }
         }
@@ -510,11 +525,10 @@
           manifest.delete(vpath);
           registerDirsFor(vpath);
         }
-        // Expanded-stage fit (see patchStageDefExpanded): runs here because
-        // every serving path - pak materialization, CDN fetch, direct
-        // injection - has populated `contents` by the time the engine opens
-        // the file.
-        patchStageDefExpanded(vpath);
+        // Stage fit (see patchStageDefFit): runs here because every serving
+        // path - pak materialization, CDN fetch, direct injection - has
+        // populated `contents` by the time the engine opens the file.
+        patchStageDefFit(vpath);
         const fd = nextFd++;
         fds.set(fd, { vpath, flags });
         callback(null, fd);
@@ -742,7 +756,7 @@
   // (no config file / unknown mode).
   globalThis.engineApplyDisplayMode = function (mode) {
     try {
-      if (mode !== '4:3' && mode !== '16:9') return null;
+      if (mode !== '4:3' && mode !== '16:9' && mode !== 'tall') return null;
       const cfg = contents.get('save/config.ini');
       if (!cfg) return null;
       let text = new TextDecoder().decode(cfg);
@@ -775,6 +789,15 @@
         ensureKey('FightAspectWidth', 16, 'Video');
         ensureKey('FightAspectHeight', 9, 'Video');
         ensureKey('KeepAspect', 1, 'Video');
+      } else if (mode === 'tall') {
+        // The TALL STAGE VIEW — exactly what the boot migration writes for
+        // the 'tall' marker: a 960x720 canvas + FightAspect=4,3 + KeepAspect
+        // + the vfs stage fit (the classic fitted-4:3 geometry).
+        ensureKey('GameWidth', 960, 'Video');
+        ensureKey('GameHeight', 720, 'Video');
+        ensureKey('FightAspectWidth', 4, 'Video');
+        ensureKey('FightAspectHeight', 3, 'Video');
+        ensureKey('KeepAspect', 1, 'Video');
       } else {
         // 16:9 = stage-default fight aspect.
         ensureKey('FightAspectWidth', -1, 'Video');
@@ -792,9 +815,9 @@
       if (changed) {
         globalThis.engineInjectFile('save/config.ini', new TextEncoder().encode(text));
       }
-      // The adopted host mode also gates the expanded stage fit, so
-      // host and guest patch the same stage defs identically.
-      setExpandedStage(mode === '4:3');
+      // The adopted host mode also gates the stage fit, so host and guest
+      // patch the same stage defs identically.
+      setStageFitMode(mode === '4:3' ? 'expanded' : (mode === 'tall' ? 'tall' : null));
       return mode;
     } catch (e) {
       return null;
@@ -1118,10 +1141,10 @@
         // heuristics deliberately do NOT infer a mode anymore — a stale
         // 4:3 resolution without a marker is an orphan to heal to 16:9.
         const is43 = marker === '4:3';
-        // Gate for the expanded stage fit (patchStageDefExpanded): stage
-        // defs are rewritten as the engine opens them, which happens after
-        // this.
-        setExpandedStage(is43);
+        const isTall = marker === 'tall';
+        // Gate for the stage fit (patchStageDefFit): stage defs are
+        // rewritten as the engine opens them, which happens after this.
+        setStageFitMode(is43 ? 'expanded' : (isTall ? 'tall' : null));
 
         // Align a key if present; insert it under its section header if the
         // key is missing (creating the whole section at the end if needed).
@@ -1160,6 +1183,17 @@
               localStorage.setItem('engine-display-mode-v2', '4:3');
             }
           } catch (e) { /* marker best-effort */ }
+        } else if (isTall) {
+          // TALL STAGE VIEW (the restored classic fitted-4:3 mode): a
+          // 960x720 canvas + FightAspect=4,3 + KeepAspect, with the vfs
+          // stage fit (patchStageDefFit, mode 'tall') fitting the view to
+          // the stage's painted art — the same geometry the fitted-4:3 era
+          // shipped and the user approved.
+          ensureKey('GameWidth', 960, 'Video');
+          ensureKey('GameHeight', 720, 'Video');
+          ensureKey('FightAspectWidth', 4, 'Video');
+          ensureKey('FightAspectHeight', 3, 'Video');
+          ensureKey('KeepAspect', 1, 'Video');
         } else {
           // 16:9 path (also the no-marker default) — heal broken
           // half-configs (FA must be -1,-1), and bump orphaned non-16:9
@@ -1272,7 +1306,8 @@
         if (changed) {
           contents.set('save/config.ini', new TextEncoder().encode(text));
           console.log('[vfs] normalized display-mode config to '
-            + (is43 ? 'expanded stage view (1280x720, FightAspect=16,9)' : '16:9 stage-default aspect')
+            + (is43 ? 'expanded stage view (1280x720, FightAspect=16,9)'
+              : (isTall ? 'tall stage view (960x720, FightAspect=4,3)' : '16:9 stage-default aspect'))
             + ' + stage zoom');
         }
       }
