@@ -917,12 +917,14 @@ function PlayPageInner() {
         // Presentation (ONE path for every display mode): the canvas is
         // displayed at its intrinsic aspect ratio, fitted to the largest
         // size that fully fits inside the viewport (contain), centered.
-        // The 16:9 modes render at a 16:9 canvas and the 4:3 mode renders
-        // at a genuine 4:3 canvas (960x720 + FightAspect=4,3 — the engine's
-        // native 4:3, with MORE vertical stage content than 16:9), so plain
-        // contain-fit is correct at both aspects: wide viewports pillarbox
-        // a 4:3 canvas, tall/narrow viewports letterbox a 16:9 canvas, and
-        // the picture itself is always undistorted and uncropped.
+        // Every mode renders a 16:9 canvas — the 16:9 presets natively
+        // (1280x720 / 1920x1080) and the Expanded mode via
+        // 1280x720 + FightAspect=16,9 with the vfs.js stage fit (more
+        // stage visible in every direction than plain 16:9) — so plain
+        // contain-fit is correct for all of them: a 16:9 viewport is
+        // filled edge-to-edge (no pillarbox), tall/narrow viewports
+        // letterbox, and the picture itself is always undistorted and
+        // uncropped.
         const fitCanvasToViewport = () => {
           const canvas = document.querySelector('canvas#ikemen-canvas') as HTMLCanvasElement | null;
           if (!canvas || canvas.width <= 0 || canvas.height <= 0) return false;

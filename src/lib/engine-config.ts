@@ -264,17 +264,23 @@ export interface DisplayModePreset {
  * - FightAspect=-1,-1 renders the fight at the STAGE's own aspect: a
  *   1280x720-designed stage produces 16:9 content, a legacy 320x240 stage
  *   produces 4:3 content.
- * - FightAspect=4,3 re-frames the fight into a GENUINE 4:3 world (engine
+ * - FightAspect=W,H re-frames the fight into a GENUINE W:H world (engine
  *   applyFightAspect: world = 240*(w/h) x 240 units, width-fitted to the
- *   stage's localcoord). For a 1280x720-designed stage the field of view
- *   grows TALLER: the 16:9 view is 720 stage-units tall, the 4:3 view is
- *   960 — the extra 240 units are placed by the engine camera's
- *   aspectcorrection into the stage's overdraw regions above and below the
- *   designed area (per the stage's overdrawhigh/overdrawlow). The result is
- *   a full-bleed 4:3 picture with MORE vertical stage content than 16:9:
- *   zero bars, zero distortion, nothing cropped. This is the engine's own
- *   native 4:3 mode — the same picture the standalone engine shows in a 4:3
- *   window.
+ *   stage's localcoord), so the view spans localcoordW stage-units wide and
+ *   localcoordW*H/W tall. The ENGINE-side extra height (vs the stage's 16:9
+ *   design) is placed by the camera's aspectcorrection into the stage's
+ *   overdraw regions per overdrawhigh/overdrawlow.
+ * - FightAspect=16,9 on a 1280x720 canvas is the EXPANDED STAGE VIEW (the
+ *   mode the Settings UI calls "Expanded"): the canvas is a plain 16:9
+ *   framebuffer, so it fills a 16:9 screen edge-to-edge with NO pillarbox —
+ *   and vfs.js's stage-fit (patchStageDefExpanded) rewrites each stage's
+ *   localcoord so the view exactly covers the stage's PAINTED art: design
+ *   height + declared sky vertically, and ~20% MORE than the design width
+ *   horizontally (every roster stage paints out to ±(designW/2 +
+ *   |boundleft|) = ±836u, and the camera pan bounds are rewritten so the
+ *   wider view never leaves the art). Zero black bars, zero distortion,
+ *   nothing cropped — more stage visible in every direction than 16:9,
+ *   which is precisely what the user asked this mode to be.
  * - KeepAspect only matters when the canvas aspect differs from the fight
  *   aspect (then it letterboxes/stretches). The presets always keep canvas
  *   aspect == fight aspect, so the fight fills the canvas edge-to-edge at
@@ -290,24 +296,36 @@ export interface DisplayModePreset {
  *   paint. Stages that author their own zoom settings keep them.
  *
  * Display-mode presets:
- * - '4:3': a true 4:3 framebuffer (960x720) + FightAspect=4,3. Natively
- *   rendered 4:3 with visibly more vertical stage content than 16:9. On a
- *   16:9 monitor the web fitter shows the canvas at its intrinsic aspect
- *   (side pillarboxing — the honest 4:3 presentation, exactly like
- *   standalone engine in a 4:3 window on a widescreen display).
+ * - '4:3' (KEY/MARKER NAME IS HISTORICAL — the preset is the EXPANDED
+ *   STAGE VIEW): a 1280x720 canvas + FightAspect=16,9 + the vfs.js stage
+ *   fit. The key, the localStorage marker value and the online 'go'-frame
+ *   mode string keep their historical '4:3' name because all three are
+ *   load-bearing (v2 markers already persisted in the wild, the host-
+ *   authoritative online adoption protocol); only the preset VALUES define
+ *   what the mode renders. The mode's job: "more stage can be seen" — the
+ *   full painted stage art in every direction, no bars anywhere. Users
+ *   coming from the genuine-4:3 era are migrated by the boot normalization
+ *   (960x720 + FightAspect=4,3 configs are rewritten to this preset at the
+ *   next boot).
  * - '16:9-*': the historical widescreen path, byte-identical rendering.
  */
 export const DISPLAY_MODE_PRESETS = {
   /**
-   * 4:3 classic fullscreen. The engine renders a GENUINE 4:3 picture:
-   * 960x720 canvas + FightAspect=4,3 (its native 4:3 mode) — more vertical
-   * stage content than 16:9, zero bars, zero distortion, nothing cropped.
+   * EXPANDED STAGE VIEW (historical key name '4:3' — see the block comment
+   * above; the user asked for "more stage can be seen", not 4:3). The engine
+   * renders a 1280x720 canvas with FightAspect=16,9 and vfs.js fits each
+   * stage's view to its painted art (localcoord widened, pan bounds
+   * tightened): the full vertical art (design + declared sky) AND ~213 more
+   * stage-units of horizontal art than the 16:9 design, zero black bars,
+   * zero distortion. The 16:9 canvas fills a 16:9 screen edge-to-edge —
+   * no pillarbox. Characters keep their exact on-screen size (char scale
+   * follows the 240-unit world height, identical to every other mode).
    */
   '4:3': {
-    gameWidth: '960',
+    gameWidth: '1280',
     gameHeight: '720',
-    fightAspectWidth: '4',
-    fightAspectHeight: '3',
+    fightAspectWidth: '16',
+    fightAspectHeight: '9',
     keepAspect: '1',
     marker: '4:3',
   },
@@ -731,12 +749,12 @@ export const SETTINGS_SCHEMA: SettingGroup[] = [
         section: 'Video', key: 'DisplayMode', label: 'Display Mode',
         type: 'select',
         options: [
-          { value: '4:3',        label: '4:3 · Classic fullscreen (taller view)' },
+          { value: '4:3',        label: 'Expanded · max stage view (recommended)' },
           { value: '16:9-720p',  label: '16:9 · 720p HD' },
           { value: '16:9-1080p', label: '16:9 · 1080p Full HD' },
         ],
         requiresReload: true,
-        hint: '4:3 renders a genuine 4:3 picture (960x720) with more vertical stage content than 16:9 — zero black bars, zero distortion, nothing cropped. Stage zoom is enabled in both modes: the camera pulls back while players are far apart and shows more of the stage\'s top. 16:9 shows every stage at its native widescreen aspect.',
+        hint: 'Expanded fits each stage\'s view to its full painted art: more stage visible vertically AND horizontally than 16:9 — zero black bars, zero distortion, nothing cropped, full screen edge-to-edge. The camera pans a little less (the wider view already covers the same world). Stage zoom is enabled in both modes. 16:9 shows every stage at its native widescreen aspect.',
       },
       {
         section: 'Video', key: 'Fullscreen', label: 'Fullscreen',

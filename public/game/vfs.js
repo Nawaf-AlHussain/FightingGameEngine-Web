@@ -273,55 +273,74 @@
     }
   }
 
-  // --- 4:3 stage camera clamp + view fit (the "black bars" fixes) ---
-  // In the 4:3 display mode the engine renders the fight at a 960x720
-  // framebuffer with FightAspect=4,3. For a 16:9-designed stage that view is
-  // (720/scl - localcoordH) stage units TALLER than the design area, and the
-  // engine camera's aspectcorrection splits the extra height AROUND the
-  // design: min(missingU/2, overdrawlow) lands BELOW the design bottom, the
-  // rest above the design top. These stages' art ends at the design bottom
-  // (the below-ground strip INSIDE the design is the last painted row:
-  // floor front + reflections), so the below-design half of the split is a
-  // solid black bar with the reflections rendering right at its top edge.
-  // That is the "black bar where shadows/reflections can also be seen".
-  // (The above-design half had the mirror problem on pans: the 16:9-era
-  // [Camera] boundhigh let the camera rise past the declared sky - black
-  // sky when following a jump. 16:9 sees neither: its view is exactly the
-  // design area.)
+  // --- Expanded-stage view fit (the "black bars" fixes, generalized) -----
+  // In the expanded display mode (marker '4:3' — the mode FORMERLY known as
+  // 4:3; the user asked for "more stage can be seen", not 4:3) the engine
+  // renders the fight at a 1280x720 framebuffer with FightAspect=16,9.
+  // applyFightAspect makes the world 240*(16/9) x 240 units and width-fits
+  // the stage's localcoord into it, so the view spans localcoordW stage
+  // units wide and localcoordW*9/16 tall — for an unpatched 16:9-designed
+  // stage that is exactly the design area (the plain 16:9 picture). The fit
+  // rewrite WIDENS the design box so the view covers the stage's full
+  // PAINTED art — the user's ask: "expand horizontally, see more of the
+  // stage, without seeing out of bounds black bars". Done at the VFS
+  // serving layer (no WASM rebuild), exactly like a stage author porting
+  // their stage:
   //
-  // A pure reframe cannot fix the bottom bar: the 4:3 view (816u for
-  // 1088-wide stages) is taller than the stage's total vertical art
-  // (design + declared sky = 732u), so ~84u of out-of-art pixels exist at
-  // ANY framing. The view must FIT the art. Done at the VFS serving layer
-  // (no WASM rebuild), exactly like a stage author porting their stage:
+  //   scl      = GameWidth / localcoordW            (1280 / localcoordW)
+  //   viewH    = GameHeight / scl = localcoordW * 9/16
+  //   targetW  = (localcoordH + overdrawhigh) * 16/9
+  //            -> the fitted view is design height + declared sky headroom
+  //               tall (the SAME vertical fit the fitted-4:3 era shipped)
+  //   artHalf  = localcoordW/2 + |boundleft|, per side — the roster
+  //             generator matches the pan bounds to the painted art, so
+  //             the art extends to ±(designW/2 + |boundleft|): 836u on
+  //             EVERY roster stage (544+292, 640+196, 448+388), vs a 544u
+  //             design half-width. A missing side is assumed to end at the
+  //             design edge (conservative).
+  //   fitW     = min(targetW, 2*min(artLeft, artRight))
+  //            -> never widen the view past the painted art
+  //   overdrawlow = 0 -> the fitted extra height lands entirely ABOVE the
+  //                      design, never below its bottom edge
+  //   boundhigh = -max(0, round(overdrawhigh - (fitW*9/16 - localcoordH)))
+  //            -> 0 by construction on roster stages: the fitted view
+  //               already tops out at the declared sky, so any up-pan
+  //               would expose black
+  //   boundleft/right -> ±floor(artHalf - fitW/2): the wider view pans
+  //               LESS, and its edges stay inside the painted art at every
+  //               pan position (at max pan the edge sits 0.5u inside the
+  //               art boundary). Only ever tightens.
   //
-  //   scl      = 960 / localcoordW             (4:3 preset GameWidth)
-  //   missingU = 720/scl - localcoordH         (extra stage units the view adds)
-  //   fitW     = (localcoordH + overdrawhigh) / 0.75
-  //            -> window becomes design height + declared sky headroom
-  //   overdrawlow = 0 -> the (now smaller) extra height lands entirely
-  //                      above the design, never below its bottom edge
-  //   boundhigh = -max(0, overdrawhigh - aboveU2), aboveU2 = missingU2
-  //            -> 0 by construction: the fitted view already tops out at
-  //               the declared sky, so any up-pan would expose black
+  // Roster numbers (1088x612 + overdrawhigh 120 stages): localcoord
+  // 1088 -> 1301, view 1301 x ~732u (design 612u + sky 120u tall — the
+  // SAME vertical fit the user approved in the fitted 4:3 mode — and 213u
+  // more horizontal stage than the 16:9 design, ~107u more painted world
+  // per side than the old fitted 4:3 window's 976u), pan bounds
+  // ±292 -> ±185, boundhigh -328 -> 0. The canvas is a plain 16:9 1280x720:
+  // it fills a 16:9 screen edge-to-edge with NO pillarbox (the fitted 4:3
+  // mode pillarboxed).
   //
   // Effects, all deterministic from the def text (online-safe: both peers
-  // patch identically): zero black at rest AND while panning; the stage
-  // renders ~11% larger (zoom-fill - the honest cost of fitting a 4:3
-  // window to 16:9-authored art); characters keep their exact on-screen
-  // size (their scale follows GameWidth, not the stage); the design's own
-  // below-ground strip (floor front + reflections) stays visible at the
-  // screen bottom. Never applied in 16:9 - that path stays byte-identical.
+  // patch identically): zero black at rest, while panning, and at zoom-out
+  // (the engine's floor-anchored autozoom is clamped by the same art — the
+  // fitted rest view IS the maximal paintable view, so zoom-out simply
+  // stops at it). The stage renders at the same ~0.98 px/stage-unit scale
+  // the fitted 4:3 mode had; characters keep their exact on-screen size
+  // (their scale follows the 240-unit world height — identical across
+  // every mode). Never applied in 16:9 — that path stays byte-identical.
   //
-  // Constraints honored: only 16:9-family stages are patched (missingU > 0;
-  // legacy 320x240-family stages fit natively and are untouched); stages
-  // without an explicit boundhigh skip the clamp step (default 0 = engine
-  // never pans up anyway); integer outputs only (the engine parses these
-  // keys with ReadI32); idempotent by construction (a fitted def re-parses
-  // to the same fitW/odl/pan budget and rewrites nothing).
-  let effective43 = false;
-  function setEffective43(v) {
-    effective43 = v; // flips mid-session via online display-mode adoption
+  // Constraints honored: a stage is only ever widened up to its painted
+  // art — a stage whose art ends at its design (no pan bounds, or bounds
+  // so tight the cap binds at the design width) falls through UNTOUCHED
+  // (legacy 320x240-family stages without pan art keep their historical
+  // behavior), while legacy stages WITH generous pan art get the full fit
+  // (their view keeps the full design height instead of cropping);
+  // integer outputs only (the engine parses these keys with ReadI32);
+  // idempotent by construction (a fitted def re-parses to the same
+  // fitW/odl/pan budget/art-half and rewrites nothing).
+  let expandedStage = false;
+  function setExpandedStage(v) {
+    expandedStage = v; // flips mid-session via online display-mode adoption
   }
   // Byte-faithful latin1 round-trip: stage defs are ASCII keys but often
   // carry cp1252 bytes in comments/names, and TextDecoder('utf-8') would
@@ -339,15 +358,23 @@
     for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i) & 0xff;
     return out;
   }
-  const STAGE43_DEF_RE = /^(?:data\/)?stages\/[^/]*\.def$/i;
+  // Expanded display-mode render geometry — MUST match the '4:3' preset in
+  // src/lib/engine-config.ts (DISPLAY_MODE_PRESETS['4:3']). The mode key /
+  // marker / online mode string keep their historical '4:3' name; these
+  // values define the actual render: a 1280x720 canvas, FightAspect=16,9.
+  const EXPANDED_GAMEW = 1280;
+  const EXPANDED_GAMEH = 720;
+  const EXPANDED_FA_W = 16;
+  const EXPANDED_FA_H = 9;
+  const STAGE_EXPANDED_DEF_RE = /^(?:data\/)?stages\/[^/]*\.def$/i;
   // Re-runs on every open (no memo): the rewrites are idempotent (a fitted
-  // def re-parses to the same fitW / overdrawlow=0 / pan budget and changes
-  // nothing), and a background prefetch may legitimately re-materialize the
-  // ORIGINAL bytes into `contents` after the first patch - a later open
-  // must re-patch them. The scan cost is a ~10-40KB text regex, once per
-  // stage per open.
-  function patchStageDef43(vpath) {
-    if (!effective43 || !STAGE43_DEF_RE.test(vpath)) return;
+  // def re-parses to the same fitW / overdrawlow=0 / pan budget / art-half
+  // and changes nothing), and a background prefetch may legitimately
+  // re-materialize the ORIGINAL bytes into `contents` after the first
+  // patch - a later open must re-patch them. The scan cost is a ~10-40KB
+  // text regex, once per stage per open.
+  function patchStageDefExpanded(vpath) {
+    if (!expandedStage || !STAGE_EXPANDED_DEF_RE.test(vpath)) return;
     const buf = contents.get(vpath);
     if (!buf) return; // not materialized yet - retried on the next open
     try {
@@ -364,30 +391,37 @@
       const lc = /^\s*localcoord\s*=\s*(\d+)\s*,\s*(\d+)/im.exec(sectionBody('StageInfo'));
       if (!lc) return; // unknown geometry
       const localW = +lc[1], localH = +lc[2];
-      const scl = 960 / localW;
-      const missingU = 720 / scl - localH;
-      if (!(missingU > 0)) return; // legacy 4:3-family stage: fits natively
       const odh = Math.max(0, num(cam, 'overdrawhigh') || 0);
-      const odl = Math.max(0, num(cam, 'overdrawlow') || 0);
-
-      // Step 1 - fit the view to the stage's vertical art (the bottom
-      // "black bar with reflections" fix): shrink the 4:3 window to design
-      // height + declared sky headroom and zero overdrawlow so the whole
-      // extra height lands above the design, never below its bottom edge.
-      const fitW = Math.round((localH + odh) / 0.75);
+      // Painted-art half-width per side, derived from the pan bounds (the
+      // roster generator matches bounds to art). A missing side assumes
+      // that side's art ends at the design edge (conservative).
+      const bl = num(cam, 'boundleft');
+      const br = num(cam, 'boundright');
+      const artLeft = localW / 2 + (bl !== null ? Math.max(0, -bl) : 0);
+      const artRight = localW / 2 + (br !== null ? Math.max(0, br) : 0);
+      // The view is localcoordW*GameH/GameW stage-units tall at zoom 1;
+      // widen the design box so it becomes design height + declared sky,
+      // capped at the painted art width.
+      const heightToWidth = EXPANDED_GAMEW / EXPANDED_GAMEH; // 16/9
+      const targetW = Math.round((localH + odh) * heightToWidth);
+      const artCap = Math.floor(2 * Math.min(artLeft, artRight));
+      const fitW = Math.min(targetW, artCap);
+      if (fitW === localW) return; // nothing to fit (incl. already-fitted defs)
       let patchedText = text;
-      if (fitW !== localW) {
-        const next = patchedText.replace(
-          /^(\s*localcoord\s*=\s*)(\d+)(\s*,\s*\d+)/im,
-          (m, p1, p2, p3) => p1 + String(fitW) + p3
-        );
-        if (next !== patchedText) {
-          patchedText = next;
-          console.log('[vfs] 4:3 view fit: ' + vpath + ' localcoord ' + localW + ' -> ' + fitW
-            + ' (window ' + Math.round(0.75 * fitW) + 'u = design ' + localH + 'u + declared sky '
-            + Math.round(odh) + 'u; the old view was +' + Math.round(missingU) + 'u over design, '
-            + Math.round(Math.min(missingU / 2, odl)) + 'u of it below the design = the black bar)');
-        }
+
+      // Step 1 - fit the view to the stage's painted art: widen the design
+      // box to design height + declared sky headroom (capped at the art)
+      // and zero overdrawlow so the whole extra height lands above the
+      // design, never below its bottom edge.
+      const next1 = patchedText.replace(
+        /^(\s*localcoord\s*=\s*)(\d+)(\s*,\s*\d+)/im,
+        (m, p1, p2, p3) => p1 + String(fitW) + p3
+      );
+      if (next1 !== patchedText) {
+        patchedText = next1;
+        console.log('[vfs] expanded view fit: ' + vpath + ' localcoord ' + localW + ' -> ' + fitW
+          + ' (view ' + Math.round(fitW * EXPANDED_GAMEH / EXPANDED_GAMEW) + 'u tall = design ' + localH
+          + 'u + declared sky ' + Math.round(odh) + 'u; the 16:9 design was ' + localW + 'u wide)');
       }
       if (/^\s*overdrawlow\s*=\s*/im.test(patchedText)) {
         const next = patchedText.replace(
@@ -399,11 +433,11 @@
 
       // Step 2 - pan ceiling, recomputed for the fitted view: the window now
       // tops out exactly at the declared sky headroom, so the remaining
-      // up-pan budget is zero. Only ever tightens the effective pan.
+      // up-pan budget collapses to zero on roster stages. Only ever
+      // tightens the effective pan.
       const bh = num(cam, 'boundhigh');
       if (bh !== null) {
-        const scl2 = 960 / fitW;
-        const missingU2 = 720 / scl2 - localH;
+        const missingU2 = fitW * EXPANDED_GAMEH / EXPANDED_GAMEW - localH;
         const panBudget = Math.max(0, Math.round(odh - missingU2));
         if (-Math.min(bh, 0) > panBudget + 0.01) {
           const next = patchedText.replace(
@@ -412,8 +446,41 @@
           );
           if (next !== patchedText) {
             patchedText = next;
-            console.log('[vfs] 4:3 camera clamp: ' + vpath + ' boundhigh ' + bh + ' -> ' + (-panBudget)
+            console.log('[vfs] expanded camera clamp: ' + vpath + ' boundhigh ' + bh + ' -> ' + (-panBudget)
               + ' (fitted view tops out at the declared sky headroom)');
+          }
+        }
+      }
+
+      // Step 3 - horizontal pan limits, recomputed for the wider view: the
+      // camera may only pan until the view edge reaches the painted art
+      // boundary (the view is fitW wide; the art spans ±artHalf). Only
+      // ever tightens — the wider view needs less pan for the same world.
+      if (bl !== null) {
+        const newBL = -Math.max(0, Math.floor(artLeft - fitW / 2));
+        if (newBL > bl) {
+          const next = patchedText.replace(
+            /^(\s*boundleft\s*=\s*)(-?\d+(?:\.\d+)?)/im,
+            (m, p1) => p1 + String(newBL)
+          );
+          if (next !== patchedText) {
+            patchedText = next;
+            console.log('[vfs] expanded pan clamp: ' + vpath + ' boundleft ' + bl + ' -> ' + newBL
+              + ' (the wider view must stay inside the painted art)');
+          }
+        }
+      }
+      if (br !== null) {
+        const newBR = Math.max(0, Math.floor(artRight - fitW / 2));
+        if (newBR < br) {
+          const next = patchedText.replace(
+            /^(\s*boundright\s*=\s*)(-?\d+(?:\.\d+)?)/im,
+            (m, p1) => p1 + String(newBR)
+          );
+          if (next !== patchedText) {
+            patchedText = next;
+            console.log('[vfs] expanded pan clamp: ' + vpath + ' boundright ' + br + ' -> ' + newBR
+              + ' (the wider view must stay inside the painted art)');
           }
         }
       }
@@ -443,10 +510,11 @@
           manifest.delete(vpath);
           registerDirsFor(vpath);
         }
-        // 4:3 camera clamp (see patchStageDef43): runs here because every
-        // serving path - pak materialization, CDN fetch, direct injection -
-        // has populated `contents` by the time the engine opens the file.
-        patchStageDef43(vpath);
+        // Expanded-stage fit (see patchStageDefExpanded): runs here because
+        // every serving path - pak materialization, CDN fetch, direct
+        // injection - has populated `contents` by the time the engine opens
+        // the file.
+        patchStageDefExpanded(vpath);
         const fd = nextFd++;
         fds.set(fd, { vpath, flags });
         callback(null, fd);
@@ -654,11 +722,12 @@
   // The engine's netplay handshake refuses peers whose EFFECTIVE FIGHT
   // ASPECT differs ("effective fight aspect differs (local=... remote=...)",
   // engine validateStrictCompatibility): render-resolution differences are
-  // normalized away, but the 4:3 display mode (FightAspect=4,3 ->
-  // "custom:4:3") genuinely differs from the stage-default 16:9 path
-  // (FightAspect=-1,-1 -> "stage"). A 4:3 host paired with a 16:9 guest —
-  // e.g. PC with 4:3 vs phone on the default — exited the engine before
-  // the fight started ("ENGINE EXITED BEFORE THE FIGHT STARTED").
+  // normalized away, but a preset FightAspect (the expanded display mode's
+  // FightAspect=16,9 -> the "custom:..." flavor of the aspect string)
+  // genuinely differs from the stage-default path (FightAspect=-1,-1 ->
+  // "stage"). An expanded-mode host paired with a 16:9 guest — e.g. PC in
+  // expanded vs phone on the default — would exit the engine before the
+  // fight started ("ENGINE EXITED BEFORE THE FIGHT STARTED").
   //
   // The website online flow carries the HOST's display mode in the 'go'
   // control frame; the GUEST applies it to the in-memory save/config.ini
@@ -698,12 +767,13 @@
         changed = true;
       };
       if (mode === '4:3') {
-        // The engine's native 4:3 — exactly what the boot migration writes
-        // for the '4:3' marker (same preset as the Settings UI).
-        ensureKey('GameWidth', 960, 'Video');
+        // The EXPANDED STAGE VIEW — exactly what the boot migration writes
+        // for the '4:3' marker (same preset as the Settings UI): a 1280x720
+        // canvas + FightAspect=16,9 + the vfs stage fit.
+        ensureKey('GameWidth', 1280, 'Video');
         ensureKey('GameHeight', 720, 'Video');
-        ensureKey('FightAspectWidth', 4, 'Video');
-        ensureKey('FightAspectHeight', 3, 'Video');
+        ensureKey('FightAspectWidth', 16, 'Video');
+        ensureKey('FightAspectHeight', 9, 'Video');
         ensureKey('KeepAspect', 1, 'Video');
       } else {
         // 16:9 = stage-default fight aspect.
@@ -722,9 +792,9 @@
       if (changed) {
         globalThis.engineInjectFile('save/config.ini', new TextEncoder().encode(text));
       }
-      // The adopted host mode also gates the 4:3 stage camera clamp, so
+      // The adopted host mode also gates the expanded stage fit, so
       // host and guest patch the same stage defs identically.
-      setEffective43(mode === '4:3');
+      setExpandedStage(mode === '4:3');
       return mode;
     } catch (e) {
       return null;
@@ -995,21 +1065,22 @@
 
     // Normalize display-mode configurations left behind by older builds:
     // the crop-era presets ('4:3' marker + 1280x720 16:9 render + web fitter
-    // cover-crop), the interim letterbox presets, the stretch presets, and
-    // the first-generation 4:3 render resolutions (640x480).
+    // cover-crop), the interim letterbox presets, the stretch presets, the
+    // first-generation 4:3 render resolutions (640x480), and the
+    // genuine-4:3 era (960x720 + FightAspect=4,3).
     //
-    // The 4:3 display mode is now the ENGINE'S NATIVE 4:3: FightAspect=4,3
-    // re-frames the fight into a genuine 4:3 world (verified in the shipped
-    // WASM with headless screenshots: full-bleed 4:3, zero bars, zero
-    // distortion, and MORE vertical stage content than 16:9 — the extra
-    // height lands in the stage's overdraw regions, placed by the engine
-    // camera's aspectcorrection per the stage's overdrawhigh/overdrawlow).
-    // The canvas is 960x720 (4:3), so the /play fitter needs no mode-specific
-    // presentation anymore — plain contain-fit is correct at both aspects.
+    // The '4:3'-marked mode is now the EXPANDED STAGE VIEW (the mode the
+    // Settings UI calls "Expanded"; the marker/key name is historical): a
+    // 1280x720 canvas + FightAspect=16,9, with vfs.js's stage fit
+    // (patchStageDefExpanded) rewriting each stage's view to its painted
+    // art — more stage visible vertically AND horizontally than 16:9, zero
+    // black bars, zero distortion, and a plain 16:9 canvas that fills a
+    // 16:9 screen edge-to-edge (no pillarbox). Verified in the shipped
+    // WASM with headless screenshots.
     //
     // Stage zoom ([Config] ZoomActive + [Debug] ForceStageAutoZoom) is also
     // ensured here at EVERY boot: the camera then dynamically zooms out while
-    // players are far apart (clamped by the stage's own camera bounds),
+    // players are far apart (clamped by the stage's own camera bounds/art),
     // revealing the stage's top. Stages that author their own [Camera] zoom
     // settings are unaffected — ForceStageAutoZoom only fills in zoom-less
     // stages (e.g. UIU_Fountain).
@@ -1018,12 +1089,13 @@
     //   marker '4:3' (v2 key ONLY — pre-v2 markers are invalidated because
     //     an earlier build auto-wrote them on the first /local visit) or an
     //     explicit 4:3 choice
-    //     -> GameWidth/GameHeight = 960/720, FA = 4,3, KeepAspect = 1,
-    //        marker '4:3'
+    //     -> EXPANDED STAGE VIEW: GameWidth/GameHeight = 1280/720,
+    //        FA = 16,9, KeepAspect = 1, marker '4:3' (config values from
+    //        the genuine-4:3 era migrate here automatically)
     //   anything else — INCLUDING no marker, the 16:9 default
     //     -> FA healed to -1,-1 (broken half-configs from the old standalone
-    //        settings UI); orphaned 4:3 canvases (960x720 left by the
-    //        previous normalization, 640x480 from the stretch era) are
+    //        settings UI); orphaned non-16:9 canvases (960x720 left by the
+    //        genuine-4:3 era, 640x480 from the stretch era) are
     //        bumped back to 1280x720 so the 16:9 fight fills the canvas
     //        edge-to-edge; other resolutions are kept
     //   always -> Config.ZoomActive = 1, Debug.ForceStageAutoZoom = 1
@@ -1046,9 +1118,10 @@
         // heuristics deliberately do NOT infer a mode anymore — a stale
         // 4:3 resolution without a marker is an orphan to heal to 16:9.
         const is43 = marker === '4:3';
-        // Gate for the 4:3 stage camera clamp (patchStageDef43): stage defs
-        // are rewritten as the engine opens them, which happens after this.
-        setEffective43(is43);
+        // Gate for the expanded stage fit (patchStageDefExpanded): stage
+        // defs are rewritten as the engine opens them, which happens after
+        // this.
+        setExpandedStage(is43);
 
         // Align a key if present; insert it under its section header if the
         // key is missing (creating the whole section at the end if needed).
@@ -1072,11 +1145,14 @@
         };
 
         if (is43) {
-          // Migrate crop-era / legacy 4:3 configs to the native 4:3 render.
-          ensureKey('GameWidth', 960, 'Video');
+          // Migrate every historical '4:3'-marker config (crop-era, the
+          // genuine-4:3 960x720 render, etc.) to the EXPANDED STAGE VIEW:
+          // 1280x720 canvas + FightAspect=16,9 + the vfs stage fit. The
+          // marker keeps its historical name; the values define the mode.
+          ensureKey('GameWidth', 1280, 'Video');
           ensureKey('GameHeight', 720, 'Video');
-          ensureKey('FightAspectWidth', 4, 'Video');
-          ensureKey('FightAspectHeight', 3, 'Video');
+          ensureKey('FightAspectWidth', 16, 'Video');
+          ensureKey('FightAspectHeight', 9, 'Video');
           ensureKey('KeepAspect', 1, 'Video');
           try {
             const cur = localStorage.getItem('engine-display-mode-v2');
@@ -1086,12 +1162,12 @@
           } catch (e) { /* marker best-effort */ }
         } else {
           // 16:9 path (also the no-marker default) — heal broken
-          // half-configs (FA must be -1,-1), and bump orphaned 4:3
-          // canvases (960x720 left by the previous native-4:3
-          // normalization, 640x480 from the stretch era) back to the
-          // shipped 1280x720 so the 16:9 fight fills the canvas
-          // edge-to-edge instead of letterboxing inside a 4:3 frame.
-          // Any other resolution is kept (e.g. a chosen 1080p canvas).
+          // half-configs (FA must be -1,-1), and bump orphaned non-16:9
+          // canvases (960x720 left by the genuine-4:3 era, 640x480 from
+          // the stretch era) back to the shipped 1280x720 so the 16:9
+          // fight fills the canvas edge-to-edge instead of letterboxing
+          // inside a 4:3 frame. Any other resolution is kept (e.g. a
+          // chosen 1080p canvas).
           ensureKey('FightAspectWidth', -1, 'Video');
           ensureKey('FightAspectHeight', -1, 'Video');
           if (gw && gh && Math.abs(+gw[1] / +gh[1] - 4 / 3) < 0.01) {
@@ -1196,7 +1272,7 @@
         if (changed) {
           contents.set('save/config.ini', new TextEncoder().encode(text));
           console.log('[vfs] normalized display-mode config to '
-            + (is43 ? 'native 4:3 (960x720, FightAspect=4,3)' : '16:9 stage-default aspect')
+            + (is43 ? 'expanded stage view (1280x720, FightAspect=16,9)' : '16:9 stage-default aspect')
             + ' + stage zoom');
         }
       }
