@@ -3,6 +3,17 @@ import { Anton, Oswald } from 'next/font/google';
 import './globals.css';
 import '@/styles/game.css';
 import { WipeTransitionProvider } from '@/components/WipeTransition';
+import SWRegister from '@/components/SWRegister';
+
+/**
+ * Captured before React hydrates: `beforeinstallprompt` fires at most once per
+ * page and can beat hydration, in which case a React-only listener would miss
+ * it and Chrome would show its own mini-infobar instead. Stash the event
+ * globally (the lobby reads it to offer an in-app INSTALL APP item) and
+ * re-announce it via a plain custom event.
+ */
+const captureInstallPrompt =
+  "window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();window.__fgeInstallEvent=e;window.dispatchEvent(new CustomEvent('fge:install-available'));});";
 
 // Self-hosted at build time via next/font (Batch 4): the render-blocking
 // fonts.googleapis.com stylesheet is gone — no external CSS request in the
@@ -83,10 +94,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black" />
         <meta name="apple-mobile-web-app-title" content="Fighting Game Engine" />
+        <script dangerouslySetInnerHTML={{ __html: captureInstallPrompt }} />
         <script src="/game/fullscreen.js" defer />
       </head>
       <body className={`${oswald.variable} ${anton.variable} bg-black text-white antialiased`}>
         <WipeTransitionProvider>{children}</WipeTransitionProvider>
+        <SWRegister />
       </body>
     </html>
   );

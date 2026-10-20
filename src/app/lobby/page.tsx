@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useWipeNavigation } from '@/components/WipeTransition';
 
 /**
@@ -29,21 +29,70 @@ import { useWipeNavigation } from '@/components/WipeTransition';
  * - SETTINGS → /settings (engine config, key remapping)
  * - ABOUT → /about (project info)
  *
- * Keyboard: Enter / Space → selected item · Arrows move · L/O/S/A shortcuts.
+ * Keyboard: Enter / Space → selected item · Arrows move · L/O/S/A shortcuts
+ * · I → INSTALL APP (only while the browser offers installation).
  * Motion: bars slide in staggered, caret nudges, ribbon + halftone + art
  * crossfade run on transform/opacity loops — all disabled under
  * prefers-reduced-motion. No per-frame JS on this screen.
  */
 
+/** Chromium's BeforeInstallPromptEvent — the prompt behind the address-bar install icon. */
+interface InstallPromptEvent extends Event {
+  prompt(): Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
+}
+
+declare global {
+  interface Window {
+    __fgeInstallEvent?: InstallPromptEvent | null;
+  }
+}
+
 export default function LobbyPage() {
   const { navigate } = useWipeNavigation();
   const [selectedIndex, setSelectedIndex] = useState(0);
+  /** Set when Chromium offers install (same prompt as the address-bar icon). */
+  const [installEvent, setInstallEvent] = useState<InstallPromptEvent | null>(null);
+
+  // The head capture script (layout.tsx) preventDefaults beforeinstallprompt
+  // and stashes it on window — possibly BEFORE this component hydrates. So on
+  // mount, read the stash; afterwards, follow the re-announce event.
+  useEffect(() => {
+    if (window.__fgeInstallEvent) setInstallEvent(window.__fgeInstallEvent);
+    const onAvailable = () => {
+      if (window.__fgeInstallEvent) setInstallEvent(window.__fgeInstallEvent);
+    };
+    const onInstalled = () => setInstallEvent(null);
+    window.addEventListener('fge:install-available', onAvailable);
+    window.addEventListener('appinstalled', onInstalled);
+    return () => {
+      window.removeEventListener('fge:install-available', onAvailable);
+      window.removeEventListener('appinstalled', onInstalled);
+    };
+  }, []);
+
+  const promptInstall = useCallback(async () => {
+    const ev = installEvent;
+    if (!ev) return;
+    try {
+      await ev.prompt();
+      const { outcome } = await ev.userChoice;
+      if (outcome === 'accepted') setInstallEvent(null);
+    } catch {
+      /* prompt can reject if the context died; the item stays for a retry */
+    }
+  }, [installEvent]);
 
   const menuItems = [
     { label: 'LOCAL PLAY', action: () => navigate('/local'), key: 'L' },
     { label: 'ONLINE PLAY', action: () => navigate('/play?net=1'), key: 'O' },
     { label: 'SETTINGS', action: () => navigate('/settings'), key: 'S' },
     { label: 'ABOUT', action: () => navigate('/about'), key: 'A' },
+    // Only offered when the browser can actually install the app —
+    // a menu item with no runtime effect must never render. Prints as 05.
+    ...(installEvent
+      ? [{ label: 'INSTALL APP', action: () => void promptInstall(), key: 'I' }]
+      : []),
   ];
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -68,8 +117,11 @@ export default function LobbyPage() {
     } else if (e.key === 'a' || e.key === 'A') {
       e.preventDefault();
       navigate('/about');
+    } else if ((e.key === 'i' || e.key === 'I') && installEvent) {
+      e.preventDefault();
+      void promptInstall();
     }
-  }, [selectedIndex, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedIndex, navigate, installEvent, promptInstall]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <main
