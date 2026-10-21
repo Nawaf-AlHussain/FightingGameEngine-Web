@@ -43,6 +43,12 @@
 //   - START pill top-center
 //   - ESC pill top-center (dispatches Escape)
 //
+// Portrait Game Boy mode: when the canvas fitter pins the game screen to
+// the top of a portrait phone (src/app/play/page.tsx), it publishes
+// --ikemen-screen-bottom on <html>; the pills dock just below the screen
+// via max() so they stop covering the fight HUD. Landscape is unchanged
+// (var = 0px → pills stay at their classic top-center spot).
+//
 // Multi-touch: every touch identifier is tracked independently, so
 // D-pad + several buttons can be held at once. Reference counting
 // ensures overlapping keys (e.g. diagonal Up+Right and cardinal Up)
@@ -57,7 +63,7 @@
   // Bump when touch.js changes and mirror it in the ?v= cache-buster on the
   // script tag in src/app/play/page.tsx. Logged on build() so a stale
   // cached copy of this file is instantly diagnosable from the console.
-  const BUILD = "touch-2026-10-07.1";
+  const BUILD = "touch-2026-10-22.1";
 
   // ---- P1 bindings = the engine's built-in layout (see header) ----
   const BINDINGS = Object.freeze({
@@ -231,7 +237,12 @@
 
 .itc-meta {
   position: absolute;
-  top: calc(var(--sat) + 8px); left: 50%;
+  /* Landscape: same top-center spot as always (--ikemen-screen-bottom is
+     0px there). Portrait Game Boy mode: the canvas fitter publishes the
+     game screen's bottom edge and the pills dock just below it. */
+  top: calc(var(--sat) + 8px);
+  top: max(calc(var(--sat) + 8px), var(--ikemen-screen-bottom, 0px));
+  left: 50%;
   transform: translateX(-50%);
   display: flex; gap: 14px;
   pointer-events: none;

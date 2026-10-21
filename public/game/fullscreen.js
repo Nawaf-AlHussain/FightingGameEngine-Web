@@ -1,7 +1,14 @@
-// Mobile fullscreen + landscape lock.
+// Mobile fullscreen (NO orientation lock).
 // Android browsers use the Fullscreen API on the first user gesture.
 // iOS Safari does not expose element fullscreen; installed Home Screen
 // launches are already chrome-less and are handled by the manifest/meta tags.
+//
+// PORTRAIT IS SUPPORTED on purpose: touch devices get a Game Boy style
+// presentation in portrait (game screen pinned to the top, touch controls
+// docked below — see fitCanvasToViewport in src/app/play/page.tsx and the
+// --ikemen-screen-bottom consumers in touch.js / game.css). Do NOT add
+// screen.orientation.lock("landscape") back — that was removed 2026-10-22
+// along with the old RotateOverlay wall.
 "use strict";
 (() => {
   const coarse = (window.matchMedia && window.matchMedia("(pointer: coarse)").matches) ||
@@ -12,13 +19,6 @@
     (window.matchMedia && window.matchMedia("(display-mode: fullscreen)").matches) ||
     window.navigator.standalone === true;
 
-  function lockLandscape() {
-    try {
-      const orientation = screen.orientation;
-      if (orientation && orientation.lock) orientation.lock("landscape").catch(() => {});
-    } catch {}
-  }
-
   async function goFullscreen() {
     try {
       const root = document.documentElement;
@@ -26,15 +26,9 @@
         await root.requestFullscreen({ navigationUI: "hide" });
       }
     } catch {}
-    lockLandscape();
   }
 
-  window.addEventListener("orientationchange", lockLandscape);
-
-  if (standalone) {
-    lockLandscape();
-    return;
-  }
+  if (standalone) return; // already chrome-less; nothing to lock or request
 
   const once = () => {
     window.removeEventListener("touchend", once);

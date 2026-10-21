@@ -6,7 +6,6 @@ import CharacterSelect, {
   type Difficulty,
 } from '@/components/CharacterSelect';
 import StageSelect from '@/components/StageSelect';
-import RotateOverlay from '@/components/RotateOverlay';
 import FullscreenToggle from '@/components/FullscreenToggle';
 import { useWipeNavigation } from '@/components/WipeTransition';
 import { useIsTouchDevice } from '@/lib/use-touch-device';
@@ -183,7 +182,6 @@ export default function LocalPlayPage() {
   if (screen === 'stage-select' && lockIn) {
     return (
       <div>
-        {isTouch && <RotateOverlay />}
         <FullscreenToggle />
         <StageSelect
           onSelect={handleStageSelect}
@@ -196,7 +194,6 @@ export default function LocalPlayPage() {
 
   return (
     <div>
-      {isTouch && <RotateOverlay />}
       <FullscreenToggle />
       <CharacterSelect
         onLockIn={handleLockIn}

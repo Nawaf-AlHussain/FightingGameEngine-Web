@@ -74,15 +74,11 @@ export default function FullscreenToggle() {
       } else if (typeof root.webkitRequestFullscreen === 'function') {
         root.webkitRequestFullscreen();
       }
-      // Companion lock fullscreen.js already does on touch: ask for
-      // landscape once fullscreen is granted (Android only; the promise
-      // rejects and this no-ops on desktop/iOS).
-      try {
-        const orientation = screen.orientation as ScreenOrientation & {
-          lock?: (o: string) => Promise<void>;
-        };
-        orientation?.lock?.('landscape')?.catch(() => {});
-      } catch { /* orientation API unsupported */ }
+      // NO orientation lock here — portrait is a supported way to play
+      // (Game Boy layout: screen pinned to the top, touch controls below;
+      // see fitCanvasToViewport in app/play/page.tsx). The old
+      // orientation.lock('landscape') companion call was removed with the
+      // rest of the landscape locks on 2026-10-22.
     } catch {
       // Request refused (permission policy / lost gesture) — the
       // fullscreenchange listeners simply never fire, so the icon

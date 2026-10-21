@@ -17,7 +17,6 @@ import {
   splitCharRef,
 } from '@/lib/character-downloader';
 import { useIsTouchDevice } from '@/lib/use-touch-device';
-import RotateOverlay from '@/components/RotateOverlay';
 import { ErrorState, GameButton } from '@/components/ui';
 import { readFightResult, clearFightResult, processFightResult, getCurrentModeState, markFightStart } from '@/lib/game-modes';
 import { getDisplayModeMarker } from '@/lib/engine-config';
@@ -680,7 +679,7 @@ function PlayPageInner() {
     // mobile browsers / PWA contexts have been observed keeping stale copies.
     // A versioned URL makes a stale touch.js impossible after a deploy.
     // IMPORTANT: bump this together with the BUILD constant inside touch.js.
-    script.src = '/game/touch.js?v=2026-10-07.1';
+    script.src = '/game/touch.js?v=2026-10-22.1';
     script.onload = () => {
       const g = globalThis as any;
       if (g.__engineTouch?.build) g.__engineTouch.build();
@@ -926,6 +925,16 @@ function PlayPageInner() {
         // filled edge-to-edge (no pillarbox), tall/narrow viewports
         // letterbox, and the picture itself is always undistorted and
         // uncropped.
+        //
+        // PORTRAIT GAME BOY MODE (touch only): on a coarse-pointer device
+        // held in portrait the canvas is pinned to the TOP of the screen at
+        // full width instead of centering, leaving the lower half for the
+        // touch controls — a Game Boy style layout (screen up, buttons
+        // down). --ikemen-screen-bottom on <html> marks where the game
+        // screen ends so touch.js pills and the fight exit button can dock
+        // below it. Landscape and non-touch portrait keep the exact
+        // centered presentation that has always shipped (var = 0px →
+        // consumers compute their old positions).
         const fitCanvasToViewport = () => {
           const canvas = document.querySelector('canvas#ikemen-canvas') as HTMLCanvasElement | null;
           if (!canvas || canvas.width <= 0 || canvas.height <= 0) return false;
@@ -948,13 +957,32 @@ function PlayPageInner() {
           const displayWidth = Math.min(viewportWidth, viewportHeight * aspect);
           const displayHeight = displayWidth / aspect;
 
+          // Primary pointer coarse = phone/tablet held in hand. Primary
+          // pointer fine (desktop, touchscreen laptops) keeps centering.
+          const portraitGameboy =
+            viewportHeight > viewportWidth &&
+            window.matchMedia('(pointer: coarse)').matches;
+          // Gap between the screen top edge and the viewport top (below the
+          // notch). Kept in sync with the --ikemen-screen-bottom calc below.
+          const gbGap = 'calc(env(safe-area-inset-top, 0px) + 10px)';
+
           canvas.style.setProperty('width', displayWidth + 'px', 'important');
           canvas.style.setProperty('height', displayHeight + 'px', 'important');
           canvas.style.setProperty('object-fit', 'contain', 'important');
           canvas.style.setProperty('object-position', 'center', 'important');
           canvas.style.setProperty('left', '50%', 'important');
-          canvas.style.setProperty('top', '50%', 'important');
-          canvas.style.setProperty('transform', 'translate(-50%, -50%)', 'important');
+          if (portraitGameboy) {
+            canvas.style.setProperty('top', gbGap, 'important');
+            canvas.style.setProperty('transform', 'translate(-50%, 0)', 'important');
+            document.documentElement.style.setProperty(
+              '--ikemen-screen-bottom',
+              `calc(${gbGap} + ${displayHeight}px)`,
+            );
+          } else {
+            canvas.style.setProperty('top', '50%', 'important');
+            canvas.style.setProperty('transform', 'translate(-50%, -50%)', 'important');
+            document.documentElement.style.setProperty('--ikemen-screen-bottom', '0px');
+          }
           canvas.style.setProperty('position', 'fixed', 'important');
           canvas.style.setProperty('max-width', 'none', 'important');
           canvas.style.setProperty('max-height', 'none', 'important');
@@ -1010,6 +1038,7 @@ function PlayPageInner() {
             window.visualViewport?.removeEventListener('scroll', onResize);
             document.getElementById('engine-canvas-fit')?.remove();
             document.body.classList.remove('fighting');
+            document.documentElement.style.removeProperty('--ikemen-screen-bottom');
           };
         };
 
@@ -1948,9 +1977,6 @@ function PlayPageInner() {
           details={bootError}
         />
       )}
-
-      {/* Rotate overlay for portrait touch devices */}
-      {isTouch && <RotateOverlay />}
 
       {/* Floating exit button — touch only, shown after engine starts */}
       {isTouch && showExit && (

@@ -2067,67 +2067,19 @@ body.fighting {
 }
 
 /* Old React TouchControls CSS removed — replaced by vanilla JS
-   touch.js which generates its own CSS inline. The rotate overlay,
-   fight exit button, and safe-area CSS below are still used. */
-
-/* ========================================
-   ROTATE OVERLAY (portrait touch devices)
-   ======================================== */
-.rotate-overlay { display: none; }
-
-@media (orientation: portrait) and (pointer: coarse) {
-  .rotate-overlay {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    position: fixed;
-    inset: 0;
-    z-index: 9999;
-    background: var(--black);
-    color: var(--white);
-    text-align: center;
-    padding: 40px 20px;
-  }
-  .rotate-overlay__icon {
-    font-size: 56px;
-    animation: rotate-icon 2s ease-in-out infinite;
-    margin-bottom: 20px;
-  }
-  @keyframes rotate-icon {
-    0%, 100% { transform: rotate(0deg); }
-    50% { transform: rotate(90deg); }
-  }
-  .rotate-overlay__text h2 {
-    font-family: var(--font-poster);
-    font-size: 1.5rem;
-    font-weight: 400;
-    font-style: normal;
-    text-transform: uppercase;
-    color: var(--white);
-    text-shadow: 3px 3px 0 var(--red);
-    margin-bottom: 0.75rem;
-  }
-  .rotate-overlay__text p {
-    font-size: 0.9rem;
-    color: var(--gray);
-    margin-bottom: 0.5rem;
-  }
-  .rotate-overlay__hint {
-    font-size: 0.75rem !important;
-    color: var(--cyan) !important;
-    letter-spacing: 0.15em;
-    text-transform: uppercase;
-    margin-top: 1rem !important;
-  }
-}
+   touch.js which generates its own CSS inline. The fight exit
+   button and safe-area CSS below are still used. */
 
 /* ========================================
    FIGHT EXIT BUTTON (touch only)
    ======================================== */
+/* Portrait Game Boy mode: --ikemen-screen-bottom (set by the canvas fitter
+   in play/page.tsx) marks where the game screen ends. Landscape = 0px →
+   top: 12px exactly as always; portrait → the button docks just below the
+   game screen instead of covering the fight HUD. */
 .fight__exit-touch {
   position: fixed;
-  top: 12px;
+  top: max(12px, var(--ikemen-screen-bottom, 0px));
   right: 12px;
   width: 40px;
   height: 40px;
@@ -2417,7 +2369,7 @@ body.fighting {
 /* touch.js handles its own safe-area insets via CSS env() variables. */
 @supports (padding: env(safe-area-inset-bottom)) {
   .fight__exit-touch {
-    top: calc(12px + env(safe-area-inset-top));
+    top: max(calc(12px + env(safe-area-inset-top)), var(--ikemen-screen-bottom, 0px));
     right: calc(12px + env(safe-area-inset-right));
   }
 }
