@@ -638,4 +638,97 @@ ok('unmaterialized path: no crash, retried on the next open', () => {
 });
 
 // ---------------------------------------------------------------------------
+console.log('\n[4] stage zoom package (autozoom=1 + zoomin=1.2 in every fitted mode)');
+// The fitted rest view IS the maximal paintable view: the engine's
+// MinZoomScale floors zoom-out at exactly 1.0 there, and the autozoom
+// package's zoom-in ceiling is 1.0 — the camera range collapses to
+// [1.0, 1.0] and stage zoom was dead in every fitted mode (only 16:9's
+// bounds leave sky headroom for a zoom-out reveal). The fit therefore
+// installs an explicit autozoom package with a zoom-IN ceiling: the
+// camera leans in on close action and pulls back to the full fitted view
+// as the players separate (a zoomed-in view is a strict subset of the
+// fitted view -> zero black-bar risk).
+function camSection(text) {
+  const m = /\[Camera\]([^\[]*)/i.exec(text);
+  return m ? m[1] : '';
+}
+const ZOOM_FITTED_MODES = ['expanded', 'tall', '3:2', '14:9', '5:3'];
+ok('every roster def in every fitted mode gets autozoom=1 + zoomin=1.2 at the top of [Camera]', () => {
+  for (const f of rosterDefs) {
+    const defText = readFileSync(join(FIXTURES, f), 'utf8');
+    assert.strictEqual(key(defText, 'autozoom'), null, f + ' already authors autozoom?');
+    assert.strictEqual(key(defText, 'zoomin'), null, f + ' already authors zoomin?');
+    for (const mode of ZOOM_FITTED_MODES) {
+      const p = makePatcher(mode);
+      p.add('stages/' + f, defText);
+      p.run('stages/' + f);
+      const out = p.text('stages/' + f);
+      const cam = camSection(out);
+      assert.strictEqual(key(cam, 'autozoom'), 1, f + '/' + mode + ' autozoom');
+      assert.strictEqual(key(cam, 'zoomin'), 1.2, f + '/' + mode + ' zoomin');
+      // inserted directly under the [Camera] header, before the authored keys
+      assert.ok(/^\s*autozoom\s*=\s*1\s*\n\s*zoomin\s*=\s*1\.2/.test(cam),
+        f + '/' + mode + ' zoom keys must sit at the top of [Camera]');
+      // zoom step is idempotent too (re-run rewrites nothing)
+      p.run('stages/' + f);
+      assert.strictEqual(p.text('stages/' + f), out, f + '/' + mode + ' zoom idempotency');
+    }
+  }
+});
+ok('16:9 (null mode) adds no zoom keys (defs stay byte-identical)', () => {
+  const defText = readFileSync(join(FIXTURES, 'UIU_Fountain.def'), 'utf8');
+  const p = makePatcher(null);
+  p.add('stages/UIU_Fountain.def', defText);
+  p.run('stages/UIU_Fountain.def');
+  assert.strictEqual(p.text('stages/UIU_Fountain.def'), defText);
+});
+ok('authors are respected: authored autozoom/zoomin defs keep their zoom config', () => {
+  const head = ['[StageInfo]', 'zoffset = 220', 'localcoord = 1088, 612', ''];
+  const tail = ['boundleft = -292', 'boundright = 292', 'boundhigh = -328', 'boundlow = 0',
+    'overdrawhigh = 120', 'overdrawlow = 120', ''];
+  const cases = [
+    [['autozoom = 0'], 'explicit autozoom=0'],
+    [['zoomin = 1.3'], 'authored zoomin > 1'],
+    [['zoomin = 0.9'], 'authored zoomin <= 1'],
+    [['autozoom = 1', 'zoomin = 1.15'], 'full authored package'],
+  ];
+  for (const [extra, name] of cases) {
+    const defText = [...head, '[Camera]', ...extra, ...tail].join('\n');
+    const p = makePatcher('expanded');
+    p.add('stages/auth.def', defText);
+    p.run('stages/auth.def');
+    const out = p.text('stages/auth.def');
+    assert.ok(!/^\s*zoomin\s*=\s*1\.2\s*$/im.test(out), name + ': zoomin=1.2 must not be inserted');
+    const authoredZoomin = extra.find((l) => l.startsWith('zoomin'));
+    assert.strictEqual(key(out, 'zoomin'), authoredZoomin ? parseFloat(authoredZoomin.split('=')[1]) : null,
+      name + ': authored zoomin value must survive unchanged');
+  }
+});
+ok('zoomout-only author: the fit adds the zoom-in package, authored zoomout kept', () => {
+  const defText = ['[StageInfo]', 'zoffset = 220', 'localcoord = 1088, 612', '', '[Camera]',
+    'zoomout = 0.7', 'boundleft = -292', 'boundright = 292', 'boundhigh = -328',
+    'boundlow = 0', 'overdrawhigh = 120', 'overdrawlow = 120', ''].join('\n');
+  const p = makePatcher('expanded');
+  p.add('stages/zo.def', defText);
+  p.run('stages/zo.def');
+  const out = p.text('stages/zo.def');
+  assert.strictEqual(key(out, 'zoomout'), 0.7, 'authored zoomout must survive');
+  assert.strictEqual(key(out, 'autozoom'), 1, 'autozoom package added');
+  assert.strictEqual(key(out, 'zoomin'), 1.2, 'zoom-in ceiling added');
+});
+ok('CRLF defs keep CRLF (zoom keys inserted with the matching EOL)', () => {
+  const defText = ['[StageInfo]', 'zoffset = 220', 'localcoord = 1088, 612', '', '[Camera]',
+    'boundleft = -292', 'boundright = 292', 'boundhigh = -328', 'boundlow = 0',
+    'overdrawhigh = 120', 'overdrawlow = 120', ''].join('\r\n');
+  const p = makePatcher('expanded');
+  p.add('stages/crlf.def', defText);
+  p.run('stages/crlf.def');
+  const out = p.text('stages/crlf.def');
+  assert.ok(out.includes('\r\nautozoom = 1\r\nzoomin = 1.2\r\nboundleft'),
+    'zoom keys must be CRLF-delimited and land before the authored keys');
+  assert.strictEqual(key(out, 'autozoom'), 1);
+  assert.strictEqual(key(out, 'zoomin'), 1.2);
+});
+
+// ---------------------------------------------------------------------------
 console.log(`\nALL ${passedCount} ASSERTION GROUPS PASSED`);

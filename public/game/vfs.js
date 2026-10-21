@@ -322,11 +322,15 @@
   //
   // Effects, all deterministic from the def text (online-safe: both peers
   // patch identically): zero black at rest, while panning, and at zoom-out
-  // (the engine's floor-anchored autozoom is clamped by the same art — the
-  // fitted rest view IS the maximal paintable view, so zoom-out simply
-  // stops at it). The stage renders at the same ~0.98 px/stage-unit scale
-  // the fitted 4:3 mode had; characters keep their exact on-screen size
-  // (their scale follows the 240-unit world height — identical across
+  // (the engine's MinZoomScale floors the zoom-out at exactly 1.0 — the
+  // fitted rest view IS the maximal paintable view). Because that floor
+  // pins the camera, the fit ALSO installs an explicit autozoom package
+  // with a zoom-IN ceiling (autozoom=1, zoomin=1.2 — see Step 4): the
+  // camera leans in on close action and pulls back to the full fitted view
+  // as the players separate, so stage zoom is alive in every fitted mode
+  // instead of only 16:9. The stage renders at the same ~0.98 px/stage-unit
+  // scale the fitted 4:3 mode had; characters keep their exact on-screen
+  // size (their scale follows the 240-unit world height — identical across
   // every mode). Never applied in 16:9 — that path stays byte-identical.
   //
   // Constraints honored: a stage is only ever widened up to its painted
@@ -382,15 +386,15 @@
   // math — only the canvas aspect differs.
   const STAGE_FIT_MODES = {
     expanded: { gamew: 1280, gameh: 720, legacyGate: false,
-      fitLabel: 'expanded view fit', clampLabel: 'expanded camera clamp', panLabel: 'expanded pan clamp' },
+      fitLabel: 'expanded view fit', clampLabel: 'expanded camera clamp', panLabel: 'expanded pan clamp', zoomLabel: 'expanded stage zoom' },
     tall:     { gamew: 960,  gameh: 720, legacyGate: true,
-      fitLabel: 'tall view fit',     clampLabel: 'tall camera clamp',     panLabel: 'tall pan clamp' },
+      fitLabel: 'tall view fit',     clampLabel: 'tall camera clamp',     panLabel: 'tall pan clamp',     zoomLabel: 'tall stage zoom' },
     '3:2':    { gamew: 1080, gameh: 720, legacyGate: false,
-      fitLabel: '3:2 view fit',      clampLabel: '3:2 camera clamp',      panLabel: '3:2 pan clamp' },
+      fitLabel: '3:2 view fit',      clampLabel: '3:2 camera clamp',      panLabel: '3:2 pan clamp',      zoomLabel: '3:2 stage zoom' },
     '14:9':   { gamew: 1120, gameh: 720, legacyGate: false,
-      fitLabel: '14:9 view fit',     clampLabel: '14:9 camera clamp',     panLabel: '14:9 pan clamp' },
+      fitLabel: '14:9 view fit',     clampLabel: '14:9 camera clamp',     panLabel: '14:9 pan clamp',     zoomLabel: '14:9 stage zoom' },
     '5:3':    { gamew: 1200, gameh: 720, legacyGate: false,
-      fitLabel: '5:3 view fit',      clampLabel: '5:3 camera clamp',      panLabel: '5:3 pan clamp' },
+      fitLabel: '5:3 view fit',      clampLabel: '5:3 camera clamp',      panLabel: '5:3 pan clamp',      zoomLabel: '5:3 stage zoom' },
   };
   const STAGE_FIT_DEF_RE = /^(?:data\/)?stages\/[^/]*\.def$/i;
   // Re-runs on every open (no memo): the rewrites are idempotent (a fitted
@@ -513,6 +517,35 @@
             console.log('[vfs] ' + fit.panLabel + ': ' + vpath + ' boundright ' + br + ' -> ' + newBR
               + ' (the wider view must stay inside the painted art)');
           }
+        }
+      }
+
+      // Step 4 - stage zoom. The fitted rest view IS the maximal paintable
+      // view, so the engine's MinZoomScale floors the zoom-out at exactly
+      // 1.0 AND the autozoom package's zoom-in ceiling is 1.0 — the camera
+      // range collapses to [1.0, 1.0] and stage zoom looked dead in every
+      // fitted mode (16:9 keeps its native zoom-out reveal because its
+      // bounds leave sky headroom under the art ceiling). Fix: install an
+      // explicit autozoom package with a zoom-IN ceiling (zoomin 1.2) —
+      // the camera leans in while the fighters are close and pulls all the
+      // way back to the full fitted view as they separate. zoomout stays
+      // absent so the engine's autozoom branch fills LegacyZoomMin, whose
+      // target is floored at the fit by MinZoomScale (zero black-bar risk:
+      // a zoomed-in view is a strict SUBSET of the fitted view). Respects
+      // authors: a def that already carries an autozoom key or a zoomin
+      // value is left untouched. Idempotent — the inserted autozoom key
+      // makes this gate false on re-runs.
+      if (!/^\s*autozoom\s*=/im.test(cam) && num(cam, 'zoomin') === null) {
+        const head = /(\[Camera\][ \t]*\r?\n)/i.exec(patchedText);
+        if (head) {
+          const eol = head[1].endsWith('\r\n') ? '\r\n' : '\n';
+          patchedText = patchedText.replace(
+            /(\[Camera\][ \t]*\r?\n)/i,
+            (m) => m + 'autozoom = 1' + eol + 'zoomin = 1.2' + eol
+          );
+          console.log('[vfs] ' + fit.zoomLabel + ': ' + vpath
+            + ' autozoom = 1, zoomin = 1.2 (camera leans in on close action;'
+            + ' pulls back to the full fitted view as the players separate)');
         }
       }
 
@@ -1156,7 +1189,10 @@
     // players are far apart (clamped by the stage's own camera bounds/art),
     // revealing the stage's top. Stages that author their own [Camera] zoom
     // settings are unaffected — ForceStageAutoZoom only fills in zoom-less
-    // stages (e.g. UIU_Fountain).
+    // stages (e.g. UIU_Fountain). In the FITTED modes the fit itself
+    // installs an explicit autozoom package with a zoom-in ceiling
+    // (patchStageDefFit Step 4) — the fitted view leaves no headroom for
+    // zoom-out, so the camera instead leans in on close action.
     //
     // Rule:
     //   marker '4:3' (v2 key ONLY — pre-v2 markers are invalidated because

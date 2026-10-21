@@ -14,6 +14,11 @@
 //      (left/right/top/bottom bands luminance > threshold) at rest and
 //      while the AI moves the camera,
 //   4. cross-mode: fit logs fire only in the fitted modes.
+// Stage-zoom package (fitted modes get an explicit autozoom=1 + zoomin=1.2
+// def patch so the camera leans in on close action instead of being pinned
+// at the fitted view): the [vfs] '<mode> stage zoom' log must fire in every
+// fitted mode and NEVER in 16:9, and the band analysis keeps holding while
+// the camera is zoomed in (a zoomed-in view is a subset of the fitted view).
 //
 // Run: node scripts/verify-expanded-live.mjs <baseUrl> <outDir> [expanded|tall|wide149|wide53|ctl169|both|all]
 import { chromium } from 'playwright';
@@ -82,12 +87,13 @@ async function runMode(browser, spec) {
   });
   console.log(`[${tag}] canvas ${dims.w}x${dims.h}; [vfs] lines so far: ${vfsLines.length}`);
 
-  // Screenshot at rest + two later frames while the AI moves the camera.
+  // Screenshot at rest + three later frames while the AI moves the camera
+  // (and zooms it — the fitted modes lean in on close action).
   // NOTE: page-clip screenshot (bounding box), NOT locator.screenshot() —
   // the element form waits for layout "stability" which a constantly
   // animating canvas never satisfies (flaky 6s timeouts).
   const shots = [];
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 4; i++) {
     const box = await page.locator('canvas#ikemen-canvas').boundingBox();
     const buf = await page.screenshot({ type: 'png', timeout: 20000, clip: box });
     const file = join(OUT, `${tag}-frame${i}.png`);
@@ -129,9 +135,14 @@ async function runMode(browser, spec) {
   if (fitNeedle) {
     check(`[${tag}] fit log fired (${fitNeedle})`,
       vfsLines.some((l) => l.includes(fitNeedle)), vfsLines.slice(0, 4).join(' | '));
+    check(`[${tag}] stage zoom package installed (autozoom = 1, zoomin = 1.2)`,
+      vfsLines.some((l) => l.includes('stage zoom: stages/') && l.includes('zoomin = 1.2')),
+      vfsLines.filter((l) => l.includes('stage zoom: stages/')).slice(0, 2).join(' | ') || '(no stage zoom log)');
   } else {
     check(`[${tag}] no fit logs fire in 16:9`,
       !vfsLines.some((l) => l.includes('view fit:')), vfsLines.slice(0, 4).join(' | '));
+    check(`[${tag}] no stage zoom DEF-patch logs in 16:9`,
+      !vfsLines.some((l) => l.includes('stage zoom: stages/')), vfsLines.slice(0, 4).join(' | '));
   }
   await ctx.close();
   return { dims, vfsLines };

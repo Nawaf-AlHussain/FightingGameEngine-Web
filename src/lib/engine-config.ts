@@ -287,13 +287,20 @@ export interface DisplayModePreset {
  *   both aspects and the web fitter needs no mode-specific presentation —
  *   plain contain-fit is correct for both.
  * - Stage zoom ([Camera] zoomin/zoomout/autozoom, gated by
- *   [Config] ZoomActive): the camera dynamically zooms out while players
- *   are far apart and back in for close combat, anchored at the floor.
- *   Stages WITHOUT zoom config (e.g. UIU_Fountain) get the standard
- *   autozoom package via [Debug] ForceStageAutoZoom=1 — the zoomed-out
- *   scale is clamped by the stage's own camera bounds (engine MinScale),
- *   so it reveals exactly as much of the stage's top as the stage can
- *   paint. Stages that author their own zoom settings keep them.
+ *   [Config] ZoomActive): the camera dynamically zooms while players move,
+ *   anchored at the floor. Stages WITHOUT zoom config (e.g. UIU_Fountain)
+ *   get the standard autozoom package via [Debug] ForceStageAutoZoom=1 —
+ *   the zoomed-out scale is clamped by the stage's own camera bounds
+ *   (engine MinScale), so it reveals exactly as much of the stage's top as
+ *   the stage can paint. Stages that author their own zoom settings keep
+ *   them. The two mode families differ in which direction the camera can
+ *   move: 16:9 leaves sky headroom under the art ceiling, so its autozoom
+ *   is a zoom-OUT reveal; the fitted modes' view IS the maximal paintable
+ *   view (MinScale floors at 1.0), so the vfs fit installs an explicit
+ *   autozoom package with a zoom-IN ceiling (autozoom=1, zoomin=1.2 — see
+ *   vfs.js patchStageDefFit Step 4): the camera leans in on close action
+ *   and pulls back to the full fitted view on separation. Stage zoom is
+ *   therefore alive in EVERY display mode.
  *
  * Display-mode presets:
  * - '4:3' (KEY/MARKER NAME IS HISTORICAL — the preset is the EXPANDED
@@ -512,7 +519,13 @@ function setDisplayModeMarker(mode: DisplayModeMarker): void {
  * package (zoomin=1, zoomout=0.625 clamped by the stage's own camera
  * bounds, floor-anchored) to stages that don't author their own
  * [Camera] zoom settings — e.g. UIU Fountain — without touching stages
- * that do.
+ * that do. In the FITTED modes the package's zoom-out has nothing to
+ * reveal (the fitted view IS the maximal paintable view — MinScale
+ * floors at 1.0), so the vfs stage fit additionally installs an
+ * explicit autozoom package with a zoom-IN ceiling (zoomin=1.2) into
+ * the stage defs (vfs.js patchStageDefFit Step 4): the camera leans in
+ * on close action and pulls back to the full fitted view when the
+ * players separate — stage zoom stays alive in every mode.
  */
 export function ensureStageZoomKeys(cfg: ConfigData): void {
   set(cfg, 'Config', 'ZoomActive', '1');
@@ -870,7 +883,7 @@ export const SETTINGS_SCHEMA: SettingGroup[] = [
           { value: '16:9-1080p', label: '16:9 · 1080p Full HD' },
         ],
         requiresReload: true,
-        hint: 'Tall is the classic 4:3 stage window: the full painted stage art vertically (design + sky) in a tight 4:3 frame, pillarboxed on widescreen. 3:2, 14:9 and 5:3 are the in-between rungs: the same vertical art in progressively wider windows — more stage than Tall, tighter than Expanded. Expanded shows the same vertical art plus ~20% more horizontal stage, full screen edge-to-edge with no bars. All five fit every stage to its painted art — zero black bars, zero distortion, characters the same size. 16:9 shows each stage at its native widescreen aspect.',
+        hint: 'Tall is the classic 4:3 stage window: the full painted stage art vertically (design + sky) in a tight 4:3 frame, pillarboxed on widescreen. 3:2, 14:9 and 5:3 are the in-between rungs: the same vertical art in progressively wider windows — more stage than Tall, tighter than Expanded. Expanded shows the same vertical art plus ~20% more horizontal stage, full screen edge-to-edge with no bars. All five fit every stage to its painted art — zero black bars, zero distortion, characters the same size — and all five have stage zoom: the camera leans in on close action and pulls back to the full fitted view as the players separate. 16:9 shows each stage at its native widescreen aspect with its own zoom-out reveal.',
       },
       {
         section: 'Video', key: 'Fullscreen', label: 'Fullscreen',
