@@ -340,8 +340,9 @@
   // fitW/odl/pan budget/art-half and rewrites nothing).
   // null = no fit (the 16:9 default path stays byte-identical), 'expanded'
   // = the EXPANDED STAGE VIEW (16:9 full-bleed max view), 'tall' = the TALL
-  // STAGE VIEW (the restored classic fitted-4:3 window). Both fitted modes
-  // share the exact same fit math — only the canvas aspect differs. Flips
+  // STAGE VIEW (the restored classic fitted-4:3 window), '3:2' = the WIDE
+  // STAGE VIEW (the fitted ladder's middle rung). All fitted modes share
+  // the exact same fit math — only the canvas aspect differs. Flips
   // mid-session via online display-mode adoption.
   let stageFitMode = null;
   function setStageFitMode(v) {
@@ -368,13 +369,18 @@
   // historical '4:3' key/marker/mode-string (a 1280x720 canvas,
   // FightAspect=16,9); 'tall' is the restored classic 4:3 stage view (a
   // 960x720 canvas, FightAspect=4,3 — the geometry the fitted-4:3 era
-  // shipped and the user approved). Both modes fit the view to the stage's
-  // painted art with the SAME math — only the canvas aspect differs.
+  // shipped and the user approved); '3:2' is the WIDE STAGE VIEW (a
+  // 1080x720 canvas, FightAspect=3,2 — the ladder's middle rung, verified
+  // against upstream applyFightAspect which accepts any integer pair).
+  // All modes fit the view to the stage's painted art with the SAME
+  // math — only the canvas aspect differs.
   const STAGE_FIT_MODES = {
     expanded: { gamew: 1280, gameh: 720, legacyGate: false,
       fitLabel: 'expanded view fit', clampLabel: 'expanded camera clamp', panLabel: 'expanded pan clamp' },
     tall:     { gamew: 960,  gameh: 720, legacyGate: true,
       fitLabel: 'tall view fit',     clampLabel: 'tall camera clamp',     panLabel: 'tall pan clamp' },
+    '3:2':    { gamew: 1080, gameh: 720, legacyGate: false,
+      fitLabel: '3:2 view fit',      clampLabel: '3:2 camera clamp',      panLabel: '3:2 pan clamp' },
   };
   const STAGE_FIT_DEF_RE = /^(?:data\/)?stages\/[^/]*\.def$/i;
   // Re-runs on every open (no memo): the rewrites are idempotent (a fitted
@@ -756,7 +762,7 @@
   // (no config file / unknown mode).
   globalThis.engineApplyDisplayMode = function (mode) {
     try {
-      if (mode !== '4:3' && mode !== '16:9' && mode !== 'tall') return null;
+      if (mode !== '4:3' && mode !== '16:9' && mode !== 'tall' && mode !== '3:2') return null;
       const cfg = contents.get('save/config.ini');
       if (!cfg) return null;
       let text = new TextDecoder().decode(cfg);
@@ -798,16 +804,27 @@
         ensureKey('FightAspectWidth', 4, 'Video');
         ensureKey('FightAspectHeight', 3, 'Video');
         ensureKey('KeepAspect', 1, 'Video');
+      } else if (mode === '3:2') {
+        // The WIDE STAGE VIEW — exactly what the boot migration writes for
+        // the '3:2' marker: a 1080x720 canvas + FightAspect=3,2 +
+        // KeepAspect + the vfs stage fit (the fitted ladder's middle
+        // rung: same vertical art as Tall/Expanded, window between them).
+        ensureKey('GameWidth', 1080, 'Video');
+        ensureKey('GameHeight', 720, 'Video');
+        ensureKey('FightAspectWidth', 3, 'Video');
+        ensureKey('FightAspectHeight', 2, 'Video');
+        ensureKey('KeepAspect', 1, 'Video');
       } else {
         // 16:9 = stage-default fight aspect.
         ensureKey('FightAspectWidth', -1, 'Video');
         ensureKey('FightAspectHeight', -1, 'Video');
-        // A 4:3 canvas letterboxes a 16:9 fight inside itself
-        // (KeepAspect=1) — bump a 4:3 canvas to 1280x720 so the adopted
-        // 16:9 fills it edge-to-edge. Any other resolution is kept.
+        // A 4:3 or 3:2 canvas letterboxes a 16:9 fight inside itself
+        // (KeepAspect=1) — bump such orphaned canvases to 1280x720 so the
+        // adopted 16:9 fills it edge-to-edge. Any other resolution is kept.
         const gw = /^\s*GameWidth\s*=\s*(\d+)\s*$/mi.exec(text);
         const gh = /^\s*GameHeight\s*=\s*(\d+)\s*$/mi.exec(text);
-        if (gw && gh && Math.abs(+gw[1] / +gh[1] - 4 / 3) < 0.01) {
+        const ratio = gw && gh ? +gw[1] / +gh[1] : 0;
+        if (gw && gh && (Math.abs(ratio - 4 / 3) < 0.01 || Math.abs(ratio - 3 / 2) < 0.01)) {
           ensureKey('GameWidth', 1280, 'Video');
           ensureKey('GameHeight', 720, 'Video');
         }
@@ -817,7 +834,7 @@
       }
       // The adopted host mode also gates the stage fit, so host and guest
       // patch the same stage defs identically.
-      setStageFitMode(mode === '4:3' ? 'expanded' : (mode === 'tall' ? 'tall' : null));
+      setStageFitMode(mode === '4:3' ? 'expanded' : (mode === 'tall' ? 'tall' : (mode === '3:2' ? '3:2' : null)));
       return mode;
     } catch (e) {
       return null;
@@ -1142,9 +1159,10 @@
         // 4:3 resolution without a marker is an orphan to heal to 16:9.
         const is43 = marker === '4:3';
         const isTall = marker === 'tall';
+        const isWide32 = marker === '3:2';
         // Gate for the stage fit (patchStageDefFit): stage defs are
         // rewritten as the engine opens them, which happens after this.
-        setStageFitMode(is43 ? 'expanded' : (isTall ? 'tall' : null));
+        setStageFitMode(is43 ? 'expanded' : (isTall ? 'tall' : (isWide32 ? '3:2' : null)));
 
         // Align a key if present; insert it under its section header if the
         // key is missing (creating the whole section at the end if needed).
@@ -1194,17 +1212,29 @@
           ensureKey('FightAspectWidth', 4, 'Video');
           ensureKey('FightAspectHeight', 3, 'Video');
           ensureKey('KeepAspect', 1, 'Video');
+        } else if (isWide32) {
+          // WIDE STAGE VIEW (the fitted ladder's middle rung): a 1080x720
+          // canvas + FightAspect=3,2 + KeepAspect, with the vfs stage fit
+          // (patchStageDefFit, mode '3:2') fitting the view to the
+          // stage's painted art — the same vertical art as Tall/Expanded,
+          // in a window between them.
+          ensureKey('GameWidth', 1080, 'Video');
+          ensureKey('GameHeight', 720, 'Video');
+          ensureKey('FightAspectWidth', 3, 'Video');
+          ensureKey('FightAspectHeight', 2, 'Video');
+          ensureKey('KeepAspect', 1, 'Video');
         } else {
           // 16:9 path (also the no-marker default) — heal broken
           // half-configs (FA must be -1,-1), and bump orphaned non-16:9
           // canvases (960x720 left by the genuine-4:3 era, 640x480 from
-          // the stretch era) back to the shipped 1280x720 so the 16:9
-          // fight fills the canvas edge-to-edge instead of letterboxing
-          // inside a 4:3 frame. Any other resolution is kept (e.g. a
-          // chosen 1080p canvas).
+          // the stretch era, 1080x720 left by a wiped '3:2' marker) back
+          // to the shipped 1280x720 so the 16:9 fight fills the canvas
+          // edge-to-edge instead of letterboxing inside a 4:3/3:2 frame.
+          // Any other resolution is kept (e.g. a chosen 1080p canvas).
           ensureKey('FightAspectWidth', -1, 'Video');
           ensureKey('FightAspectHeight', -1, 'Video');
-          if (gw && gh && Math.abs(+gw[1] / +gh[1] - 4 / 3) < 0.01) {
+          const orphanRatio = gw && gh ? +gw[1] / +gh[1] : 0;
+          if (gw && gh && (Math.abs(orphanRatio - 4 / 3) < 0.01 || Math.abs(orphanRatio - 3 / 2) < 0.01)) {
             ensureKey('GameWidth', 1280, 'Video');
             ensureKey('GameHeight', 720, 'Video');
           }
@@ -1307,7 +1337,8 @@
           contents.set('save/config.ini', new TextEncoder().encode(text));
           console.log('[vfs] normalized display-mode config to '
             + (is43 ? 'expanded stage view (1280x720, FightAspect=16,9)'
-              : (isTall ? 'tall stage view (960x720, FightAspect=4,3)' : '16:9 stage-default aspect'))
+              : (isTall ? 'tall stage view (960x720, FightAspect=4,3)'
+                : (isWide32 ? 'wide 3:2 stage view (1080x720, FightAspect=3,2)' : '16:9 stage-default aspect')))
             + ' + stage zoom');
         }
       }

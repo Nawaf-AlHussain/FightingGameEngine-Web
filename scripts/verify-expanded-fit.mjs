@@ -1,7 +1,7 @@
 // Unit harness for the STAGE-fit view in public/game/vfs.js
 // (patchStageDefFit — mode-parameterized: 'expanded' = the 16:9 full-bleed
 // max view, historical '4:3' key; 'tall' = the restored classic fitted-4:3
-// stage view).
+// stage view; '3:2' = the WIDE STAGE VIEW, the fitted ladder's middle rung).
 //
 // Runs the SHIPPED patch function (sliced verbatim out of vfs.js) against
 // the real roster defs (scripts/fixtures/stage-defs) plus synthetic edge
@@ -25,7 +25,7 @@ const end = vfsSrc.indexOf('  const vfs = {');
 assert.ok(start > 0 && end > start, 'vfs.js slice markers not found');
 const chunk = vfsSrc.slice(start, end);
 assert.ok(chunk.includes('function patchStageDefFit'), 'patch function not in slice');
-assert.ok(chunk.includes("'expanded'") && chunk.includes("'tall'"), 'both fit modes not in slice');
+assert.ok(chunk.includes("'expanded'") && chunk.includes("'tall'") && chunk.includes("'3:2'"), 'all three fit modes not in slice');
 assert.ok(!chunk.includes('patchStageDef43'), 'stale 4:3 function still present in vfs.js');
 
 let passedCount = 0;
@@ -52,7 +52,7 @@ function localcoord(text) {
 }
 
 // Build a patcher over a fresh in-memory contents map.
-// mode: null (no fit), 'expanded', or 'tall'.
+// mode: null (no fit), 'expanded', 'tall', or '3:2'.
 function makePatcher(mode) {
   const contents = new Map();
   const factory = new Function('contents', 'stageFitMode', `
@@ -225,6 +225,98 @@ console.log('\n[1d] TALL legacy gate: 4:3-family stages fit natively, stay untou
   const [w] = localcoord(pe.text('stages/kfm2.def'));
   assert.strictEqual(w, Math.round(280 * 16 / 9), 'expanded should still fit it');
   ok('EXPANDED same stage: still fitted (498 = round(280*16/9))', () => {});
+  const p32 = makePatcher('3:2');
+  p32.add('stages/kfm2.def', legacy);
+  p32.run('stages/kfm2.def');
+  const [w32] = localcoord(p32.text('stages/kfm2.def'));
+  assert.strictEqual(w32, Math.round(280 * 3 / 2), '3:2 should still fit it');
+  ok('3:2 same stage: still fitted (420 = round(280*3/2))', () => {});
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n[1e] 3:2 WIDE mode: roster defs (the fitted ladder\'s middle rung)');
+for (const f of rosterDefs) {
+  const defText = readFileSync(join(FIXTURES, f), 'utf8');
+  const [dW, dH] = localcoord(defText);
+  const odh = key(defText, 'overdrawhigh') || 0;
+  const bl0 = key(defText, 'boundleft');
+  const br0 = key(defText, 'boundright');
+  const bh0 = key(defText, 'boundhigh');
+
+  const p = makePatcher('3:2');
+  p.add('stages/' + f, defText);
+  p.run('stages/' + f);
+  const out = p.text('stages/' + f);
+  const [fitW] = localcoord(out);
+
+  ok(`3:2 ${f}: localcoord ${dW} -> ${fitW} (design ${dH}u + sky ${odh}u, 3:2 window)`, () => {
+    const targetW = Math.round((dH + odh) * 3 / 2);
+    const artCap = Math.floor(2 * Math.min(dW / 2 + Math.max(0, -bl0), dW / 2 + Math.max(0, br0)));
+    assert.strictEqual(fitW, Math.min(targetW, artCap));
+    // the fitted 3:2 view must cover design+sky height, never exceed the art
+    const viewH = fitW * 2 / 3;
+    assert.ok(viewH >= dH + odh - 1 && viewH <= dH + odh + 1, `viewH ${viewH} != ${dH + odh} +/-1`);
+  });
+  ok(`3:2 ${f}: pan bounds only ever tighten, edges stay inside the art`, () => {
+    const artL = dW / 2 + Math.max(0, -bl0);
+    const artR = dW / 2 + Math.max(0, br0);
+    const newBL = key(out, 'boundleft');
+    const newBR = key(out, 'boundright');
+    assert.ok(newBL >= bl0 && newBR <= br0, 'bounds loosened');
+    assert.ok(Math.abs(newBL) + fitW / 2 <= artL + 0.001, 'left pan edge leaves the art');
+    assert.ok(newBR + fitW / 2 <= artR + 0.001, 'right pan edge leaves the art');
+  });
+  ok(`3:2 ${f}: overdrawlow 0, boundhigh ceiling, idempotent`, () => {
+    assert.strictEqual(key(out, 'overdrawlow'), 0);
+    const missingU2 = fitW * 2 / 3 - dH;
+    const budget = Math.max(0, Math.round(odh - missingU2));
+    assert.strictEqual(key(out, 'boundhigh'), budget ? -budget : 0);
+    assert.ok(-Math.min(bh0, 0) > budget || key(out, 'boundhigh') === bh0, 'boundhigh loosened');
+    p.run('stages/' + f);
+    assert.strictEqual(p.text('stages/' + f), out);
+  });
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n[1f] 3:2 WIDE mode: concrete roster numbers');
+{
+  const uiu = readFileSync(join(FIXTURES, 'UIU_Fountain.def'), 'utf8');
+  const p = makePatcher('3:2');
+  p.add('stages/UIU_Fountain.def', uiu);
+  p.run('stages/UIU_Fountain.def');
+  const out = p.text('stages/UIU_Fountain.def');
+  ok('3:2 UIU_Fountain: 1088 -> 1098, bounds ±292 -> ±287, boundhigh -> 0 (view 1098x732u)', () => {
+    const [w] = localcoord(out);
+    assert.strictEqual(w, 1098);
+    assert.strictEqual(key(out, 'boundleft'), -287);
+    assert.strictEqual(key(out, 'boundright'), 287);
+    assert.strictEqual(key(out, 'boundhigh'), 0);
+    // view 1098*2/3 = 732u tall: design 612 + sky 120 — the same vertical
+    // art as Tall/Expanded, in the middle window
+    assert.ok(Math.abs(w * 2 / 3 - 732) < 1e-9);
+  });
+  const book = readFileSync(join(FIXTURES, 'Bookshop.def'), 'utf8');
+  const p2 = makePatcher('3:2');
+  p2.add('stages/Bookshop.def', book);
+  p2.run('stages/Bookshop.def');
+  const out2 = p2.text('stages/Bookshop.def');
+  ok('3:2 Bookshop (1280x720): 1280 -> 1260, bounds kept ±196 (view already inside art)', () => {
+    const [w] = localcoord(out2);
+    assert.strictEqual(w, 1260);
+    assert.strictEqual(key(out2, 'boundleft'), -196);
+    assert.strictEqual(key(out2, 'boundright'), 196);
+  });
+  const badda = readFileSync(join(FIXTURES, 'Badda_Large_Stage.def'), 'utf8');
+  const p3 = makePatcher('3:2');
+  p3.add('stages/Badda_Large_Stage.def', badda);
+  p3.run('stages/Badda_Large_Stage.def');
+  const out3 = p3.text('stages/Badda_Large_Stage.def');
+  ok('3:2 Badda (896x504): 896 -> 936, bounds ±388 -> ±368', () => {
+    const [w] = localcoord(out3);
+    assert.strictEqual(w, 936);
+    assert.strictEqual(key(out3, 'boundleft'), -368);
+    assert.strictEqual(key(out3, 'boundright'), 368);
+  });
 }
 
 // ---------------------------------------------------------------------------

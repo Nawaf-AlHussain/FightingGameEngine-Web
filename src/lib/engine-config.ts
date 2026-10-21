@@ -317,6 +317,17 @@ export interface DisplayModePreset {
  *   New marker value 'tall' (the historical '4:3' marker stays bound to
  *   Expanded); the online mode string 'tall' rides the same
  *   host-authoritative adoption path.
+ * - '3:2' (the WIDE STAGE VIEW): a 1080x720 canvas + FightAspect=3,2 + the
+ *   vfs stage fit at the 3:2 canvas — the middle rung of the fitted
+ *   ladder. Every fitted mode renders the stage at the SAME ~0.984 px/u
+ *   and shows the SAME full painted vertical art (design height + declared
+ *   sky, 732u on roster stages); the canvas aspect only picks the window:
+ *   more horizontal stage at rest than Tall (~1098u vs 976u on UIU),
+ *   tighter than Expanded (~1301u). Pillarboxes on a 16:9 monitor, with
+ *   narrower bars than Tall. Verified against upstream engine source:
+ *   applyFightAspect/getFightAspect accept ANY positive integer aspect
+ *   pair, so 3,2 rides the exact same code path as 4,3 and 16,9 (uniform
+ *   3.0 render scale at 1080x720: 1080/360 = 720/240 — zero distortion).
  * - '16:9-*': the historical widescreen path, byte-identical rendering.
  */
 export const DISPLAY_MODE_PRESETS = {
@@ -359,6 +370,23 @@ export const DISPLAY_MODE_PRESETS = {
     keepAspect: '1',
     marker: 'tall',
   },
+  /**
+   * WIDE STAGE VIEW (3:2) — the fitted ladder's middle rung. A 1080x720
+   * canvas + FightAspect=3,2 + vfs.js's stage fit (mode '3:2'): the SAME
+   * full painted vertical art as Tall/Expanded (design + declared sky,
+   * 732u on roster stages) at the same ~0.984 px/u stage scale, in a 3:2
+   * window — more horizontal stage at rest than Tall (~1098u vs 976u on
+   * UIU), tighter than Expanded (~1301u). Pillarboxes on a 16:9 monitor
+   * with narrower bars than Tall.
+   */
+  '3:2': {
+    gameWidth: '1080',
+    gameHeight: '720',
+    fightAspectWidth: '3',
+    fightAspectHeight: '2',
+    keepAspect: '1',
+    marker: '3:2',
+  },
   '16:9-720p': {
     gameWidth: '1280',
     gameHeight: '720',
@@ -394,14 +422,14 @@ export const DISPLAY_MODE_STORAGE_KEY = 'engine-display-mode-v2';
 export const DISPLAY_MODE_STORAGE_KEY_LEGACY = 'ikemen-display-mode';
 export const DISPLAY_MODE_STORAGE_KEY_LEGACY_V1 = 'engine-display-mode';
 
-export type DisplayModeMarker = '4:3' | '16:9' | 'tall';
+export type DisplayModeMarker = '4:3' | '16:9' | 'tall' | '3:2';
 
 /** Read the persisted display-mode marker (null = never selected/migrated). */
 export function getDisplayModeMarker(): DisplayModeMarker | null {
   try {
     // Only the v2 key counts — pre-v2 markers are invalidated (see above).
     const v = localStorage.getItem(DISPLAY_MODE_STORAGE_KEY);
-    return v === '4:3' || v === '16:9' || v === 'tall' ? v : null;
+    return v === '4:3' || v === '16:9' || v === 'tall' || v === '3:2' ? v : null;
   } catch {
     return null;
   }
@@ -468,6 +496,7 @@ export function getDisplayModeChoice(cfg: ConfigData): DisplayModeChoice {
   const marker = getDisplayModeMarker();
   if (marker === '4:3') return '4:3';
   if (marker === 'tall') return 'tall';
+  if (marker === '3:2') return '3:2';
   const gw = getInt(cfg, 'Video', 'GameWidth');
   const gh = getInt(cfg, 'Video', 'GameHeight');
   if (gw === 1920 && gh === 1080) return '16:9-1080p';
@@ -782,12 +811,13 @@ export const SETTINGS_SCHEMA: SettingGroup[] = [
         type: 'select',
         options: [
           { value: 'tall',       label: 'Tall · classic 4:3 stage view (recommended)' },
+          { value: '3:2',        label: '3:2 · Wide stage view (between Tall and Expanded)' },
           { value: '4:3',        label: 'Expanded · max stage view (full screen)' },
           { value: '16:9-720p',  label: '16:9 · 720p HD' },
           { value: '16:9-1080p', label: '16:9 · 1080p Full HD' },
         ],
         requiresReload: true,
-        hint: 'Tall is the classic 4:3 stage window: the full painted stage art vertically (design + sky) in a tight 4:3 frame, pillarboxed on widescreen. Expanded shows the same vertical art plus ~20% more horizontal stage, full screen edge-to-edge with no bars. Both fit every stage to its painted art — zero black bars, zero distortion, characters the same size. 16:9 shows each stage at its native widescreen aspect.',
+        hint: 'Tall is the classic 4:3 stage window: the full painted stage art vertically (design + sky) in a tight 4:3 frame, pillarboxed on widescreen. 3:2 is the middle ground: the same vertical art in a wider window — more stage than Tall, tighter than Expanded. Expanded shows the same vertical art plus ~20% more horizontal stage, full screen edge-to-edge with no bars. All three fit every stage to its painted art — zero black bars, zero distortion, characters the same size. 16:9 shows each stage at its native widescreen aspect.',
       },
       {
         section: 'Video', key: 'Fullscreen', label: 'Fullscreen',
