@@ -3,6 +3,8 @@
 //   expanded (marker '4:3'): 1280x720 canvas, fit 1088 -> 1301, bounds ±185,
 //   tall (marker 'tall'):    960x720 canvas, fit 1088 -> 976 (the restored
 //                            classic fitted-4:3 view),
+//   wide149 (marker '14:9'): 1120x720 canvas, fit 1088 -> 1139, bounds ±266,
+//   wide53 (marker '5:3'):   1200x720 canvas, fit 1088 -> 1220, bounds ±226,
 //   ctl169 (marker '16:9'):  1280x720 canvas, no fit logs (byte-identical
 //                            path)
 // and asserts per mode:
@@ -13,7 +15,7 @@
 //      while the AI moves the camera,
 //   4. cross-mode: fit logs fire only in the fitted modes.
 //
-// Run: node scripts/verify-expanded-live.mjs <baseUrl> <outDir> [expanded|tall|ctl169|both|all]
+// Run: node scripts/verify-expanded-live.mjs <baseUrl> <outDir> [expanded|tall|wide149|wide53|ctl169|both|all]
 import { chromium } from 'playwright';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -24,6 +26,8 @@ const MODE = process.argv[4] || 'both';
 const MODES = {
   expanded: { marker: '4:3',  tag: 'expanded', w: 1280, h: 720, fitNeedle: 'localcoord 1088 -> 1301' },
   tall:     { marker: 'tall', tag: 'tall',     w: 960,  h: 720, fitNeedle: 'localcoord 1088 -> 976' },
+  wide149:  { marker: '14:9', tag: 'wide149',  w: 1120, h: 720, fitNeedle: 'localcoord 1088 -> 1139' },
+  wide53:   { marker: '5:3',  tag: 'wide53',   w: 1200, h: 720, fitNeedle: 'localcoord 1088 -> 1220' },
   ctl169:   { marker: '16:9', tag: 'ctl169',   w: 1280, h: 720, fitNeedle: null },
 };
 mkdirSync(OUT, { recursive: true });
@@ -135,7 +139,7 @@ async function runMode(browser, spec) {
 
 const browser = await chromium.launch({ args: ['--no-sandbox', '--disable-dev-shm-usage'] });
 try {
-  let exp = null, ctl = null, tall = null;
+  let exp = null, ctl = null, tall = null, w149 = null, w53 = null;
   if (MODE === 'expanded' || MODE === 'both' || MODE === 'all') {
     console.log('=== EXPANDED (marker 4:3) ===');
     exp = await runMode(browser, MODES.expanded);
@@ -143,6 +147,14 @@ try {
   if (MODE === 'tall' || MODE === 'all') {
     console.log('\n=== TALL (marker tall — restored classic fitted-4:3) ===');
     tall = await runMode(browser, MODES.tall);
+  }
+  if (MODE === 'wide149' || MODE === 'all') {
+    console.log('\n=== WIDE 14:9 (marker 14:9 — ladder rung between 3:2 and 5:3) ===');
+    w149 = await runMode(browser, MODES.wide149);
+  }
+  if (MODE === 'wide53' || MODE === 'all') {
+    console.log('\n=== WIDE 5:3 (marker 5:3 — ladder rung below Expanded) ===');
+    w53 = await runMode(browser, MODES.wide53);
   }
   if (MODE === 'ctl169' || MODE === 'both' || MODE === 'all') {
     console.log('\n=== CONTROL (marker 16:9) ===');
@@ -161,6 +173,22 @@ try {
       tall.vfsLines.some((l) => l.includes('tall view fit') && l.includes('localcoord 1088 -> 976')) &&
       tall.vfsLines.some((l) => l.includes('tall camera clamp')),
       tall.vfsLines.slice(0, 4).join(' | '));
+  }
+  if (w149) {
+    console.log('\n=== 14:9 CROSS-CHECK ===');
+    check('14:9 fit log fired (1088 -> 1139, bounds ±292 -> ±266, boundhigh -> 0)',
+      w149.vfsLines.some((l) => l.includes('14:9 view fit') && l.includes('localcoord 1088 -> 1139')) &&
+      w149.vfsLines.some((l) => l.includes('14:9 pan clamp') && l.includes('-292 -> -266')) &&
+      w149.vfsLines.some((l) => l.includes('14:9 camera clamp')),
+      w149.vfsLines.slice(0, 4).join(' | '));
+  }
+  if (w53) {
+    console.log('\n=== 5:3 CROSS-CHECK ===');
+    check('5:3 fit log fired (1088 -> 1220, bounds ±292 -> ±226, boundhigh -> 0)',
+      w53.vfsLines.some((l) => l.includes('5:3 view fit') && l.includes('localcoord 1088 -> 1220')) &&
+      w53.vfsLines.some((l) => l.includes('5:3 pan clamp') && l.includes('-292 -> -226')) &&
+      w53.vfsLines.some((l) => l.includes('5:3 camera clamp')),
+      w53.vfsLines.slice(0, 4).join(' | '));
   }
 } finally {
   await browser.close();

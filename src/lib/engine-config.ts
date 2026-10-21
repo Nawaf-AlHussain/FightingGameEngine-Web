@@ -328,6 +328,17 @@ export interface DisplayModePreset {
  *   applyFightAspect/getFightAspect accept ANY positive integer aspect
  *   pair, so 3,2 rides the exact same code path as 4,3 and 16,9 (uniform
  *   3.0 render scale at 1080x720: 1080/360 = 720/240 — zero distortion).
+ * - '14:9' (the WIDER STAGE VIEW) and '5:3' (the WIDEST FITTED STAGE
+ *   VIEW): two more ladder rungs between 3:2 and Expanded — a 1120x720
+ *   canvas + FightAspect=14,9 and a 1200x720 canvas + FightAspect=5,3,
+ *   each with the vfs stage fit at its canvas. Same ~0.984 px/u stage
+ *   scale and the SAME full painted vertical art (design + declared sky,
+ *   732u on roster stages); the canvas aspect only picks the window
+ *   (~1139u / ~1220u wide at rest on UIU). Both canvas widths are exact
+ *   integers at the uniform 3.0 render scale (1120 = 720*14/9,
+ *   1200 = 720*5/3), riding the same upstream-verified any-integer-pair
+ *   applyFightAspect path as 3,2 — zero distortion, zero bars inside the
+ *   canvas, pillarboxed on a 16:9 monitor with bars narrower than 3:2's.
  * - '16:9-*': the historical widescreen path, byte-identical rendering.
  */
 export const DISPLAY_MODE_PRESETS = {
@@ -387,6 +398,44 @@ export const DISPLAY_MODE_PRESETS = {
     keepAspect: '1',
     marker: '3:2',
   },
+  /**
+   * WIDER STAGE VIEW (14:9) — a fitted-ladder rung between 3:2 and 5:3.
+   * A 1120x720 canvas + FightAspect=14,9 + vfs.js's stage fit (mode
+   * '14:9'): the SAME full painted vertical art as every fitted mode
+   * (design + declared sky, 732u on roster stages) at the same ~0.984
+   * px/u stage scale, in a 14:9 window (~1139u wide at rest on UIU —
+   * more stage than 3:2, tighter than 5:3). The 1120 canvas width is an
+   * exact integer at the uniform 3.0 render scale (1120 = 720*14/9) —
+   * zero distortion, zero bars inside the canvas. Pillarboxes on a 16:9
+   * monitor, with narrower bars than 3:2.
+   */
+  '14:9': {
+    gameWidth: '1120',
+    gameHeight: '720',
+    fightAspectWidth: '14',
+    fightAspectHeight: '9',
+    keepAspect: '1',
+    marker: '14:9',
+  },
+  /**
+   * WIDEST FITTED STAGE VIEW (5:3) — the fitted-ladder rung just below
+   * Expanded. A 1200x720 canvas + FightAspect=5,3 + vfs.js's stage fit
+   * (mode '5:3'): the SAME full painted vertical art as every fitted
+   * mode (design + declared sky, 732u on roster stages) at the same
+   * ~0.984 px/u stage scale, in a 5:3 window (~1220u wide at rest on
+   * UIU — more stage than 14:9, tighter than Expanded). The 1200 canvas
+   * width is an exact integer at the uniform 3.0 render scale
+   * (1200 = 720*5/3) — zero distortion, zero bars inside the canvas.
+   * Pillarboxes on a 16:9 monitor, with narrower bars than 14:9.
+   */
+  '5:3': {
+    gameWidth: '1200',
+    gameHeight: '720',
+    fightAspectWidth: '5',
+    fightAspectHeight: '3',
+    keepAspect: '1',
+    marker: '5:3',
+  },
   '16:9-720p': {
     gameWidth: '1280',
     gameHeight: '720',
@@ -422,14 +471,14 @@ export const DISPLAY_MODE_STORAGE_KEY = 'engine-display-mode-v2';
 export const DISPLAY_MODE_STORAGE_KEY_LEGACY = 'ikemen-display-mode';
 export const DISPLAY_MODE_STORAGE_KEY_LEGACY_V1 = 'engine-display-mode';
 
-export type DisplayModeMarker = '4:3' | '16:9' | 'tall' | '3:2';
+export type DisplayModeMarker = '4:3' | '16:9' | 'tall' | '3:2' | '14:9' | '5:3';
 
 /** Read the persisted display-mode marker (null = never selected/migrated). */
 export function getDisplayModeMarker(): DisplayModeMarker | null {
   try {
     // Only the v2 key counts — pre-v2 markers are invalidated (see above).
     const v = localStorage.getItem(DISPLAY_MODE_STORAGE_KEY);
-    return v === '4:3' || v === '16:9' || v === 'tall' || v === '3:2' ? v : null;
+    return v === '4:3' || v === '16:9' || v === 'tall' || v === '3:2' || v === '14:9' || v === '5:3' ? v : null;
   } catch {
     return null;
   }
@@ -497,6 +546,8 @@ export function getDisplayModeChoice(cfg: ConfigData): DisplayModeChoice {
   if (marker === '4:3') return '4:3';
   if (marker === 'tall') return 'tall';
   if (marker === '3:2') return '3:2';
+  if (marker === '14:9') return '14:9';
+  if (marker === '5:3') return '5:3';
   const gw = getInt(cfg, 'Video', 'GameWidth');
   const gh = getInt(cfg, 'Video', 'GameHeight');
   if (gw === 1920 && gh === 1080) return '16:9-1080p';
@@ -811,13 +862,15 @@ export const SETTINGS_SCHEMA: SettingGroup[] = [
         type: 'select',
         options: [
           { value: 'tall',       label: 'Tall · classic 4:3 stage view (recommended)' },
-          { value: '3:2',        label: '3:2 · Wide stage view (between Tall and Expanded)' },
+          { value: '3:2',        label: '3:2 · Wide stage view (between Tall and 14:9)' },
+          { value: '14:9',       label: '14:9 · Wider stage view (between 3:2 and 5:3)' },
+          { value: '5:3',        label: '5:3 · Widest fitted stage view (below Expanded)' },
           { value: '4:3',        label: 'Expanded · max stage view (full screen)' },
           { value: '16:9-720p',  label: '16:9 · 720p HD' },
           { value: '16:9-1080p', label: '16:9 · 1080p Full HD' },
         ],
         requiresReload: true,
-        hint: 'Tall is the classic 4:3 stage window: the full painted stage art vertically (design + sky) in a tight 4:3 frame, pillarboxed on widescreen. 3:2 is the middle ground: the same vertical art in a wider window — more stage than Tall, tighter than Expanded. Expanded shows the same vertical art plus ~20% more horizontal stage, full screen edge-to-edge with no bars. All three fit every stage to its painted art — zero black bars, zero distortion, characters the same size. 16:9 shows each stage at its native widescreen aspect.',
+        hint: 'Tall is the classic 4:3 stage window: the full painted stage art vertically (design + sky) in a tight 4:3 frame, pillarboxed on widescreen. 3:2, 14:9 and 5:3 are the in-between rungs: the same vertical art in progressively wider windows — more stage than Tall, tighter than Expanded. Expanded shows the same vertical art plus ~20% more horizontal stage, full screen edge-to-edge with no bars. All five fit every stage to its painted art — zero black bars, zero distortion, characters the same size. 16:9 shows each stage at its native widescreen aspect.',
       },
       {
         section: 'Video', key: 'Fullscreen', label: 'Fullscreen',

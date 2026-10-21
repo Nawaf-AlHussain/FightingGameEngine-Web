@@ -1,7 +1,9 @@
 // Unit harness for the STAGE-fit view in public/game/vfs.js
 // (patchStageDefFit — mode-parameterized: 'expanded' = the 16:9 full-bleed
 // max view, historical '4:3' key; 'tall' = the restored classic fitted-4:3
-// stage view; '3:2' = the WIDE STAGE VIEW, the fitted ladder's middle rung).
+// stage view; '3:2' = the WIDE STAGE VIEW, the fitted ladder's middle rung;
+// '14:9' / '5:3' = the WIDER / WIDEST FITTED ladder rungs between 3:2 and
+// Expanded).
 //
 // Runs the SHIPPED patch function (sliced verbatim out of vfs.js) against
 // the real roster defs (scripts/fixtures/stage-defs) plus synthetic edge
@@ -25,7 +27,8 @@ const end = vfsSrc.indexOf('  const vfs = {');
 assert.ok(start > 0 && end > start, 'vfs.js slice markers not found');
 const chunk = vfsSrc.slice(start, end);
 assert.ok(chunk.includes('function patchStageDefFit'), 'patch function not in slice');
-assert.ok(chunk.includes("'expanded'") && chunk.includes("'tall'") && chunk.includes("'3:2'"), 'all three fit modes not in slice');
+assert.ok(chunk.includes("'expanded'") && chunk.includes("'tall'") && chunk.includes("'3:2'")
+  && chunk.includes("'14:9'") && chunk.includes("'5:3'"), 'all five fit modes not in slice');
 assert.ok(!chunk.includes('patchStageDef43'), 'stale 4:3 function still present in vfs.js');
 
 let passedCount = 0;
@@ -52,7 +55,7 @@ function localcoord(text) {
 }
 
 // Build a patcher over a fresh in-memory contents map.
-// mode: null (no fit), 'expanded', 'tall', or '3:2'.
+// mode: null (no fit), 'expanded', 'tall', '3:2', '14:9', or '5:3'.
 function makePatcher(mode) {
   const contents = new Map();
   const factory = new Function('contents', 'stageFitMode', `
@@ -231,6 +234,18 @@ console.log('\n[1d] TALL legacy gate: 4:3-family stages fit natively, stay untou
   const [w32] = localcoord(p32.text('stages/kfm2.def'));
   assert.strictEqual(w32, Math.round(280 * 3 / 2), '3:2 should still fit it');
   ok('3:2 same stage: still fitted (420 = round(280*3/2))', () => {});
+  const p149 = makePatcher('14:9');
+  p149.add('stages/kfm2.def', legacy);
+  p149.run('stages/kfm2.def');
+  const [w149] = localcoord(p149.text('stages/kfm2.def'));
+  assert.strictEqual(w149, Math.round(280 * 14 / 9), '14:9 should still fit it');
+  ok('14:9 same stage: still fitted (436 = round(280*14/9))', () => {});
+  const p53 = makePatcher('5:3');
+  p53.add('stages/kfm2.def', legacy);
+  p53.run('stages/kfm2.def');
+  const [w53] = localcoord(p53.text('stages/kfm2.def'));
+  assert.strictEqual(w53, Math.round(280 * 5 / 3), '5:3 should still fit it');
+  ok('5:3 same stage: still fitted (467 = round(280*5/3))', () => {});
 }
 
 // ---------------------------------------------------------------------------
@@ -316,6 +331,178 @@ console.log('\n[1f] 3:2 WIDE mode: concrete roster numbers');
     assert.strictEqual(w, 936);
     assert.strictEqual(key(out3, 'boundleft'), -368);
     assert.strictEqual(key(out3, 'boundright'), 368);
+  });
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n[1g] 14:9 WIDER mode: roster defs (ladder rung between 3:2 and 5:3)');
+for (const f of rosterDefs) {
+  const defText = readFileSync(join(FIXTURES, f), 'utf8');
+  const [dW, dH] = localcoord(defText);
+  const odh = key(defText, 'overdrawhigh') || 0;
+  const bl0 = key(defText, 'boundleft');
+  const br0 = key(defText, 'boundright');
+  const bh0 = key(defText, 'boundhigh');
+
+  const p = makePatcher('14:9');
+  p.add('stages/' + f, defText);
+  p.run('stages/' + f);
+  const out = p.text('stages/' + f);
+  const [fitW] = localcoord(out);
+
+  ok(`14:9 ${f}: localcoord ${dW} -> ${fitW} (design ${dH}u + sky ${odh}u, 14:9 window)`, () => {
+    const targetW = Math.round((dH + odh) * 14 / 9);
+    const artCap = Math.floor(2 * Math.min(dW / 2 + Math.max(0, -bl0), dW / 2 + Math.max(0, br0)));
+    assert.strictEqual(fitW, Math.min(targetW, artCap));
+    // the fitted 14:9 view must cover design+sky height, never exceed the art
+    const viewH = fitW * 9 / 14;
+    assert.ok(viewH >= dH + odh - 1 && viewH <= dH + odh + 1, `viewH ${viewH} != ${dH + odh} +/-1`);
+  });
+  ok(`14:9 ${f}: pan bounds only ever tighten, edges stay inside the art`, () => {
+    const artL = dW / 2 + Math.max(0, -bl0);
+    const artR = dW / 2 + Math.max(0, br0);
+    const newBL = key(out, 'boundleft');
+    const newBR = key(out, 'boundright');
+    assert.ok(newBL >= bl0 && newBR <= br0, 'bounds loosened');
+    assert.ok(Math.abs(newBL) + fitW / 2 <= artL + 0.001, 'left pan edge leaves the art');
+    assert.ok(newBR + fitW / 2 <= artR + 0.001, 'right pan edge leaves the art');
+  });
+  ok(`14:9 ${f}: overdrawlow 0, boundhigh ceiling, idempotent`, () => {
+    assert.strictEqual(key(out, 'overdrawlow'), 0);
+    const missingU2 = fitW * 9 / 14 - dH;
+    const budget = Math.max(0, Math.round(odh - missingU2));
+    assert.strictEqual(key(out, 'boundhigh'), budget ? -budget : 0);
+    assert.ok(-Math.min(bh0, 0) > budget || key(out, 'boundhigh') === bh0, 'boundhigh loosened');
+    p.run('stages/' + f);
+    assert.strictEqual(p.text('stages/' + f), out);
+  });
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n[1h] 14:9 WIDER mode: concrete roster numbers');
+{
+  const uiu = readFileSync(join(FIXTURES, 'UIU_Fountain.def'), 'utf8');
+  const p = makePatcher('14:9');
+  p.add('stages/UIU_Fountain.def', uiu);
+  p.run('stages/UIU_Fountain.def');
+  const out = p.text('stages/UIU_Fountain.def');
+  ok('14:9 UIU_Fountain: 1088 -> 1139, bounds ±292 -> ±266, boundhigh -> 0 (view 732u)', () => {
+    const [w] = localcoord(out);
+    assert.strictEqual(w, 1139);
+    assert.strictEqual(key(out, 'boundleft'), -266);
+    assert.strictEqual(key(out, 'boundright'), 266);
+    assert.strictEqual(key(out, 'boundhigh'), 0);
+    // view 1139*9/14 = 732.21u tall: design 612 + sky 120 — the same
+    // vertical art as every fitted mode, in the wider window
+    assert.ok(Math.abs(w * 9 / 14 - 732) < 0.5);
+  });
+  const book = readFileSync(join(FIXTURES, 'Bookshop.def'), 'utf8');
+  const p2 = makePatcher('14:9');
+  p2.add('stages/Bookshop.def', book);
+  p2.run('stages/Bookshop.def');
+  const out2 = p2.text('stages/Bookshop.def');
+  ok('14:9 Bookshop (1280x720): 1280 -> 1307, bounds ±196 -> ±182', () => {
+    const [w] = localcoord(out2);
+    assert.strictEqual(w, 1307);
+    assert.strictEqual(key(out2, 'boundleft'), -182);
+    assert.strictEqual(key(out2, 'boundright'), 182);
+  });
+  const badda = readFileSync(join(FIXTURES, 'Badda_Large_Stage.def'), 'utf8');
+  const p3 = makePatcher('14:9');
+  p3.add('stages/Badda_Large_Stage.def', badda);
+  p3.run('stages/Badda_Large_Stage.def');
+  const out3 = p3.text('stages/Badda_Large_Stage.def');
+  ok('14:9 Badda (896x504): 896 -> 971, bounds ±388 -> ±350', () => {
+    const [w] = localcoord(out3);
+    assert.strictEqual(w, 971);
+    assert.strictEqual(key(out3, 'boundleft'), -350);
+    assert.strictEqual(key(out3, 'boundright'), 350);
+  });
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n[1i] 5:3 WIDEST FITTED mode: roster defs (ladder rung below Expanded)');
+for (const f of rosterDefs) {
+  const defText = readFileSync(join(FIXTURES, f), 'utf8');
+  const [dW, dH] = localcoord(defText);
+  const odh = key(defText, 'overdrawhigh') || 0;
+  const bl0 = key(defText, 'boundleft');
+  const br0 = key(defText, 'boundright');
+  const bh0 = key(defText, 'boundhigh');
+
+  const p = makePatcher('5:3');
+  p.add('stages/' + f, defText);
+  p.run('stages/' + f);
+  const out = p.text('stages/' + f);
+  const [fitW] = localcoord(out);
+
+  ok(`5:3 ${f}: localcoord ${dW} -> ${fitW} (design ${dH}u + sky ${odh}u, 5:3 window)`, () => {
+    const targetW = Math.round((dH + odh) * 5 / 3);
+    const artCap = Math.floor(2 * Math.min(dW / 2 + Math.max(0, -bl0), dW / 2 + Math.max(0, br0)));
+    assert.strictEqual(fitW, Math.min(targetW, artCap));
+    // the fitted 5:3 view must cover design+sky height, never exceed the art
+    const viewH = fitW * 3 / 5;
+    assert.ok(viewH >= dH + odh - 1 && viewH <= dH + odh + 1, `viewH ${viewH} != ${dH + odh} +/-1`);
+  });
+  ok(`5:3 ${f}: pan bounds only ever tighten, edges stay inside the art`, () => {
+    const artL = dW / 2 + Math.max(0, -bl0);
+    const artR = dW / 2 + Math.max(0, br0);
+    const newBL = key(out, 'boundleft');
+    const newBR = key(out, 'boundright');
+    assert.ok(newBL >= bl0 && newBR <= br0, 'bounds loosened');
+    assert.ok(Math.abs(newBL) + fitW / 2 <= artL + 0.001, 'left pan edge leaves the art');
+    assert.ok(newBR + fitW / 2 <= artR + 0.001, 'right pan edge leaves the art');
+  });
+  ok(`5:3 ${f}: overdrawlow 0, boundhigh ceiling, idempotent`, () => {
+    assert.strictEqual(key(out, 'overdrawlow'), 0);
+    const missingU2 = fitW * 3 / 5 - dH;
+    const budget = Math.max(0, Math.round(odh - missingU2));
+    assert.strictEqual(key(out, 'boundhigh'), budget ? -budget : 0);
+    assert.ok(-Math.min(bh0, 0) > budget || key(out, 'boundhigh') === bh0, 'boundhigh loosened');
+    p.run('stages/' + f);
+    assert.strictEqual(p.text('stages/' + f), out);
+  });
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n[1j] 5:3 WIDEST FITTED mode: concrete roster numbers');
+{
+  const uiu = readFileSync(join(FIXTURES, 'UIU_Fountain.def'), 'utf8');
+  const p = makePatcher('5:3');
+  p.add('stages/UIU_Fountain.def', uiu);
+  p.run('stages/UIU_Fountain.def');
+  const out = p.text('stages/UIU_Fountain.def');
+  ok('5:3 UIU_Fountain: 1088 -> 1220, bounds ±292 -> ±226, boundhigh -> 0 (view 732u EXACT)', () => {
+    const [w] = localcoord(out);
+    assert.strictEqual(w, 1220);
+    assert.strictEqual(key(out, 'boundleft'), -226);
+    assert.strictEqual(key(out, 'boundright'), 226);
+    assert.strictEqual(key(out, 'boundhigh'), 0);
+    // view 1220*3/5 = 732u tall EXACTLY: design 612 + sky 120 — the same
+    // vertical art as every fitted mode, in the widest fitted window
+    assert.ok(Math.abs(w * 3 / 5 - 732) < 1e-9);
+  });
+  const book = readFileSync(join(FIXTURES, 'Bookshop.def'), 'utf8');
+  const p2 = makePatcher('5:3');
+  p2.add('stages/Bookshop.def', book);
+  p2.run('stages/Bookshop.def');
+  const out2 = p2.text('stages/Bookshop.def');
+  ok('5:3 Bookshop (1280x720): 1280 -> 1400, bounds ±196 -> ±136', () => {
+    const [w] = localcoord(out2);
+    assert.strictEqual(w, 1400);
+    assert.strictEqual(key(out2, 'boundleft'), -136);
+    assert.strictEqual(key(out2, 'boundright'), 136);
+  });
+  const badda = readFileSync(join(FIXTURES, 'Badda_Large_Stage.def'), 'utf8');
+  const p3 = makePatcher('5:3');
+  p3.add('stages/Badda_Large_Stage.def', badda);
+  p3.run('stages/Badda_Large_Stage.def');
+  const out3 = p3.text('stages/Badda_Large_Stage.def');
+  ok('5:3 Badda (896x504): 896 -> 1040, bounds ±388 -> ±316', () => {
+    const [w] = localcoord(out3);
+    assert.strictEqual(w, 1040);
+    assert.strictEqual(key(out3, 'boundleft'), -316);
+    assert.strictEqual(key(out3, 'boundright'), 316);
   });
 }
 

@@ -64,7 +64,8 @@ interface NetFightConfig {
 }
 
 /**
- * Display mode synced for an online fight ('4:3' | '16:9' | 'tall' | '3:2').
+ * Display mode synced for an online fight ('4:3' | '16:9' | 'tall' | '3:2'
+ * | '14:9' | '5:3').
  *
  * The engine's netplay handshake REFUSES peers whose effective fight
  * aspect differs ("effective fight aspect differs (local=custom:4:3
@@ -74,7 +75,7 @@ interface NetFightConfig {
  * guest adopts it via vfs.js engineApplyDisplayMode() before the engine
  * boots — host-authoritative, in-memory only.
  */
-type NetDisplayMode = '4:3' | '16:9' | 'tall' | '3:2';
+type NetDisplayMode = '4:3' | '16:9' | 'tall' | '3:2' | '14:9' | '5:3';
 
 /**
  * WASM heap ceiling (GOMEMLIMIT) for the engine's Go runtime.
@@ -487,7 +488,7 @@ function PlayPageInner() {
       // refuses mismatched fight aspects, so the guest adopts the host's
       // display mode (in-memory config patch) BEFORE the engine boots.
       const dm = m.dm;
-      if (dm === '4:3' || dm === '16:9' || dm === 'tall' || dm === '3:2') {
+      if (dm === '4:3' || dm === '16:9' || dm === 'tall' || dm === '3:2' || dm === '14:9' || dm === '5:3') {
         netSyncedModeRef.current = dm;
         try {
           const applied = (globalThis as any).engineApplyDisplayMode?.(dm);
