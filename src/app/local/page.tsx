@@ -1,15 +1,20 @@
 'use client';
 
-import { useState, useCallback } from 'react';
-import CharacterSelect, {
-  type GameMode,
-  type Difficulty,
-} from '@/components/CharacterSelect';
+import { useState, useCallback, useEffect } from 'react';
+import CharacterSelect from '@/components/CharacterSelect';
 import StageSelect from '@/components/StageSelect';
 import FullscreenToggle from '@/components/FullscreenToggle';
 import { useWipeNavigation } from '@/components/WipeTransition';
 import { useIsTouchDevice } from '@/lib/use-touch-device';
 import { startMode, type ProgressionMode } from '@/lib/game-modes';
+import {
+  DIFFICULTIES,
+  DIFFICULTY_TO_AI,
+  MODES,
+  loadSavedModeChoice,
+  type Difficulty,
+  type GameMode,
+} from '@/lib/mode-catalog';
 import { getCharacters, charRef, splitCharRef, DEFAULT_SOURCE } from '@/lib/character-downloader';
 import { prewarmEngineAssets } from '@/lib/engine-prewarm';
 
@@ -36,19 +41,6 @@ interface LockInResult {
 }
 
 // ---------------------------------------------------------------------------
-// Difficulty → AI level mapping (per task spec)
-//   easy   = 1
-//   normal = 5
-//   hard   = 8
-// ---------------------------------------------------------------------------
-
-const DIFFICULTY_TO_AI: Record<Difficulty, number> = {
-  easy: 1,
-  normal: 5,
-  hard: 8,
-};
-
-// ---------------------------------------------------------------------------
 // NOTE: no resolution quick-set here anymore. The old RES 4:3/16:9 chips
 // (a Settings-UI duplicate pinned over the roster) are gone — display mode
 // is chosen in Settings → Display Mode, persisted to config.ini, and
@@ -72,6 +64,29 @@ export default function LocalPlayPage() {
 
   const [screen, setScreen] = useState<Screen>('select');
   const [lockIn, setLockIn] = useState<LockInResult | null>(null);
+
+  // ---- Mode + difficulty (chosen on the /mode-select screen) ----
+  // Arrival paths, in priority order:
+  //   1. ?mode=&diff= query params — how the mode screen hands the pick
+  //      over (same URL-param pattern /match-prep and /play use).
+  //   2. The persisted choice (same localStorage keys the mode screen owns).
+  //   3. Defaults vs-ai + normal.
+  // Resolved in a mount effect so the SSR HTML (defaults) and the first
+  // client render agree — no hydration mismatch.
+  const [mode, setMode] = useState<GameMode>('vs-ai');
+  const [difficulty, setDifficulty] = useState<Difficulty>('normal');
+  useEffect(() => {
+    const saved = loadSavedModeChoice();
+    let nextMode = saved.mode;
+    let nextDiff = saved.difficulty;
+    const params = new URLSearchParams(window.location.search);
+    const qMode = params.get('mode');
+    const qDiff = params.get('diff');
+    if (qMode && MODES.some(m => m.id === qMode)) nextMode = qMode as GameMode;
+    if (qDiff && DIFFICULTIES.some(d => d.id === qDiff)) nextDiff = qDiff as Difficulty;
+    if (nextMode) setMode(nextMode);
+    if (nextDiff) setDifficulty(nextDiff);
+  }, []);
 
   // ---- Character lock-in: save state, advance to stage select ----
   const handleLockIn = useCallback(
@@ -167,8 +182,11 @@ export default function LocalPlayPage() {
   );
 
   // ---- Cancel handlers ----
+  // Back from the roster goes to the MODE screen — the normal
+  // fighting-game flow back-pedals one screen at a time
+  // (roster → modes → lobby).
   const handleCancelSelect = useCallback(() => {
-    navigate('/lobby');
+    navigate('/mode-select');
   }, [navigate]);
 
   const handleCancelStage = useCallback(() => {
@@ -199,6 +217,8 @@ export default function LocalPlayPage() {
         onLockIn={handleLockIn}
         onCancel={handleCancelSelect}
         isTouch={isTouch}
+        mode={mode}
+        difficulty={difficulty}
       />
       {/* Footer credit */}
       <div className="footer-credit">Made by Nawaf Al Hussain</div>

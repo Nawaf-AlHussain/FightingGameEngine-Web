@@ -21,7 +21,8 @@ import { useWipeNavigation } from '@/components/WipeTransition';
  *   START (pulsing) / ENTER CONFIRM, with key chips.
  *
  * Menu items:
- * - LOCAL PLAY → /local (character select → stage select → fight)
+ * - LOCAL PLAY → /mode-select (pick the game mode + difficulty, then the
+ *   roster at /local: mode select → character select → stage select → fight)
  * - ONLINE PLAY → /play?net=1 (website flow: host/join room codes, then BOTH
  *   players pick fighters + stage on the site's own select screens — synced
  *   over the WebRTC bridge — and the engine boots straight into the fight.
@@ -84,7 +85,7 @@ export default function LobbyPage() {
   }, [installEvent]);
 
   const menuItems = [
-    { label: 'LOCAL PLAY', action: () => navigate('/local'), key: 'L' },
+    { label: 'LOCAL PLAY', action: () => navigate('/mode-select'), key: 'L' },
     { label: 'ONLINE PLAY', action: () => navigate('/play?net=1'), key: 'O' },
     { label: 'SETTINGS', action: () => navigate('/settings'), key: 'S' },
     { label: 'ABOUT', action: () => navigate('/about'), key: 'A' },
@@ -107,7 +108,7 @@ export default function LobbyPage() {
       setSelectedIndex(i => (i - 1 + menuItems.length) % menuItems.length);
     } else if (e.key === 'l' || e.key === 'L') {
       e.preventDefault();
-      navigate('/local');
+      navigate('/mode-select');
     } else if (e.key === 'o' || e.key === 'O') {
       e.preventDefault();
       navigate('/play?net=1');

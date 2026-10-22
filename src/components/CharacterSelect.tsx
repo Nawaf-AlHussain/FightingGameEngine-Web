@@ -21,21 +21,14 @@ import {
   type CharacterInfo,
   type RosterSource,
 } from '@/lib/character-downloader';
+import type { Difficulty, GameMode } from '@/lib/mode-catalog';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type GameMode =
-  | 'vs-ai'
-  | 'vs-player'
-  | 'training'
-  | 'arcade'
-  | 'survival'
-  | 'time-attack'
-  | 'watch';
-
-export type Difficulty = 'easy' | 'normal' | 'hard';
+// GameMode / Difficulty live in lib/mode-catalog.ts (shared with the
+// /mode-select screen, which is where they are chosen now).
 
 interface LocalCharacter {
   id: string;
@@ -68,10 +61,19 @@ interface CharacterSelectProps {
    */
   isTouch?: boolean;
   /**
+   * The mode + AI difficulty for this fight — chosen on the dedicated
+   * /mode-select screen and handed down by the local page (via ?mode=&diff=).
+   * The mode/difficulty toolbars that used to live here moved to that
+   * screen; this component only ECHOES the values back through onLockIn.
+   * Optional so the online flow can keep omitting them (see below).
+   */
+  mode?: GameMode;
+  difficulty?: Difficulty;
+  /**
    * Online (netplay) mode: this machine controls exactly ONE side and the
    * other side is the remote opponent, rendered from live bridge state.
-   * When set, the mode/difficulty bars are hidden and onLockIn is never
-   * fired — the parent drives the flow via onPick.
+   * When set, onLockIn is never fired — the parent drives the flow via
+   * onPick. Online is always versus: no mode/difficulty exists.
    */
   online?: {
     role: 'host' | 'guest';
@@ -99,22 +101,6 @@ interface DownloadState {
 // Constants
 // ---------------------------------------------------------------------------
 
-const MODES: { id: GameMode; label: string; description: string; p2Label: string; progression: boolean }[] = [
-  { id: 'vs-ai',      label: 'VS CPU',       description: 'Fight a single match against the CPU.',                  p2Label: 'CPU',              progression: false },
-  { id: 'vs-player',  label: 'VS PLAYER',    description: 'Fight a single match against another player.',           p2Label: 'P2',               progression: false },
-  { id: 'training',   label: 'TRAINING',     description: 'Practice with infinite time and no AI.',                 p2Label: 'DUMMY',            progression: false },
-  { id: 'arcade',     label: 'ARCADE',       description: 'Fight through a five-opponent ladder.',                  p2Label: 'RANDOM OPPONENTS', progression: true },
-  { id: 'survival',   label: 'SURVIVAL',     description: 'Defeat as many opponents as possible. Endless.',         p2Label: 'RANDOM OPPONENTS', progression: true },
-  { id: 'time-attack',label: 'TIME ATTACK',  description: 'Complete three fights as quickly as possible. 60s rounds.', p2Label: 'RANDOM OPPONENTS', progression: true },
-  { id: 'watch',      label: 'WATCH',        description: 'Watch two CPU-controlled fighters battle.',              p2Label: 'CPU',              progression: true },
-];
-
-const DIFFICULTIES: { id: Difficulty; label: string }[] = [
-  { id: 'easy', label: 'Easy' },
-  { id: 'normal', label: 'Normal' },
-  { id: 'hard', label: 'Hard' },
-];
-
 // Fallback column count for keypresses before the grid has rendered (rare).
 // The CSS grid densifies per breakpoint, so the LIVE count is read from the
 // DOM at runtime — a hardcoded constant breaks up/down steps on every
@@ -124,10 +110,8 @@ const GRID_COLS = 10;
 // localStorage key persisting the chosen roster source across visits.
 const ROSTER_SOURCE_KEY = 'fg-roster-source';
 const ROSTER_SOURCE_KEY_LEGACY = 'ikemen-roster-source';
-// localStorage keys persisting the last mode/difficulty across visits
-// (repeat sessions skip re-tapping VS CPU + Normal every time).
-const SELECT_MODE_KEY = 'fg-select-mode';
-const SELECT_DIFF_KEY = 'fg-select-diff';
+// (Mode/difficulty persistence moved to lib/mode-catalog.ts — owned by the
+// /mode-select screen since the flow separation.)
 
 // True when a keystroke originated inside a text field. The global grid
 // hotkeys (WASD / arrows / Enter / …) must never fire while the player is
@@ -152,6 +136,8 @@ export default function CharacterSelect({
   onCancel,
   isTouch = false,
   online = null,
+  mode: modeProp,
+  difficulty: difficultyProp,
 }: CharacterSelectProps) {
   // Roster state
   // The roster is the CDN manifest only — the engine ships no bundled
@@ -170,9 +156,11 @@ export default function CharacterSelect({
   // errors must answer "can the user retry?").
   const [retryTick, setRetryTick] = useState(0);
 
-  // Mode + difficulty
-  const [mode, setMode] = useState<GameMode>('vs-ai');
-  const [difficulty, setDifficulty] = useState<Difficulty>('normal');
+  // Mode + difficulty — handed in as props (chosen on /mode-select). The
+  // online flow omits them and is always versus: every mode-dependent
+  // branch below is behind !online guards, so the defaults are inert there.
+  const mode: GameMode = modeProp ?? 'vs-ai';
+  const difficulty: Difficulty = difficultyProp ?? 'normal';
 
   // Search filter
   const [searchQuery, setSearchQuery] = useState('');
@@ -516,32 +504,15 @@ export default function CharacterSelect({
     return () => window.removeEventListener('keydown', onKey);
   }, [moveCursor, toggleLock, isTouch, onCancel]);
 
-  // ---- When mode changes, reset lock states ----
+  // ---- When the handed-in mode changes, reset lock states ----
+  // (Defensive: the local page remounts this screen per visit, so the prop
+  // is constant for a mount — but keep the guard in case a future parent
+  // swaps modes mid-flow.)
   useEffect(() => {
     setP1(prev => ({ ...prev, locked: false }));
     setP2(prev => ({ ...prev, locked: false }));
     lockInFiredRef.current = false;
   }, [mode]);
-
-  // ---- Persist + restore mode & difficulty across visits ----
-  // Restored AFTER mount (not in the useState initializer) so SSR HTML and
-  // the first client render agree — no hydration mismatch.
-  useEffect(() => {
-    try {
-      const m = localStorage.getItem(SELECT_MODE_KEY);
-      if (m && MODES.some(x => x.id === m)) setMode(m as GameMode);
-      const d = localStorage.getItem(SELECT_DIFF_KEY);
-      if (d && DIFFICULTIES.some(x => x.id === d)) setDifficulty(d as Difficulty);
-    } catch {
-      // storage unavailable (private mode) — defaults are fine
-    }
-  }, []);
-  useEffect(() => {
-    try { localStorage.setItem(SELECT_MODE_KEY, mode); } catch { /* ignore */ }
-  }, [mode]);
-  useEffect(() => {
-    try { localStorage.setItem(SELECT_DIFF_KEY, difficulty); } catch { /* ignore */ }
-  }, [difficulty]);
 
   // ---- Roster source switch: reset cursors/locks (grid contents change) ----
   const handleSourceChange = useCallback((sourceId: string) => {
@@ -942,8 +913,6 @@ export default function CharacterSelect({
   // (the per-card download status block moved into CharacterCard below —
   // it is derived inside the memoized card from primitive props)
 
-  const showDifficulty = p2IsAI || p1IsAI;
-
   // ---- Memoized card grid (Batch 4) ----
   // The roster renders 100+ cards, and EVERY parent state change — a
   // download progress tick, a cursor move, a search keystroke — used to
@@ -1049,46 +1018,10 @@ export default function CharacterSelect({
         )}
       </header>
 
-      {/* Toolbar — mode, difficulty, roster source and search share ONE
-          wrapping row. They used to stack as four rows (~130px of chrome
-          before the grid); the mode blurb moved into button tooltips. */}
+      {/* Toolbar — roster source + search share ONE wrapping row. The mode
+          and difficulty pickers moved to the dedicated /mode-select screen
+          (normal fighting-game flow: modes → fighters → stage). */}
       <div className="cs__toolbar">
-        {/* Mode bar (online: fixed versus — no mode/difficulty pickers) */}
-        {!online && (
-          <div className="cs__mode-bar" role="tablist" aria-label="Game mode">
-            {MODES.map(m => (
-              <button
-                key={m.id}
-                type="button"
-                role="tab"
-                aria-selected={mode === m.id}
-                title={m.description}
-                className={`cs__mode-btn${mode === m.id ? ' cs__mode-btn--active' : ''}`}
-                onClick={() => setMode(m.id)}
-              >
-                {m.label}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* Difficulty (only for AI modes) */}
-        {showDifficulty && (
-          <div className="cs__difficulty-bar" aria-label="AI difficulty">
-            <span>DIFFICULTY</span>
-            {DIFFICULTIES.map(d => (
-              <button
-                key={d.id}
-                type="button"
-                className={`cs__diff-btn${difficulty === d.id ? ' cs__diff-btn--active' : ''}`}
-                onClick={() => setDifficulty(d.id)}
-              >
-                {d.label}
-              </button>
-            ))}
-          </div>
-        )}
-
         {/* Roster source picker — which chars* folder the grid shows.
             Hidden when the manifest only has the default source. */}
         {!loading && !error && sources.length > 1 && (

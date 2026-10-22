@@ -970,37 +970,6 @@ html.phone-landscape body.fighting {
   position: relative;
 }
 
-/* Mode bar — skewed print chips (paper fill, crimson when active) */
-.cs__mode-bar {
-  display: flex;
-  gap: 0.35rem;
-  justify-content: center;
-  flex-wrap: wrap;
-  z-index: 1;
-  position: relative;
-}
-.cs__mode-btn {
-  padding: 0.28rem 0.75rem;
-  font-size: 0.62rem;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  font-family: var(--font-display);
-  background: var(--paper);
-  color: var(--ink);
-  border: none;
-  box-shadow: 2.5px 2.5px 0 var(--ink);
-  clip-path: polygon(7px 0, 100% 0, calc(100% - 7px) 100%, 0 100%);
-  transition: background 0.15s, color 0.15s, transform 0.15s;
-}
-.cs__mode-btn:hover { background: #fffbea; color: var(--crimson); }
-.cs__mode-btn--active {
-  background: var(--crimson);
-  color: var(--paper);
-  transform: translateY(-1px);
-}
-.cs__mode-btn--active:hover { color: var(--paper); }
-
 /* Difficulty / roster source — segmented chips, royal when active */
 .cs__difficulty-bar {
   display: flex;
@@ -1511,6 +1480,224 @@ html.phone-landscape body.fighting {
   cursor: not-allowed;
   filter: none;
 }
+
+/* --- Mode Select — "paper poster" (ISSUE No. 01 — THE MODES) ---
+   The dedicated screen where the game mode + AI difficulty are picked,
+   before the roster. Reuses the .cs__reg marks, .cs__difficulty-bar chips
+   and .cs__btn-back/.cs__btn-fight buttons so the print language stays
+   identical across the flow. */
+.ms {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  padding: 1.1rem 1.5rem 3.2rem;
+  position: relative;
+  background: var(--paper);
+  color: var(--ink);
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.ms__bg-wedges {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+.ms__bg-wedges::before {
+  content: '';
+  position: absolute;
+  top: -10%;
+  bottom: -10%;
+  left: -14%;
+  width: 42%;
+  background: rgba(232, 40, 60, 0.1);
+  transform: skewX(-14deg);
+}
+.ms__bg-wedges::after {
+  content: '';
+  position: absolute;
+  top: -10%;
+  bottom: -10%;
+  right: -14%;
+  width: 42%;
+  background: rgba(49, 67, 214, 0.12);
+  transform: skewX(-14deg);
+}
+.ms__bg-dots {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: radial-gradient(rgba(16, 22, 64, 0.08) 1px, transparent 1.2px);
+  background-size: 16px 16px;
+  animation: halftonePan 9s ease-in-out infinite alternate;
+}
+
+/* Masthead — kicker + poster headline + selected-mode blurb */
+.ms__title {
+  text-align: center;
+  margin: 0.4rem auto 1.2rem;
+  z-index: 1;
+  position: relative;
+}
+.ms__kicker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.42em;
+  text-indent: 0.42em;
+  text-transform: uppercase;
+  color: var(--royal);
+}
+.ms__kicker-rule {
+  width: 40px;
+  height: 2px;
+  background: var(--crimson);
+  opacity: 0.85;
+  flex: none;
+}
+.ms__title-main {
+  font-family: var(--font-poster);
+  font-size: clamp(2.2rem, 5.2vw, 3.8rem);
+  font-weight: 400;
+  text-transform: uppercase;
+  color: var(--royal);
+  letter-spacing: 0.01em;
+  line-height: 0.92;
+  margin: 0.3rem 0 0.4rem;
+  text-shadow: 0.05em -0.038em 0 var(--crimson);
+}
+.ms__title-sub {
+  font-size: 0.66rem;
+  letter-spacing: 0.32em;
+  text-indent: 0.32em;
+  color: var(--ink);
+  opacity: 0.6;
+  font-weight: 700;
+  text-transform: uppercase;
+  min-height: 1em;
+}
+
+/* Mode cards — print panels; the selected one prints in crimson ink */
+.ms__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(225px, 1fr));
+  gap: 0.7rem;
+  width: min(1060px, 100%);
+  margin: 0 auto;
+  z-index: 1;
+  position: relative;
+}
+.ms__card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.32rem;
+  align-items: flex-start;
+  text-align: left;
+  padding: 0.7rem 0.85rem 0.78rem;
+  background: var(--paper);
+  color: var(--ink);
+  border: 2px solid var(--ink);
+  clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+  box-shadow: 3px 3px 0 var(--ink);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, transform 0.15s, box-shadow 0.15s, filter 0.15s;
+}
+.ms__card:hover {
+  background: #fffbea;
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 var(--ink);
+}
+.ms__card--active {
+  background: var(--crimson);
+  color: var(--paper);
+  transform: translate(-2px, -2px);
+  box-shadow: none;
+  filter: drop-shadow(4px 4px 0 var(--royal));
+}
+.ms__card--active:hover {
+  background: var(--crimson);
+  color: var(--paper);
+}
+.ms__card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+}
+.ms__card-num {
+  font-family: var(--font-poster);
+  font-size: 1rem;
+  line-height: 1;
+  color: var(--royal);
+  opacity: 0.85;
+}
+.ms__card--active .ms__card-num { color: var(--paper); opacity: 0.9; }
+.ms__card-tag {
+  font-size: 0.5rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  padding: 0.16rem 0.5rem;
+  background: var(--royal);
+  color: var(--paper);
+  clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%);
+}
+.ms__card--active .ms__card-tag {
+  background: var(--paper);
+  color: var(--crimson);
+}
+.ms__card-label {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.04rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  line-height: 1;
+}
+.ms__card-desc {
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+  color: var(--gray-dark);
+}
+.ms__card--active .ms__card-desc { color: rgba(242, 236, 218, 0.88); }
+
+/* Difficulty row — reuses the .cs__difficulty-bar chips */
+.ms__difficulty {
+  margin: 1.2rem auto 0;
+}
+
+/* Footer — back + continue */
+.ms__footer {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1rem;
+  margin-top: auto;
+  padding-top: 1.5rem;
+  z-index: 1;
+  position: relative;
+}
+.ms__hint {
+  text-align: center;
+  font-size: 0.62rem;
+  color: rgba(16, 22, 64, 0.55);
+  font-weight: 600;
+  font-family: var(--font-display);
+  letter-spacing: 0.05em;
+  margin-top: 0.9rem;
+  z-index: 1;
+  position: relative;
+  line-height: 1.6;
+}
+.ms__hint span { color: var(--royal); }
 
 /* --- Stage Select — "paper poster" --- */
 .ss {
@@ -2172,24 +2359,20 @@ body.fighting {
   .cs__kicker-rule { width: 26px; }
   .cs__reg--tl, .cs__reg--tr { display: none; }
 
-  /* Mode bar — horizontal scroll instead of wrapping */
-  .cs__mode-bar {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-    padding-bottom: 4px;
-    margin-bottom: 0.4rem;
-    justify-content: flex-start;
-    gap: 0.25rem;
-  }
-  .cs__mode-bar::-webkit-scrollbar { display: none; }
-  .cs__mode-btn {
-    padding: 0.4rem 0.9rem;
-    font-size: 0.7rem;
-    flex-shrink: 0;
-    min-height: 36px;
-  }
+  /* Mode select — 2-up cards, tighter masthead */
+  .ms { padding: 0.9rem 0.75rem 3rem; }
+  .ms__title { margin: 0.7rem auto 0.9rem; }
+  .ms__title-main { font-size: clamp(1.9rem, 9vw, 2.6rem); }
+  .ms__kicker { font-size: 0.52rem; letter-spacing: 0.3em; gap: 8px; }
+  .ms__kicker-rule { width: 26px; }
+  .ms__title-sub { font-size: 0.56rem; letter-spacing: 0.22em; }
+  .ms__grid { grid-template-columns: repeat(2, 1fr); gap: 0.5rem; }
+  .ms__card { padding: 0.6rem 0.7rem 0.65rem; min-height: 84px; }
+  .ms__card-label { font-size: 0.92rem; }
+  .ms__card-desc { font-size: 0.56rem; }
+  .ms__card-tag { font-size: 0.46rem; letter-spacing: 0.14em; }
+  .ms__difficulty { margin-top: 0.9rem; }
+  .ms__hint { margin-top: 0.7rem; }
 
   /* Difficulty bar — also scrollable */
   .cs__difficulty-bar {
@@ -2308,7 +2491,6 @@ body.fighting {
    so the cut-off chip reads as "more this way", not as a broken layout.
    (Between 600-768px the chips fit, so no fade — it would be a lie.) */
 @media (max-width: 600px) {
-  .cs__mode-bar,
   .cs__difficulty-bar {
     padding-right: 8px;
     -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 26px), rgba(0, 0, 0, 0.3) calc(100% - 9px), transparent 100%);
@@ -2329,6 +2511,13 @@ body.fighting {
      the old forced 3-col !important fought it and is gone. */
   .ss__grid { grid-template-columns: repeat(2, 1fr); }
 
+  /* Mode select — tighter still, no fullscreen toggle to dodge here */
+  .ms__title-main { font-size: 1.8rem; }
+  .ms__card { padding: 0.55rem 0.6rem 0.6rem; min-height: 78px; }
+  .ms__card-label { font-size: 0.85rem; }
+  .ms__card-desc { font-size: 0.52rem; }
+  .ms__footer { gap: 0.7rem; }
+
   /* VS bar — make tags smaller */
   .cs__player-tag-label { font-size: 0.55rem; }
   .cs__player-tag-name { font-size: 0.65rem; }
@@ -2345,13 +2534,28 @@ body.fighting {
   .cs__title-pre { font-size: 0.5rem; }
   .cs__title-sub { display: none; }
   .cs__toolbar { margin-bottom: 0.15rem; gap: 0.15rem 0.5rem; }
-  .cs__mode-btn, .cs__diff-btn { padding: 0.2rem 0.55rem; font-size: 0.55rem; box-shadow: 2px 2px 0 var(--ink); }
+  .cs__diff-btn { padding: 0.2rem 0.55rem; font-size: 0.55rem; box-shadow: 2px 2px 0 var(--ink); }
   .cs__vs-bar { margin-bottom: 0.15rem; }
   .cs__plate-art { height: 36px; }
   .cs__player-tag-name { font-size: 0.72rem; }
   .cs__vs { font-size: 1.1rem; }
   .cs__step { margin-bottom: 0.15rem; padding: 0.15rem 0.7rem; }
   .cs__footer { padding: 0.25rem 1rem; }
+
+  /* Mode select — one compact band; the blurb/hints drop, cards slim */
+  .ms { padding: 0.5rem 1rem 2.2rem; }
+  .ms__title { margin: 0.15rem auto 0.5rem; }
+  .ms__title-main { font-size: 1.5rem; margin: 0.15rem 0 0.2rem; }
+  .ms__title-sub { display: none; }
+  .ms__kicker { font-size: 0.46rem; letter-spacing: 0.24em; gap: 6px; }
+  .ms__kicker-rule { width: 18px; }
+  .ms__grid { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0.45rem; }
+  .ms__card { padding: 0.45rem 0.65rem 0.5rem; gap: 0.18rem; }
+  .ms__card-desc { display: none; }
+  .ms__card-tag { font-size: 0.44rem; padding: 0.12rem 0.4rem; }
+  .ms__difficulty { margin-top: 0.55rem; }
+  .ms__footer { padding-top: 0.6rem; }
+  .ms__hint { display: none; }
 }
 
 /* ---- Fight exit button: landscape orientation tweaks ---- */
