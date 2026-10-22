@@ -54,7 +54,30 @@ type NetPhase =
   | 'stageselect' // host picks the stage
   | 'waiting'     // guest spectates while the host picks the stage
   | 'fight'       // engine booting / running with the agreed roster
+  | 'postfight'   // engine exited cleanly, bridge STILL OPEN — rematch panel
   | 'error';      // connection lost / setup failed
+
+/**
+ * Remove the engine's dead canvas after a fight (rematch preparation).
+ *
+ * The engine creates its own <canvas id="ikemen-canvas"> and nothing in the
+ * exit path ever removed it (every exit used to navigate the page away). An
+ * in-place rematch boots a SECOND engine process in the same document, so the
+ * corpse must go first: the old WebGL2 context is explicitly lost via
+ * WEBGL_lose_context (browsers cap live contexts — leaked contexts would make
+ * the 3rd rematch fail to create one) and the element is removed so the fresh
+ * engine's canvas is the only one the fitter can find.
+ */
+function teardownEngineCanvas() {
+  const canvas = document.querySelector('canvas#ikemen-canvas') as HTMLCanvasElement | null;
+  if (!canvas) return;
+  try {
+    const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+    const lose = (gl as WebGL2RenderingContext | null)?.getExtension?.('WEBGL_lose_context');
+    lose?.loseContext();
+  } catch { /* a dead context is exactly what we want anyway */ }
+  try { canvas.remove(); } catch { /* already gone */ }
+}
 
 interface NetFightConfig {
   /** Host's fighter (engine side 1). */
@@ -466,6 +489,20 @@ function PlayPageInner() {
   const [netError, setNetError] = useState<string | null>(null);
   const netRoleRef = useRef<'host' | 'join'>('host');
   const netResolveRef = useRef<((cfg: NetFightConfig | null) => void) | null>(null);
+  // ---- Post-fight session (rematch) state ----
+  // After a clean engine exit the WebRTC channel is STILL OPEN at page level
+  // (the bridge outlives the engine). The postfight panel offers a rematch:
+  // the host re-boots the engine in place from the ALREADY-COMPILED wasm
+  // module (netRebootRef, assigned by bootEngine) — no reload, no relay round
+  // trip, no lost room.
+  const [netRebooting, setNetRebooting] = useState(false);
+  const [netRebootMsg, setNetRebootMsg] = useState('');
+  const [netOppDrop, setNetOppDrop] = useState(false); // in-fight opponent disconnect overlay
+  const [netLeaveAsk, setNetLeaveAsk] = useState(false); // BACK / cancel confirmation
+  const [netRematchSent, setNetRematchSent] = useState(false); // guest: request pending
+  const [netOppRematch, setNetOppRematch] = useState(false); // host: request received
+  const netLastFightRef = useRef<{ p1: string; p2: string; stage: string; dm: NetDisplayMode } | null>(null);
+  const netRebootRef = useRef<((cfg: NetFightConfig, dm: NetDisplayMode) => Promise<void>) | null>(null);
   // Display mode synced for this online fight (host: its own choice;
   // guest: the mode adopted from the host). Logged after the park.
   const netSyncedModeRef = useRef<NetDisplayMode | null>(null);
@@ -515,7 +552,33 @@ function PlayPageInner() {
         } catch { /* engine overlay reports a real mismatch */ }
       }
       setNetPhase('fight');
-      netResolveRef.current?.({ p1, p2, stage });
+      setNetOppDrop(false);
+      if (netResolveRef.current) {
+        // FIRST fight of this session: resolve the bootEngine park.
+        netResolveRef.current({ p1, p2, stage });
+      } else {
+        // Rematch / re-pick: the park is long gone — boot the engine IN PLACE
+        // (fresh process over the still-open WebRTC channel; see netRebootRef).
+        netRebootRef.current?.({ p1, p2, stage }, (dm as NetDisplayMode) || '16:9');
+      }
+    } else if (t === 'rematch') {
+      // Guest asked to run it back — the host's panel says so; the host
+      // confirms by pressing REMATCH (which re-sends 'go' with the same cfg).
+      setNetOppRematch(true);
+    } else if (t === 'back') {
+      // Host sent everyone back to the fighter grid (CHANGE FIGHTERS).
+      // The universe stays synced; both sides re-pick from scratch.
+      setNetMine({ id: null, locked: false });
+      setNetOpp({ id: null, locked: false, liveIdx: null });
+      setNetRematchSent(false);
+      setNetOppRematch(false);
+      setNetPhase('charselect');
+    } else if (t === 'leave') {
+      // The opponent left the session on purpose (lobby / room closed).
+      setNetError('Your opponent left the session.');
+      setNetPhase('error');
+      setNetRebooting(false);
+      netResolveRef.current?.(null);
     }
   }, []);
 
@@ -597,15 +660,80 @@ function PlayPageInner() {
       net?.control?.({ t: 'go', p1: cfg.p1, p2: cfg.p2, stage: stageId, dm });
     } catch { /* the poller reports real drops */ }
     setNetPhase('fight');
-    netResolveRef.current?.(cfg);
+    setNetOppDrop(false);
+    if (netResolveRef.current) {
+      // FIRST fight of this session: resolve the bootEngine park.
+      netResolveRef.current(cfg);
+    } else {
+      // Rematch cycle: boot the engine in place over the live channel.
+      netRebootRef.current?.(cfg, dm);
+    }
   }, [netMine.id, netOpp.id]);
 
+  // Immediate teardown + lobby. The courtesy 'leave' frame is sent FIRST
+  // (while the channel is still open) so the opponent lands on their error
+  // screen instantly instead of waiting out the ICE timeout; the close is
+  // delayed a beat so the frame flushes before the SCTP association dies.
+  const leaveNetNow = useCallback(() => {
+    const net = (globalThis as any).ikemenNet;
+    try { net?.control?.({ t: 'leave' }); } catch { /* channel already dead */ }
+    const finish = () => {
+      try { net?.close?.(); } catch { /* already gone */ }
+      netResolveRef.current?.(null);
+      try { sessionStorage.removeItem('engine-boot-live'); } catch { /* ignore */ }
+      window.location.href = '/lobby';
+    };
+    setTimeout(finish, 200);
+  }, []);
+
+  // Every in-page exit (BACK buttons, CANCEL, touch exit) goes through here.
+  // A LIVE session is a shared object: killing it strands the opponent on a
+  // dead channel, so a tap that would do that asks first. Before the room is
+  // established (role screen, silent connect failure) there is nothing to
+  // protect — leave immediately.
   const cancelNetFlow = useCallback(() => {
-    try { (globalThis as any).ikemenNet?.close?.(); } catch { /* already gone */ }
+    const net = (globalThis as any).ikemenNet;
+    if (net && typeof net.connected === 'function' && net.connected()) {
+      setNetLeaveAsk(true);
+      return;
+    }
+    try { net?.close?.(); } catch { /* already gone */ }
     netResolveRef.current?.(null);
     try { sessionStorage.removeItem('engine-boot-live'); } catch { /* ignore */ }
     window.location.href = '/lobby';
   }, []);
+
+  // ---- Postfight panel actions (the rematch offer) ----
+  // Host: REMATCH re-sends the exact 'go' frame of the last fight — both
+  // engines re-boot in place over the still-open channel. CHANGE FIGHTERS
+  // walks BOTH sides back to the fighter grid with the room intact.
+  // Guest: REQUEST REMATCH is a vote the host sees on their panel.
+  const postfightRematch = useCallback(() => {
+    const last = netLastFightRef.current;
+    if (!last) return;
+    const net = (globalThis as any).ikemenNet;
+    try { net?.control?.({ t: 'go', p1: last.p1, p2: last.p2, stage: last.stage, dm: last.dm }); } catch { /* the poller reports real drops */ }
+    setNetPhase('fight');
+    setNetOppDrop(false);
+    netRebootRef.current?.({ p1: last.p1, p2: last.p2, stage: last.stage }, last.dm);
+  }, []);
+
+  const postfightChangeFighters = useCallback(() => {
+    const net = (globalThis as any).ikemenNet;
+    try { net?.control?.({ t: 'back' }); } catch { /* the poller reports real drops */ }
+    setNetMine({ id: null, locked: false });
+    setNetOpp({ id: null, locked: false, liveIdx: null });
+    setNetRematchSent(false);
+    setNetOppRematch(false);
+    setNetPhase('charselect');
+  }, []);
+
+  const postfightRequestRematch = useCallback(() => {
+    if (netRematchSent) return;
+    const net = (globalThis as any).ikemenNet;
+    try { net?.control?.({ t: 'rematch' }); } catch { /* the poller reports real drops */ }
+    setNetRematchSent(true);
+  }, [netRematchSent]);
 
   // ---- Opponent prefetch (online flow) --------------------------------------
   // Only MY fighter gets cached (on lock-in, inside CharacterSelect). The
@@ -631,8 +759,14 @@ function PlayPageInner() {
   // ---- Connection watcher for the online flow ----
   // 'connecting' waits for the bridge to report established; afterwards a
   // few consecutive dead polls (or an explicit failure) end the flow.
+  // 'fight' and 'postfight' are watched TOO (the mid-fight silence bug): the
+  // engine owns the main thread there, so the page's only line to the truth
+  // is the bridge state. In-fight death raises a non-destructive overlay
+  // (the engine's own exit triage closes the story); post-fight death ends
+  // the rematch wait explicitly.
+  const NET_LIVE_PHASES: NetPhase[] = ['connecting', 'groupselect', 'charselect', 'stageselect', 'waiting', 'fight', 'postfight'];
   useEffect(() => {
-    if (!['connecting', 'groupselect', 'charselect', 'stageselect', 'waiting'].includes(netPhase)) return;
+    if (!NET_LIVE_PHASES.includes(netPhase)) return;
     let misses = 0;
     const timer = setInterval(() => {
       const net = (globalThis as any).ikemenNet;
@@ -653,6 +787,36 @@ function PlayPageInner() {
         }
         return;
       }
+      if (netPhase === 'fight') {
+        // dc.onclose is the only thing that flips isConnected mid-fight (the
+        // transport's transient 'disconnected' rides a 12s recovery grace in
+        // the bridge and never touches isConnected), so 3 dead polls = the
+        // channel is genuinely gone. The overlay is informational — the
+        // engine will exit on its own when its reads return null, and the
+        // post-run triage lands the phase machine on 'error'.
+        if (typeof net.connected === 'function' && net.connected() && !(typeof net.failed === 'function' && net.failed())) {
+          misses = 0;
+          return;
+        }
+        misses += 1;
+        if (misses >= 3 || (typeof net.failed === 'function' && net.failed())) {
+          setNetOppDrop(true);
+        }
+        return;
+      }
+      if (netPhase === 'postfight') {
+        // The opponent did not stick around for the rematch offer.
+        if (typeof net.connected === 'function' && net.connected()) {
+          misses = 0;
+          return;
+        }
+        misses += 1;
+        if (misses >= 4 || (typeof net.failed === 'function' && net.failed())) {
+          setNetError('Your opponent left the session.');
+          setNetPhase('error');
+        }
+        return;
+      }
       if (typeof net.connected === 'function' && net.connected()) {
         misses = 0;
         return;
@@ -666,6 +830,36 @@ function PlayPageInner() {
     }, 500);
     return () => clearInterval(timer);
   }, [netPhase]);
+
+  // ---- BACK-button session guard (the "one accidental press kills the set" bug) ----
+  // Every phase from 'connecting' onward holds a LIVE shared session. Browser
+  // BACK (the instinctive gesture) used to navigate /play away with zero
+  // ceremony — the room died, the opponent stared at a frozen screen. A guard
+  // history entry swallows the first BACK and asks; STAY re-arms the trap,
+  // LEAVE tears the session down politely. beforeunload covers desktop
+  // reload/close (mobile browsers routinely ignore it — the history trap is
+  // the layer that matters on phones).
+  const sessionLive = isNetFlow && NET_LIVE_PHASES.includes(netPhase);
+  useEffect(() => {
+    if (!sessionLive) return;
+    window.history.pushState({ fgNetGuard: true }, '');
+    const onPop = () => {
+      setNetLeaveAsk(true);
+      // Consume-and-rearm: the pop ate the guard entry; push it back so the
+      // NEXT press is caught too (whether they stay or the overlay is still up).
+      window.history.pushState({ fgNetGuard: true }, '');
+    };
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('popstate', onPop);
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => {
+      window.removeEventListener('popstate', onPop);
+      window.removeEventListener('beforeunload', onBeforeUnload);
+    };
+  }, [sessionLive]);
 
   // ---- Online phase machine ----
   // Host picks the universe → both sides advance to the fighter grid. Both
@@ -752,9 +946,16 @@ function PlayPageInner() {
     } catch {}
     // Always go back after a short delay (in case the engine's escape
     // handler doesn't fire or doesn't quit the match). Online fights go to
-    // the lobby — there is no website select session to return to.
+    // the lobby — there is no website select session to return to. The
+    // courtesy 'leave' frame lands while the channel is still open, so the
+    // opponent sees "left the session" instead of waiting out an ICE timeout.
     setTimeout(() => {
-      window.location.href = isNetFlow ? '/lobby' : '/local';
+      if (isNetFlow) {
+        try { (globalThis as any).ikemenNet?.control?.({ t: 'leave' }); } catch { /* channel already dead */ }
+        setTimeout(() => { window.location.href = '/lobby'; }, 150);
+        return;
+      }
+      window.location.href = '/local';
     }, 500);
   };
 
@@ -1076,8 +1277,12 @@ function PlayPageInner() {
           };
         };
 
-        const cleanupCanvasFit = installCanvasFit();
-        canvasFitCleanup = cleanupCanvasFit;
+        // NOTE: the canvas fitter is installed by runEngineFight() below,
+        // immediately before each engine run (first fight AND rematches) —
+        // not here. Its cleanup tears down body.fighting and the resize
+        // listeners, so keeping it alive across the whole select phase served
+        // nothing: no canvas exists until the engine creates one, and the
+        // online select screens manage their own scrolling.
         const qmode = searchParams.get('qmode') || 'quickvs'; // progression mode
         // Netplay modes (both use the WebRTC bridge - public/game/webrtc.js,
         // engine netplay_js.go):
@@ -1117,7 +1322,13 @@ function PlayPageInner() {
         // they need the arrows/WASD for navigation.
         const heldKeys = new Set<string>();
 
+        // Re-entrant on purpose: every engine run ends with cleanup() tearing
+        // the guard down, and an in-place rematch re-installs it for the next
+        // fight. Removing the previous pair first keeps re-installation from
+        // stacking duplicate listeners.
         const installKeyboardGuard = () => {
+          if (onKeyDown) window.removeEventListener('keydown', onKeyDown, true);
+          if (onKeyUp) window.removeEventListener('keyup', onKeyUp, true);
           onKeyDown = (e: KeyboardEvent) => {
             heldKeys.add(e.code);
             if (
@@ -1318,6 +1529,316 @@ function PlayPageInner() {
           }
           installKeyboardGuard();
         }
+
+        // ---- Per-fight engine run (shared by the first boot AND rematches) --
+        // Everything from "the engine is about to take the main thread" to
+        // "the run resolved" lives in ONE function so an in-place rematch can
+        // call it a second time. Returns true when a fight genuinely finished
+        // (lastFightResult stashes the marker for the progression branch);
+        // false means a death overlay was already shown and the caller must
+        // stop. The exit triage inside is the historical one — moved, not
+        // rewritten.
+        let lastFightResult: ReturnType<typeof readFightResult> = null;
+        const runEngineFight = async (
+          activeGo: any,
+          instance: WebAssembly.Instance,
+          argv: string[],
+          fightRefs: { p1: string; p2: string; stage: string },
+          isReboot: boolean,
+        ): Promise<boolean> => {
+          activeGo.argv = argv;
+
+          // Per-run presentation. The fitter is (re)installed fresh: the
+          // previous run's cleanup() tore it down along with body.fighting.
+          // The keyboard guard re-arms for the same reason.
+          canvasFitCleanup = installCanvasFit();
+          if (netMode) installKeyboardGuard();
+          if (!isReboot && boot) {
+            // Hide the boot log once the engine starts
+            boot.style.opacity = '0';
+            boot.style.transition = 'opacity 1s';
+            setTimeout(() => { if (boot) boot.style.display = 'none'; }, 1000);
+          }
+
+          // --- Auto-focus the engine canvas once created ---
+          const focusCanvas = () => {
+            const canvas = document.querySelector('canvas');
+            if (canvas && canvas.width > 0) {
+              canvas.setAttribute('tabindex', '0');
+              (canvas as HTMLCanvasElement).focus();
+              return true;
+            }
+            return false;
+          };
+          setTimeout(() => focusCanvas(), 1000);
+          clickHandler = () => focusCanvas();
+          document.addEventListener('click', clickHandler);
+
+          // --- Run the engine ---
+          // Paint first, measure, THEN hand the thread to the engine: go.run()
+          // is one long main-thread block (Go wasm is single-threaded here), so
+          // without this yield the last boot-log lines ("Engine starting...")
+          // would only render after the first engine frame. The summary line
+          // also closes the long-task observation window here — everything
+          // after this point is the engine's own boot, not the JS pipeline.
+          // (Boot-timing instrumentation measures the FIRST run only.)
+          if (!isReboot) {
+            const bootSummary = bootTimingSummary();
+            log(bootSummary.text);
+            setBootStats(bootSummary); // HUD readout (?bootstats=1)
+            try { bootTiming?.observer?.disconnect(); } catch { /* advisory */ }
+          }
+          await new Promise((r) => setTimeout(r, 0));
+          setEngineRunning(true);
+          scheduleVfsPrefetch();
+          // Mark fight start time for Time Attack duration tracking.
+          // Must be called right before go.run() so it measures the actual
+          // fight duration, not the engine boot time. Not meaningful for
+          // netplay (no progression session) - skip to keep stats clean.
+          if (!netMode) markFightStart();
+          // Show floating exit button on touch devices after engine starts.
+          if (isTouch) {
+            setTimeout(() => setShowExit(true), 1500);
+          }
+          g.__engineExitCode = null;
+          engineStartAt = Date.now();
+          glContextLost = false;
+          document.addEventListener('webglcontextlost', onContextLost, true);
+          await activeGo.run(instance);
+
+          // The engine's own output decides whether run() resolving means
+          // "fight ended" or "engine died". Report deaths visibly - local AND
+          // online - instead of silently bouncing back to the select screen,
+          // which is exactly what made the "before the match starts it kicks
+          // me back to character select" reports undiagnosable on phones.
+          // 'Panic:' = Go panic; 'fatal error:' = Go RUNTIME death (out of
+          // memory, deadlock, ...) printed to stderr WITHOUT a panic line —
+          // the OOM-class boot deaths (Huawei Chrome report) only match the
+          // second pattern. Both come through the vfs log bridge
+          // (window.__engineLog), which captures stdout AND stderr.
+          const engineTail = ((globalThis as any).__engineLog || []) as string[];
+          const crashLine = engineTail.find(l => l.includes('Panic:') || l.includes('fatal error:'));
+          if (crashLine) {
+            cleanup();
+            log('ENGINE CRASHED: ' + crashLine);
+            // POISONED-CACHE SELF-HEAL: a truncated/corrupt cached asset (sff
+            // cut mid-stream by a flaky network — the header survives, so no
+            // sniff can see it) panics the engine at parse time and the panic
+            // text names the VFS path. Purge the implicated match records so
+            // RETRY re-downloads them, instead of replaying the same poisoned
+            // bytes on every attempt ("character does not appear in the fight").
+            let healedNote = '';
+            try {
+              const crashIdx = engineTail.indexOf(crashLine);
+              const panicText = engineTail.slice(crashIdx, crashIdx + 30).join('\n');
+              const purged = await purgeAssetsMentionedByPanic(panicText, fightRefs.p1, fightRefs.p2, fightRefs.stage);
+              if (purged.length) {
+                log('CACHE HEAL: purged damaged records for: ' + purged.join(', '));
+                healedNote = ' The cached copy of ' + purged.join(' and ') +
+                  ' was damaged and has been deleted — press RETRY to re-download it.';
+              }
+            } catch { /* healing is best-effort; the error screen still shows */ }
+            setBootError('The game engine crashed (' + crashLine.slice(0, 200) + ').' + healedNote +
+              ' Send a screenshot of this screen when reporting — expand Technical Details below to see how far the boot got.' + bootDetails());
+            return false;
+          }
+
+          // An engine that quits before any picture ever appeared did NOT
+          // finish a fight. The engine calls exit() on fatal errors (no GL,
+          // bad netplay attach, peer death during handshake) and wasm_exec
+          // resolves run() normally for it - which used to fall through to
+          // the "Fight complete" path for LOCAL fights and silently bounce
+          // the player to /local (= character select; the Huawei Chrome
+          // report), while online got the error screen. A real fight = canvas
+          // existed AND ran for a sensible duration, OR a result marker was
+          // written (an ultra-short but genuinely finished fight reports it).
+          const fightResult = readFightResult();
+          const engineRan = !!document.querySelector('canvas#ikemen-canvas') && (Date.now() - engineStartAt > 8000);
+          // A genuinely finished fight always exits 0 (clean main return or a
+          // menu Quit). os.Exit(nonzero) or a lost WebGL context is an engine
+          // death even when a picture had been on screen for a while - report
+          // it instead of silently bouncing. This closes the LAST silent path
+          // of the Huawei Chrome report class: an engine dying after the
+          // canvas is up (past the 8s engineRan heuristic) without printing a
+          // Go panic line.
+          const exitCode = g.__engineExitCode;
+          const engineDied = (exitCode != null && exitCode !== 0) || glContextLost;
+          if (engineDied && !fightResult) {
+            cleanup();
+            const why = glContextLost
+              ? 'the WebGL graphics context was lost (GPU driver reset or GPU memory exhaustion)'
+              : 'the engine exited abnormally (exit code ' + exitCode + ')';
+            const tail = engineTail.slice(-4).join(' | ').slice(0, 240);
+            log('ENGINE DIED: ' + why);
+            clearBootLive();
+            setBootError('The game engine died: ' + why +
+              (tail ? '. Engine output: ' + tail : '') +
+              '. Expand Technical Details below for the boot log - send a screenshot when reporting.' + bootDetails());
+            return false;
+          }
+          if (!engineRan && !fightResult) {
+            cleanup();
+            clearBootLive();
+            log('ENGINE EXITED BEFORE THE FIGHT STARTED' + (exitCode != null && exitCode !== 0 ? ' (exit code ' + exitCode + ')' : '') + '.');
+            const tail = engineTail.slice(-4).join(' | ').slice(0, 240);
+            setBootError('The game engine exited before the match started' + (exitCode != null && exitCode !== 0 ? ' (exit code ' + exitCode + ')' : '') +
+              (tail ? '. Engine output: ' + tail : '') +
+              '. Expand Technical Details below for the boot log. If this repeats, send a screenshot when reporting' + (netMode ? '; both players should also hard-refresh the page (Ctrl+F5) and retry.' : '.') + bootDetails());
+            return false;
+          }
+
+          // Engine exited — fight is over. Read the match result and hand the
+          // decision back to the caller.
+          lastFightResult = fightResult;
+          clearFightResult();
+          cleanup();
+          return true;
+        };
+
+        // ---- Net fight completion (first boot AND rematches) ----------------
+        // The engine process is dead but the WEBSITE session (WebRTC channel,
+        // select state, room) is still alive. A dead channel here means the
+        // opponent vanished mid-fight — the old code logged "Fight complete.
+        // Returning..." and dumped BOTH players at /lobby with no word, which
+        // is the mid-fight-disconnect-is-invisible bug. A live channel means
+        // the rematch offer is real: park on the postfight panel with the
+        // fight's corpse cleared away and the agreed config stashed.
+        const finishNetFight = (p1Ref: string, p2Ref: string, stageRef: string) => {
+          const net = (globalThis as any).ikemenNet;
+          const peerGone = !net || typeof net.connected !== 'function' || !net.connected();
+          clearBootLive();
+          if (peerGone) {
+            log('Fight ended: the opponent is gone.');
+            setNetError('Your opponent disconnected.');
+            setNetPhase('error');
+            return;
+          }
+          log('Fight complete. Rematch available.');
+          netLastFightRef.current = {
+            p1: p1Ref,
+            p2: p2Ref,
+            stage: stageRef,
+            dm: netSyncedModeRef.current ?? '16:9',
+          };
+          teardownEngineCanvas();
+          setEngineRunning(false);
+          setNetRebooting(false);
+          setNetPhase('postfight');
+        };
+
+        // ---- In-place rematch boot ------------------------------------------
+        // After go.run() resolves, EVERYTHING the next fight needs is still
+        // alive at page level: the compiled wasm module (WebAssembly.Module is
+        // reusable across instances), the JS-side VFS (engineVfsInit state +
+        // injected files + the patched config.ini), and above all the WebRTC
+        // channel. So a rematch = fresh Go runtime + fresh instance from the
+        // CACHED module + cache-first asset injection + a bridge buffer flush,
+        // then runEngineFight() again. No reload — a reload would kill the P2P
+        // session and force both players back through the room-code dance.
+        const rebootNetAssets = async (cfg: NetFightConfig): Promise<{ p1Path: string; p2Path: string; stagePath: string }> => {
+          // Mirror of the first-boot injection block, cache-first: unchanged
+          // picks re-inject from the IndexedDB records in milliseconds;
+          // CHANGED picks (after CHANGE FIGHTERS) download exactly like a
+          // first boot does.
+          const manifest = await fetchAssetsManifest();
+          setNetRebootMsg('LOADING THE FIGHTERS…');
+          const [p1Files, p2Files] = await Promise.all([
+            getCachedCharacterFiles(cfg.p1),
+            getCachedCharacterFiles(cfg.p2),
+          ]);
+          let p1Path = splitCharRef(cfg.p1).id;
+          if (p1Files && await injectCharacterFiles(cfg.p1, p1Files)) {
+            log(`P1 loaded from cache: ${cfg.p1}`);
+          } else {
+            const char = manifest.characters.find(c => charRef(c) === cfg.p1);
+            if (!char) throw new Error(`Fighter "${cfg.p1}" is not in the assets manifest.`);
+            await downloadAndInjectCharacter(char, (pct, msg) => setNetRebootMsg(`P1 ${msg} ${pct}%`));
+            p1Path = char.id;
+            log(`P1 ready: ${char.id}`);
+          }
+          let p2Path = splitCharRef(cfg.p2).id;
+          if (p2Files && await injectCharacterFiles(cfg.p2, p2Files)) {
+            log(`P2 loaded from cache: ${cfg.p2}`);
+          } else {
+            const char = manifest.characters.find(c => charRef(c) === cfg.p2);
+            if (!char) throw new Error(`Fighter "${cfg.p2}" is not in the assets manifest.`);
+            await downloadAndInjectCharacter(char, (pct, msg) => setNetRebootMsg(`P2 ${msg} ${pct}%`));
+            p2Path = char.id;
+            log(`P2 ready: ${char.id}`);
+          }
+          setNetRebootMsg('LOADING THE STAGE…');
+          let stagePath: string;
+          const stageFiles = await getCachedStageFiles(cfg.stage);
+          if (stageFiles && await injectStageFiles(cfg.stage, stageFiles)) {
+            const defFile = Object.keys(stageFiles).find(f => f.endsWith('.def'));
+            stagePath = 'stages/' + (defFile || `${cfg.stage}.def`);
+            log(`Stage loaded from cache: ${cfg.stage}`);
+          } else {
+            const stg = manifest.stages.find(s => s.id === cfg.stage);
+            if (!stg) throw new Error(`Stage "${cfg.stage}" is not in the assets manifest.`);
+            await downloadAndInjectStage(stg, (pct, msg) => setNetRebootMsg(`STAGE ${msg} ${pct}%`));
+            stagePath = getStageDefPath(stg);
+            log(`Stage ready: ${stagePath}`);
+          }
+          return { p1Path, p2Path, stagePath };
+        };
+
+        netRebootRef.current = async (cfg: NetFightConfig, dm: NetDisplayMode) => {
+          try {
+            setNetRebooting(true);
+            setNetRebootMsg('PREPARING THE ENGINE…');
+            setNetOppDrop(false);
+            setNetRematchSent(false);
+            setNetOppRematch(false);
+            netSyncedModeRef.current = dm;
+            const runtime2 = await runtimePromise;
+            const compiled = await runtime2.wasmPromise;
+            const go2 = new g.Go();
+            // Same GC envelope as the module-scope runtime (the phone
+            // tab-kill guard) — a rematch boot is a FULL engine process.
+            go2.env = { GOGC: 'off', GOMEMLIMIT: WASM_HEAP_LIMIT_MIB + 'MiB' };
+            try {
+              const prevExit = go2.exit;
+              go2.exit = (code: number) => {
+                (globalThis as any).__engineExitCode = code;
+                if (prevExit) prevExit.call(go2, code);
+              };
+            } catch { /* diagnostics must never block boot */ }
+            const paths = await rebootNetAssets(cfg);
+            // Fresh log window + flushed engine buffers: bytes still queued
+            // from the previous fight must not be mistaken for handshake
+            // frames by the new engine process. (The IKWS site channel and
+            // its backlog are untouched — only engine data is flushed.)
+            const gLog = (globalThis as any).__engineLog;
+            if (Array.isArray(gLog)) gLog.length = 0;
+            try { ((globalThis as any).ikemenNet as any)?.flushEngineBuffers?.(); } catch { /* dead channel fails visibly below */ }
+            teardownEngineCanvas();
+            setNetRebootMsg('STARTING THE FIGHT…');
+            log(`Rematch boot: P1=${cfg.p1} vs P2=${cfg.p2} (stage ${cfg.stage})`);
+            const instance2 = new WebAssembly.Instance(compiled.module, go2.importObject as any);
+            const argv2 = [
+              'ikemen',
+              '-p1', paths.p1Path,
+              '-p2', paths.p2Path,
+              '-s', paths.stagePath,
+              // The engine re-attaches to the LIVE site-established session
+              // (webrtc.js start() reuse-guard) — same contract as first boot.
+              '-ip', netRoleRef.current === 'join' ? 'webrtc' : '',
+            ];
+            const ran = await runEngineFight(go2, instance2, argv2, { p1: cfg.p1, p2: cfg.p2, stage: cfg.stage }, true);
+            if (cancelled || !ran) {
+              setNetRebooting(false);
+              return;
+            }
+            finishNetFight(cfg.p1, cfg.p2, cfg.stage);
+          } catch (e) {
+            setNetRebooting(false);
+            const msg = e instanceof Error ? e.message : String(e);
+            log('REMATCH BOOT FAILED: ' + msg);
+            setBootError('The rematch could not start: ' + msg +
+              '. The connection to your opponent is still open — CHANGE FIGHTERS on their screen will still work.' + bootDetails());
+          }
+        };
 
         // --- 3. VFS script (kicked off at 2a, overlapped with the runtime) ---
         // (net=1 awaited it in the online preboot above; both scripts are
@@ -1567,7 +2088,9 @@ function PlayPageInner() {
 
         if (cancelled) return;
 
-        // --- 9. Build go.argv with the resolved character/stage paths ---
+        // --- 9. Engine run: build the argv, then hand everything to
+        // runEngineFight() — the per-fight machinery (fitter, focus, run,
+        // exit triage) defined above, shared with the rematch path.
         if (netMenu || netDirect) {
           const wireRole = netMenu ? netRoleRef.current : netDirectRole;
           log(`Engine starting... (netplay ${wireRole} - connecting via WebRTC bridge)`);
@@ -1575,10 +2098,7 @@ function PlayPageInner() {
           log('Engine starting... (quick match, bypassing menu)');
         }
 
-        // Install the display-only canvas fitter before starting the engine.
-        // It waits for the engine-created canvas, then keeps it at the maximum
-        // aspect-ratio-preserving size during browser/mobile viewport changes.
-        go.argv = (netMenu || netDirect)
+        const engineArgv = (netMenu || netDirect)
           ? [
               'ikemen',
               '-p1', p1Path,
@@ -1602,146 +2122,21 @@ function PlayPageInner() {
               '-qmode', qmode, // progression mode: quickvs/arcade/survival/time-attack/watch
             ];
 
-        // Hide the boot log once the engine starts
-        if (boot) {
-          boot.style.opacity = '0';
-          boot.style.transition = 'opacity 1s';
-          setTimeout(() => { if (boot) boot.style.display = 'none'; }, 1000);
-        }
+        const ran = await runEngineFight(go, result.instance, engineArgv, { p1: effP1, p2: effP2, stage: effStage }, false);
+        if (cancelled || !ran) return;
 
-        // --- 10. Auto-focus the engine canvas once created ---
-        const focusCanvas = () => {
-          const canvas = document.querySelector('canvas');
-          if (canvas && canvas.width > 0) {
-            canvas.setAttribute('tabindex', '0');
-            (canvas as HTMLCanvasElement).focus();
-            return true;
-          }
-          return false;
-        };
-        setTimeout(() => focusCanvas(), 1000);
-        clickHandler = () => focusCanvas();
-        document.addEventListener('click', clickHandler);
-
-        // --- 11. Run the engine ---
-        // Paint first, measure, THEN hand the thread to the engine: go.run()
-        // is one long main-thread block (Go wasm is single-threaded here), so
-        // without this yield the last boot-log lines ("Engine starting...")
-        // would only render after the first engine frame. The summary line
-        // also closes the long-task observation window here — everything
-        // after this point is the engine's own boot, not the JS pipeline.
-        const bootSummary = bootTimingSummary();
-        log(bootSummary.text);
-        setBootStats(bootSummary); // HUD readout (?bootstats=1)
-        try { bootTiming?.observer?.disconnect(); } catch { /* advisory */ }
-        await new Promise((r) => setTimeout(r, 0));
-        setEngineRunning(true);
-        scheduleVfsPrefetch();
-        // Mark fight start time for Time Attack duration tracking.
-        // Must be called right before go.run() so it measures the actual
-        // fight duration, not the engine boot time. Not meaningful for
-        // netplay (no progression session) - skip to keep stats clean.
-        if (!netMode) markFightStart();
-        // Show floating exit button on touch devices after engine starts.
-        if (isTouch) {
-          setTimeout(() => setShowExit(true), 1500);
-        }
-        g.__engineExitCode = null;
-        engineStartAt = Date.now();
-        glContextLost = false;
-        document.addEventListener('webglcontextlost', onContextLost, true);
-        await go.run(result.instance);
-        cleanupCanvasFit();
-
-        // The engine's own output decides whether run() resolving means
-        // "fight ended" or "engine died". Report deaths visibly - local AND
-        // online - instead of silently bouncing back to the select screen,
-        // which is exactly what made the "before the match starts it kicks
-        // me back to character select" reports undiagnosable on phones.
-        // 'Panic:' = Go panic; 'fatal error:' = Go RUNTIME death (out of
-        // memory, deadlock, ...) printed to stderr WITHOUT a panic line —
-        // the OOM-class boot deaths (Huawei Chrome report) only match the
-        // second pattern. Both come through the vfs log bridge
-        // (window.__engineLog), which captures stdout AND stderr.
-        const engineTail = ((globalThis as any).__engineLog || []) as string[];
-        const crashLine = engineTail.find(l => l.includes('Panic:') || l.includes('fatal error:'));
-        if (crashLine) {
-          cleanup();
-          log('ENGINE CRASHED: ' + crashLine);
-          // POISONED-CACHE SELF-HEAL: a truncated/corrupt cached asset (sff
-          // cut mid-stream by a flaky network — the header survives, so no
-          // sniff can see it) panics the engine at parse time and the panic
-          // text names the VFS path. Purge the implicated match records so
-          // RETRY re-downloads them, instead of replaying the same poisoned
-          // bytes on every attempt ("character does not appear in the fight").
-          let healedNote = '';
-          try {
-            const crashIdx = engineTail.indexOf(crashLine);
-            const panicText = engineTail.slice(crashIdx, crashIdx + 30).join('\n');
-            const purged = await purgeAssetsMentionedByPanic(panicText, effP1, effP2, effStage);
-            if (purged.length) {
-              log('CACHE HEAL: purged damaged records for: ' + purged.join(', '));
-              healedNote = ' The cached copy of ' + purged.join(' and ') +
-                ' was damaged and has been deleted — press RETRY to re-download it.';
-            }
-          } catch { /* healing is best-effort; the error screen still shows */ }
-          setBootError('The game engine crashed (' + crashLine.slice(0, 200) + ').' + healedNote +
-            ' Send a screenshot of this screen when reporting — expand Technical Details below to see how far the boot got.' + bootDetails());
+        if (netMenu) {
+          // Online: the engine exited after a real fight, but the WEBSITE
+          // session is still alive. Park on the rematch panel instead of the
+          // old "Fight complete. Returning..." navigation, which dumped BOTH
+          // players at /lobby and destroyed the room (the no-rematch bug).
+          finishNetFight(effP1, effP2, effStage);
           return;
         }
 
-        // An engine that quits before any picture ever appeared did NOT
-        // finish a fight. The engine calls exit() on fatal errors (no GL,
-        // bad netplay attach, peer death during handshake) and wasm_exec
-        // resolves run() normally for it - which used to fall through to
-        // the "Fight complete" path for LOCAL fights and silently bounce
-        // the player to /local (= character select; the Huawei Chrome
-        // report), while online got the error screen. A real fight = canvas
-        // existed AND ran for a sensible duration, OR a result marker was
-        // written (an ultra-short but genuinely finished fight reports it).
-        const fightResult = readFightResult();
-        const engineRan = !!document.querySelector('canvas#ikemen-canvas') && (Date.now() - engineStartAt > 8000);
-        // A genuinely finished fight always exits 0 (clean main return or a
-        // menu Quit). os.Exit(nonzero) or a lost WebGL context is an engine
-        // death even when a picture had been on screen for a while - report
-        // it instead of silently bouncing. This closes the LAST silent path
-        // of the Huawei Chrome report class: an engine dying after the
-        // canvas is up (past the 8s engineRan heuristic) without printing a
-        // Go panic line.
-        const exitCode = g.__engineExitCode;
-        const engineDied = (exitCode != null && exitCode !== 0) || glContextLost;
-        if (engineDied && !fightResult) {
-          cleanup();
-          const why = glContextLost
-            ? 'the WebGL graphics context was lost (GPU driver reset or GPU memory exhaustion)'
-            : 'the engine exited abnormally (exit code ' + exitCode + ')';
-          const tail = engineTail.slice(-4).join(' | ').slice(0, 240);
-          log('ENGINE DIED: ' + why);
-          clearBootLive();
-          setBootError('The game engine died: ' + why +
-            (tail ? '. Engine output: ' + tail : '') +
-            '. Expand Technical Details below for the boot log - send a screenshot when reporting.' + bootDetails());
-          return;
-        }
-        if (!engineRan && !fightResult) {
-          cleanup();
-          clearBootLive();
-          log('ENGINE EXITED BEFORE THE FIGHT STARTED' + (exitCode != null && exitCode !== 0 ? ' (exit code ' + exitCode + ')' : '') + '.');
-          const tail = engineTail.slice(-4).join(' | ').slice(0, 240);
-          setBootError('The game engine exited before the match started' + (exitCode != null && exitCode !== 0 ? ' (exit code ' + exitCode + ')' : '') +
-            (tail ? '. Engine output: ' + tail : '') +
-            '. Expand Technical Details below for the boot log. If this repeats, send a screenshot when reporting' + (netMode ? '; both players should also hard-refresh the page (Ctrl+F5) and retry.' : '.') + bootDetails());
-          return;
-        }
-
-        // Engine exited — fight is over. Read the match result and decide
-        // what to do next based on the game mode.
-        clearFightResult();
-        cleanup();
-
-        if (fightResult && qmode !== 'quickvs' && qmode !== 'training') {
+        if (lastFightResult && qmode !== 'quickvs' && qmode !== 'training') {
           // Progression mode — process the result and advance
-          const action = processFightResult(fightResult);
+          const action = processFightResult(lastFightResult);
           switch (action.type) {
             case 'next-fight': {
               log(`Victory! Advancing to fight ${getCurrentModeState()?.fightNumber ?? '?'}`);
@@ -1771,7 +2166,7 @@ function PlayPageInner() {
           }
         }
 
-        // Single-fight mode (quickvs/training) or a finished online fight.
+        // Single-fight mode (quickvs/training).
         log('Fight complete. Returning...');
         clearBootLive();
         window.location.href = exitTarget;
@@ -1824,6 +2219,9 @@ function PlayPageInner() {
 
     return () => {
       cancelled = true;
+      // The reboot closure belongs to THIS mount's boot scope — a remount
+      // (hot reload, StrictMode) must not fire a stale one.
+      netRebootRef.current = null;
     };
     // NOTE: isTouch is intentionally NOT in the deps array. The hook
     // starts as false (SSR-safe) and flips to true on mount. If we
@@ -2014,6 +2412,164 @@ function PlayPageInner() {
           />
         </div>
       )}
+      {netPhase === 'postfight' && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, zIndex: 46,
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            gap: '0.9rem',
+            backgroundColor: 'var(--paper, #f2ecda)',
+            backgroundImage: 'radial-gradient(rgba(16,16,24,0.1) 1.2px, transparent 1.4px)',
+            backgroundSize: '13px 13px',
+            color: 'var(--ink, #101018)',
+          }}
+        >
+          <div style={{ fontSize: '0.65rem', letterSpacing: '0.35em', color: 'var(--crimson, #e8283c)', fontWeight: 700 }}>
+            ISSUE No. 03 — THE NETWORK
+          </div>
+          <h2 style={{
+            fontFamily: 'var(--font-poster)', fontSize: '2.4rem', letterSpacing: '0.04em',
+            color: 'var(--ink, #101018)', textShadow: '4px 4px 0 var(--crimson, #e8283c)',
+            lineHeight: 1, textTransform: 'uppercase', margin: '0 0 0.4rem', textAlign: 'center',
+          }}>
+            FIGHT COMPLETE
+          </h2>
+          <div style={{ fontSize: '0.65rem', letterSpacing: '0.25em', color: 'var(--gray)', marginBottom: '0.6rem' }}>
+            {netRole === 'host' ? 'RUN IT BACK — OR FIND NEW FIGHTERS' : 'THE HOST DECIDES THE NEXT ROUND'}
+          </div>
+          {netRole === 'host' && netOppRematch && (
+            <div style={{
+              fontSize: '0.7rem', letterSpacing: '0.2em', fontWeight: 700,
+              color: 'var(--paper, #f2ecda)', background: 'var(--crimson, #e8283c)',
+              padding: '0.45rem 1rem', border: '2px solid var(--ink, #101018)',
+              boxShadow: '3px 3px 0 var(--ink, #101018)',
+            }}>
+              YOUR OPPONENT WANTS A REMATCH
+            </div>
+          )}
+          {netRole === 'host' ? (
+            <>
+              <GameButton variant="primary" onClick={postfightRematch} disabled={!netLastFightRef.current}>
+                REMATCH
+              </GameButton>
+              <GameButton onClick={postfightChangeFighters}>
+                CHANGE FIGHTERS
+              </GameButton>
+              <GameButton variant="danger" onClick={leaveNetNow}>
+                ← BACK TO LOBBY
+              </GameButton>
+            </>
+          ) : (
+            <>
+              <GameButton variant="primary" onClick={postfightRequestRematch} disabled={netRematchSent}>
+                {netRematchSent ? 'WAITING FOR THE HOST…' : 'REQUEST REMATCH'}
+              </GameButton>
+              <GameButton variant="danger" onClick={leaveNetNow}>
+                ← BACK TO LOBBY
+              </GameButton>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Rematch reboot overlay: the engine re-boots IN PLACE over the still
+          open WebRTC channel — the dead canvas is already torn down behind
+          this. Opaque paper hides the empty page during the fresh boot. */}
+      {netRebooting && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, zIndex: 47,
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            gap: '0.9rem',
+            backgroundColor: 'var(--paper, #f2ecda)',
+            backgroundImage: 'radial-gradient(rgba(16,16,24,0.1) 1.2px, transparent 1.4px)',
+            backgroundSize: '13px 13px',
+            color: 'var(--ink, #101018)',
+          }}
+        >
+          <div style={{ fontSize: '0.65rem', letterSpacing: '0.35em', color: 'var(--crimson, #e8283c)', fontWeight: 700 }}>
+            ISSUE No. 03 — THE NETWORK
+          </div>
+          <div style={{
+            fontFamily: 'var(--font-poster)', fontSize: '2.2rem', letterSpacing: '0.04em',
+            color: 'var(--ink, #101018)', textShadow: '4px 4px 0 var(--crimson, #e8283c)',
+            lineHeight: 1, textTransform: 'uppercase', textAlign: 'center',
+          }}>
+            LOADING THE NEXT FIGHT…
+          </div>
+          <div style={{ fontSize: '0.65rem', letterSpacing: '0.2em', color: 'var(--gray-dark, #4a4a56)', textAlign: 'center' }}>
+            {netRebootMsg || 'PREPARING…'}
+          </div>
+        </div>
+      )}
+
+      {/* In-fight opponent-disconnect report (the mid-fight silence fix).
+          The engine owns the main thread and will end the round when its
+          reads return null; until then the player at least KNOWS why the
+          opponent stopped moving — and has a way out that does not require
+          guessing at browser gestures. */}
+      {netOppDrop && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, zIndex: 48,
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            gap: '1rem', background: 'rgba(16,16,24,0.92)',
+            color: 'var(--paper, #f2ecda)', textAlign: 'center', padding: '0 1.5rem',
+          }}
+        >
+          <div style={{ fontSize: '0.65rem', letterSpacing: '0.35em', color: 'var(--crimson, #e8283c)', fontWeight: 700 }}>
+            CONNECTION REPORT
+          </div>
+          <div style={{
+            fontFamily: 'var(--font-poster)', fontSize: '2rem', letterSpacing: '0.04em',
+            lineHeight: 1.1, textTransform: 'uppercase',
+            textShadow: '4px 4px 0 var(--crimson, #e8283c)',
+          }}>
+            YOUR OPPONENT LOST CONNECTION
+          </div>
+          <div style={{ fontSize: '0.7rem', letterSpacing: '0.15em', color: 'rgba(242,236,218,0.75)', maxWidth: 420 }}>
+            The match cannot continue. The engine will end the round on its own — or leave now.
+          </div>
+          <GameButton variant="danger" onClick={leaveNetNow}>
+            LEAVE MATCH
+          </GameButton>
+        </div>
+      )}
+
+      {/* Leave-session confirmation: browser BACK and in-page cancels land
+          here while a session is LIVE. z-index 1100 — above the bridge's own
+          room panel (z 1000), so the question is readable during 'connecting'. */}
+      {netLeaveAsk && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(16,16,24,0.9)', padding: '0 1.5rem' }}>
+          <div style={{
+            background: 'var(--paper, #f2ecda)', border: '3px solid var(--ink, #101018)',
+            boxShadow: '6px 6px 0 var(--ink, #101018)', padding: '1.6rem 1.8rem',
+            display: 'flex', flexDirection: 'column', gap: '0.8rem',
+            alignItems: 'center', maxWidth: 420, textAlign: 'center',
+          }}>
+            <div style={{ fontSize: '0.65rem', letterSpacing: '0.3em', color: 'var(--crimson, #e8283c)', fontWeight: 700 }}>
+              WAIT — YOUR SESSION IS LIVE
+            </div>
+            <div style={{
+              fontFamily: 'var(--font-poster)', fontSize: '1.5rem', letterSpacing: '0.04em',
+              textTransform: 'uppercase', lineHeight: 1.15, color: 'var(--ink, #101018)',
+            }}>
+              LEAVE THE ONLINE SESSION?
+            </div>
+            <div style={{ fontSize: '0.7rem', letterSpacing: '0.1em', color: 'var(--gray-dark, #4a4a56)' }}>
+              Your opponent will be disconnected with you.
+            </div>
+            <div style={{ display: 'flex', gap: '0.7rem', marginTop: '0.4rem' }}>
+              <GameButton variant="primary" onClick={() => setNetLeaveAsk(false)}>
+                STAY
+              </GameButton>
+              <GameButton variant="danger" onClick={leaveNetNow}>
+                LEAVE
+              </GameButton>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Structured boot-failure overlay (Frontend 2.1 spec Section 33).
           The boot terminal is hidden by default; each failure embeds the
@@ -2029,8 +2585,9 @@ function PlayPageInner() {
         />
       )}
 
-      {/* Floating exit button — touch only, shown after engine starts */}
-      {isTouch && showExit && (
+      {/* Floating exit button — touch only, shown after engine starts (a
+          live engine only: during postfight the panel owns the screen). */}
+      {isTouch && showExit && engineRunning && (
         <button
           type="button"
           className="fight__exit-touch"

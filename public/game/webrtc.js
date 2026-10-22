@@ -1341,6 +1341,18 @@
         netLog('report error: ' + e.message);   // never disturb the match
       }
     },
+    // In-place rematch support: the page re-boots the ENGINE (a fresh wasm
+    // process) over the SAME live channel after a fight. Bytes still queued
+    // from the previous fight (late inputs, acks) must not be mistaken for
+    // handshake frames by the new engine process, so the page flushes the
+    // ENGINE data queues before the reboot. Deliberately NOT touched: the
+    // IKWS control backlog (site-level selection frames) and the channel
+    // itself — the session keeps running.
+    flushEngineBuffers() {
+      chunks.length = 0;
+      chunkOff = 0;
+      gQueue.length = 0;
+    },
     connected() { return isConnected; },
     failed() { return isFailed; },
     read(max) {
