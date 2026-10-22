@@ -1041,7 +1041,9 @@ html.phone-landscape body.fighting {
 .cs__plate-art {
   position: relative;
   height: 56px;
-  background: var(--royal-deep);
+  /* Transparent: portrait PNGs ship with alpha backgrounds, so the art
+     floats straight on the ink plate — no royal tile behind it. */
+  background: transparent;
   overflow: hidden;
 }
 .cs__plate-letter {
@@ -1064,10 +1066,10 @@ html.phone-landscape body.fighting {
   padding: 3px 6px;
   opacity: 0;
   transition: opacity 0.25s;
-  /* Screen-print duotone: image luminance over the royal plate ink —
-     kills off-palette portrait backgrounds (hot magenta tiles etc.) */
-  filter: grayscale(1) contrast(1.1) brightness(1.06);
-  mix-blend-mode: luminosity;
+  /* True-color art, transparent around it. (The old grayscale +
+     luminosity-blend duotone existed to hide baked-in portrait
+     backgrounds; the Assets portraits are alpha-transparent now, and the
+     royal blend was painting the whole character blue.) */
 }
 .cs__plate-img.loaded { opacity: 1; }
 .cs__plate-dots {
@@ -1288,7 +1290,9 @@ html.phone-landscape body.fighting {
 
 .cs__card-portrait {
   aspect-ratio: 3/3;
-  background: var(--royal-deep);
+  /* Transparent: the alpha-background portraits sit directly on the
+     paper card — the royal tile behind them is gone. */
+  background: transparent;
   position: relative;
   overflow: hidden;
 }
@@ -1300,7 +1304,9 @@ html.phone-landscape body.fighting {
   justify-content: center;
   font-family: var(--font-poster);
   font-size: 1.1rem;
-  color: var(--paper);
+  /* Faint ink watermark — paper-on-paper would vanish now that the
+     tile behind this letter is transparent. */
+  color: rgba(16, 22, 64, 0.15);
 }
 .cs__card-portrait img {
   position: absolute;
