@@ -16,6 +16,9 @@ import {
   charRef,
   splitCharRef,
   portraitUrl,
+  loadSavedRosterSource,
+  clearSavedRosterSource,
+  rosterGroupDisplayName,
   DEFAULT_SOURCE,
   isCharacterCached,
   type CharacterInfo,
@@ -52,6 +55,14 @@ interface CharacterSelectProps {
     p1Difficulty?: Difficulty
   ) => void;
   onCancel: () => void;
+  /**
+   * Universe (roster source folder id) this screen opens on. The local flow
+   * omits it — the /group-select screen owns the choice, persisted under
+   * fg-roster-source, and it is restored here so deep links straight to
+   * /local stay on the player's usual universe. The ONLINE flow passes the
+   * host's synced pick explicitly; when set, localStorage is never read
+   * nor written (the online group is host-authoritative, session-only). */
+  initialSource?: string;
   /**
    * When true, the UI is optimized for touch devices:
    *   - Tap a card to lock-in immediately (first tap = P1, second = P2)
@@ -107,11 +118,10 @@ interface DownloadState {
 // breakpoint but one.
 const GRID_COLS = 10;
 
-// localStorage key persisting the chosen roster source across visits.
-const ROSTER_SOURCE_KEY = 'fg-roster-source';
-const ROSTER_SOURCE_KEY_LEGACY = 'ikemen-roster-source';
-// (Mode/difficulty persistence moved to lib/mode-catalog.ts — owned by the
-// /mode-select screen since the flow separation.)
+// (Roster-source persistence moved to lib/character-downloader.ts — owned
+// by the /group-select screen since the flow separation; this screen only
+// RESTORES the saved choice, and only when no initialSource is handed in.
+// Mode/difficulty persistence likewise lives in lib/mode-catalog.ts.)
 
 // True when a keystroke originated inside a text field. The global grid
 // hotkeys (WASD / arrows / Enter / …) must never fire while the player is
@@ -138,6 +148,7 @@ export default function CharacterSelect({
   online = null,
   mode: modeProp,
   difficulty: difficultyProp,
+  initialSource,
 }: CharacterSelectProps) {
   // Roster state
   // The roster is the CDN manifest only — the engine ships no bundled
@@ -147,8 +158,10 @@ export default function CharacterSelect({
   // downloadCharacterToCache, which requires the manifest entry with
   // `files`, `cdnBase`, etc.).
   const [characterInfos, setCharacterInfos] = useState<Record<string, CharacterInfo>>({});
-  // Roster sources (chars* folders in the Assets repo) + the active one.
-  const [sources, setSources] = useState<RosterSource[]>([]);
+  // The active roster source (chars* folder in the Assets repo) — chosen on
+  // the dedicated /group-select screen (online: synced from the host), NOT
+  // switchable here anymore. The full list is only used to validate the
+  // restored choice against the live manifest.
   const [activeSource, setActiveSource] = useState<string>(DEFAULT_SOURCE);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -232,15 +245,17 @@ export default function CharacterSelect({
         for (const c of chars) infoMap[charRef(c)] = c;
         setCharacterInfos(infoMap);
         setRoster(cdnChars);
-        setSources(rosterSources);
-        // Restore the persisted source choice; fall back to the default if
-        // it no longer exists (folder renamed/removed upstream).
-        const saved = typeof window !== 'undefined' ? (localStorage.getItem(ROSTER_SOURCE_KEY) ?? localStorage.getItem(ROSTER_SOURCE_KEY_LEGACY)) : null;
+        // Resolve the opening universe. Priority: an explicit initialSource
+        // (online: the host's synced pick — localStorage is never touched in
+        // that flow) → the persisted /group-select choice → All-Stars. A
+        // stored folder that no longer exists (renamed/removed upstream) is
+        // cleared so it can't shadow future visits.
+        const saved = initialSource ?? loadSavedRosterSource();
         if (saved && rosterSources.some(s => s.id === saved)) {
           setActiveSource(saved);
         } else {
           setActiveSource(DEFAULT_SOURCE);
-          if (saved) { localStorage.removeItem(ROSTER_SOURCE_KEY); try { localStorage.removeItem(ROSTER_SOURCE_KEY_LEGACY); } catch { /* ignore */ } }
+          if (saved && !initialSource) clearSavedRosterSource();
         }
         setLoading(false);
       })
@@ -252,7 +267,7 @@ export default function CharacterSelect({
     return () => {
       cancelled = true;
     };
-  }, [retryTick]);
+  }, [retryTick, initialSource]);
 
   // ---- On mount, check which characters are already cached in IndexedDB ----
   useEffect(() => {
@@ -514,19 +529,11 @@ export default function CharacterSelect({
     lockInFiredRef.current = false;
   }, [mode]);
 
-  // ---- Roster source switch: reset cursors/locks (grid contents change) ----
-  const handleSourceChange = useCallback((sourceId: string) => {
-    setActiveSource(sourceId);
-    try {
-      localStorage.setItem(ROSTER_SOURCE_KEY, sourceId);
-    } catch {
-      // localStorage unavailable (private mode) — selection still works,
-      // it just won't persist across visits.
-    }
-    setP1({ index: 0, locked: false });
-    setP2({ index: 0, locked: false });
-    lockInFiredRef.current = false;
-  }, []);
+  // ---- Roster source switch (legacy) -------------------------------------
+  // REMOVED with the flow separation: the universe is chosen on the
+  // dedicated /group-select screen (online: synced from the host), so the
+  // grid can no longer switch folders mid-browse. BACK on this screen
+  // returns there instead — the normal fighting-game back-pedal.
 
   // ---- "Ready" check: a character is ready if bundled or cached ----
   const isReady = useCallback((c?: LocalCharacter): boolean => {
@@ -990,7 +997,7 @@ export default function CharacterSelect({
       <header className="cs__title">
         <div className="cs__kicker">
           <span className="cs__kicker-rule" aria-hidden="true" />
-          <span>ISSUE No. 02 — THE ROSTER</span>
+          <span>ISSUE No. 03 — THE ROSTER</span>
           <span className="cs__kicker-rule" aria-hidden="true" />
         </div>
         <h1 className="cs__title-main">
@@ -1002,7 +1009,7 @@ export default function CharacterSelect({
             ? 'LOADING ROSTER…'
             : error
             ? 'COULD NOT LOAD CHARACTER LIST'
-            : `${readyCount} READY · ${filteredRoster.length} TOTAL`}
+            : `${rosterGroupDisplayName(activeSource).toUpperCase()} · ${readyCount} READY · ${filteredRoster.length} TOTAL`}
         </div>
         {error && (
           <div className="cs__roster-error">
@@ -1018,29 +1025,11 @@ export default function CharacterSelect({
         )}
       </header>
 
-      {/* Toolbar — roster source + search share ONE wrapping row. The mode
-          and difficulty pickers moved to the dedicated /mode-select screen
-          (normal fighting-game flow: modes → fighters → stage). */}
+      {/* Toolbar — search + on-device filter. The mode/difficulty pickers
+          moved to the dedicated /mode-select screen and the roster-source
+          chips to the dedicated /group-select screen (normal fighting-game
+          flow: modes → universes → fighters → stage). */}
       <div className="cs__toolbar">
-        {/* Roster source picker — which chars* folder the grid shows.
-            Hidden when the manifest only has the default source. */}
-        {!loading && !error && sources.length > 1 && (
-          <div className="cs__difficulty-bar" aria-label="Roster source">
-            <span>ROSTER</span>
-            {sources.map(s => (
-              <button
-                key={s.id}
-                type="button"
-                className={`cs__diff-btn${activeSource === s.id ? ' cs__diff-btn--active' : ''}`}
-                onClick={() => handleSourceChange(s.id)}
-                title={`Characters from the ${s.id}/ folder`}
-              >
-                {s.label.toUpperCase()}
-              </button>
-            ))}
-          </div>
-        )}
-
         {/* Search + view filter — "/" focuses the field from anywhere.
             ON DEVICE narrows the grid to cached characters so you can pick
             with zero download wait. */}

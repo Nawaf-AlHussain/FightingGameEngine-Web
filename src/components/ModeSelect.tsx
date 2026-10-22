@@ -24,12 +24,13 @@ import { useIsTouchDevice } from '@/lib/use-touch-device';
 // groups and the fighter grid into one page; this screen starts the
 // separated, normal-fighting-game chain:
 //
-//   /lobby → MODE SELECT (here) → /local (fighter select) → stage select
+//   /lobby → MODE SELECT (here) → GROUP SELECT (universes) → /local
+//   (fighter select) → stage select
 //
-// Owns the mode + difficulty pick (the character screen receives them as
-// fixed props). Also owns their persistence: the choice is saved under
-// the same localStorage keys the old select-screen toolbar used, so
-// repeat visitors land with their usual defaults preselected.
+// Owns the mode + difficulty pick (later screens receive them as fixed
+// props). Also owns their persistence: the choice is saved under the same
+// localStorage keys the old select-screen toolbar used, so repeat visitors
+// land with their usual defaults preselected.
 //
 // Keyboard: ↑↓ / W S — mode · ←→ / A D — difficulty · ENTER / SPACE —
 // confirm · ESC — back. Touch: tap a card, then CONTINUE.
@@ -200,7 +201,7 @@ export default function ModeSelect({ onConfirm, onCancel }: ModeSelectProps) {
           <div>
             <span>TAP</span> a mode
             {showDifficulty && <> · <span>PICK</span> a difficulty</>}
-            {' '}· <span>CONTINUE</span> to the roster
+            {' '}· <span>CONTINUE</span> to the universes
           </div>
         ) : (
           <>

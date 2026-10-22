@@ -70,13 +70,38 @@ export interface CharacterInfo {
 export interface RosterSource {
   /** Folder name in the Assets repo ("chars", "charsMARVEL", ...). */
   id: string;
-  /** Human label ("Default", "MARVEL", "DC", ...). */
+  /** Human label — the fitted display name (see GROUP_DISPLAY_NAMES). */
   label: string;
 }
 
 export const DEFAULT_SOURCE = 'chars';
 
-/** Derive a display label for a source folder. */
+// ---------------------------------------------------------------------------
+// Group display names — "rename it to something that fits".
+//
+// The manifest's labels are raw folder suffixes auto-derived by
+// update-manifest.py ("Default", "GUILTYGEAR", "DBZEXTREMEBOTUDEN") — fine
+// for a cache key, ugly on a fighting-game select screen. These are the
+// names the UI shows, one entry per chars* folder in the Assets repo.
+// Unknown future folders fall back to rosterSourceLabel() (uppercase
+// suffix), so a new upstream folder never renders as a raw id.
+// ---------------------------------------------------------------------------
+
+const GROUP_DISPLAY_NAMES: Record<string, string> = {
+  // The classic mixed roster (Goku next to Iron Man next to Nightwing).
+  [DEFAULT_SOURCE]: 'All-Stars',
+  charsMARVEL: 'Marvel',
+  charsDC: 'DC',
+  charsGuiltyGear: 'Guilty Gear',
+  charsDBZExtremeBotuden: 'Dragon Ball',
+};
+
+/** Fitted display name for a source folder (falls back to the suffix). */
+export function rosterGroupDisplayName(source: string): string {
+  return GROUP_DISPLAY_NAMES[source] ?? rosterSourceLabel(source);
+}
+
+/** Derive a fallback display label for a source folder. */
 export function rosterSourceLabel(source: string): string {
   if (source === DEFAULT_SOURCE) return 'Default';
   const suffix = source.toLowerCase().startsWith(DEFAULT_SOURCE)
@@ -282,24 +307,67 @@ export async function getCharacters(): Promise<CharacterInfo[]> {
 }
 
 /**
- * Get the distinct roster sources (character folders) in the manifest.
+ * Get the distinct roster sources (character groups) in the manifest.
  * Prefers the manifest's own "sources" array (written by update-manifest.py
  * v3); falls back to deriving from the characters themselves (legacy
  * manifests therefore yield exactly one source: "chars").
+ *
+ * Labels are the fitted display names (GROUP_DISPLAY_NAMES) — the manifest's
+ * raw folder-suffix labels never reach the UI.
  */
 export async function getRosterSources(): Promise<RosterSource[]> {
   const manifest = await fetchAssetsManifest();
   if (manifest.sources && manifest.sources.length > 0) {
-    return manifest.sources;
+    return manifest.sources.map(s => ({ id: s.id, label: rosterGroupDisplayName(s.id) }));
   }
   const seen: RosterSource[] = [];
   for (const c of manifest.characters) {
     const id = c.source || DEFAULT_SOURCE;
     if (!seen.some(s => s.id === id)) {
-      seen.push({ id, label: rosterSourceLabel(id) });
+      seen.push({ id, label: rosterGroupDisplayName(id) });
     }
   }
   return seen;
+}
+
+// ---------------------------------------------------------------------------
+// Group-choice persistence — the chosen universe seeds the next visit and
+// keeps every deep link straight to /local (results play-again, progress
+// exit, boot-failure back) on the player's usual group. Same localStorage
+// keys the old select-screen source chips used, so existing players keep
+// their default. The /group-select screen OWNS the write; /local's
+// character screen only reads it (online passes an explicit source instead).
+// ---------------------------------------------------------------------------
+
+const ROSTER_SOURCE_KEY = 'fg-roster-source';
+const ROSTER_SOURCE_KEY_LEGACY = 'ikemen-roster-source';
+
+export function saveRosterSourceChoice(source: string): void {
+  try {
+    localStorage.setItem(ROSTER_SOURCE_KEY, source);
+  } catch {
+    // storage unavailable (private mode) — the choice still applies in-session
+  }
+}
+
+/** Last persisted group folder id, or null when nothing is stored.
+ *  Validation against the live manifest is the caller's job. */
+export function loadSavedRosterSource(): string | null {
+  try {
+    return localStorage.getItem(ROSTER_SOURCE_KEY) ?? localStorage.getItem(ROSTER_SOURCE_KEY_LEGACY);
+  } catch {
+    return null;
+  }
+}
+
+/** Forget a stored group that no longer exists in the manifest. */
+export function clearSavedRosterSource(): void {
+  try {
+    localStorage.removeItem(ROSTER_SOURCE_KEY);
+    localStorage.removeItem(ROSTER_SOURCE_KEY_LEGACY);
+  } catch {
+    /* ignore */
+  }
 }
 
 /**

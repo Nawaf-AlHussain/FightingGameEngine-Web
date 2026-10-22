@@ -4,9 +4,10 @@
  *
  * The UI flow mirrors a normal fighting game's screen chain:
  *   /lobby (title)
- *     → /mode-select  (pick the mode + AI difficulty — THIS catalog)
- *     → /local        (character select — mode arrives via ?mode=&diff=)
- *     → stage select  → /match-prep → /play
+ *     → /mode-select   (pick the mode + AI difficulty — THIS catalog)
+ *     → /group-select  (pick the universe: MARVEL / DC / GUILTY GEAR / …)
+ *     → /local         (character select — mode arrives via ?mode=&diff=)
+ *     → stage select   → /match-prep → /play
  *
  * MODES was previously inlined in components/CharacterSelect.tsx and
  * DIFFICULTY_TO_AI in app/local/page.tsx; both screens now read from here

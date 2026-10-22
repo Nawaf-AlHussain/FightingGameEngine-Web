@@ -19,9 +19,10 @@ if (typeof window !== 'undefined') {
  * /mode-select — "SELECT YOUR MODE" screen (ISSUE No. 01 — THE MODES).
  *
  * First stop of the separated local flow:
- *   /lobby → /mode-select (here) → /local?mode=&diff= → stage select → fight
+ *   /lobby → /mode-select (here) → /group-select?mode=&diff=
+ *   → /local?mode=&diff= → stage select → fight
  *
- * The chosen mode + difficulty travel to /local as query params (the same
+ * The chosen mode + difficulty travel onward as query params (the same
  * URL-param pattern /match-prep and /play use) AND persist to localStorage
  * (inside ModeSelect) so deep links straight to /local keep working.
  */
@@ -33,7 +34,7 @@ export default function ModeSelectPage() {
       const params = new URLSearchParams();
       params.set('mode', mode);
       params.set('diff', difficulty);
-      navigate(`/local?${params.toString()}`);
+      navigate(`/group-select?${params.toString()}`);
     },
     [navigate]
   );

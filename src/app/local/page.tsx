@@ -182,11 +182,11 @@ export default function LocalPlayPage() {
   );
 
   // ---- Cancel handlers ----
-  // Back from the roster goes to the MODE screen — the normal
+  // Back from the roster goes to the UNIVERSE screen — the normal
   // fighting-game flow back-pedals one screen at a time
-  // (roster → modes → lobby).
+  // (roster → universes → modes → lobby).
   const handleCancelSelect = useCallback(() => {
-    navigate('/mode-select');
+    navigate('/group-select');
   }, [navigate]);
 
   const handleCancelStage = useCallback(() => {

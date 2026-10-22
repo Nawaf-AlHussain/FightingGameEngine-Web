@@ -22,6 +22,7 @@ import { readFightResult, clearFightResult, processFightResult, getCurrentModeSt
 import { getDisplayModeMarker } from '@/lib/engine-config';
 import { engineGzipDecode, bootGzStats } from '@/lib/boot-decompress';
 import CharacterSelect from '@/components/CharacterSelect';
+import GroupSelect from '@/components/GroupSelect';
 import StageSelect from '@/components/StageSelect';
 
 // This page loads the WebAssembly engine and starts a fight directly,
@@ -47,6 +48,8 @@ type NetPhase =
   | 'idle'        // not an online boot
   | 'role'        // HOST GAME / JOIN GAME pick
   | 'connecting'  // room-code panel (bridge) until the channel is open
+  | 'groupselect' // both players land here: HOST picks the universe, guest
+                  // spectates until the 'group' control frame syncs it
   | 'charselect'  // both players pick their fighter on the site
   | 'stageselect' // host picks the stage
   | 'waiting'     // guest spectates while the host picks the stage
@@ -451,6 +454,13 @@ function PlayPageInner() {
   const [netPhase, setNetPhase] = useState<NetPhase>('idle');
   const [netRole, setNetRole] = useState<'host' | 'join'>('host');
   const [netBridgeStarted, setNetBridgeStarted] = useState(false);
+  // The universe both fighters browse — the HOST picks it on the group
+  // screen (normal fighting-game flow: modes → universe → fighter) and it
+  // rides a 'group' control frame to the guest. Both grids then show the
+  // SAME folder, which keeps the shared grid-index cursor/lock sync
+  // meaningful (previously each side could browse a different folder and
+  // the opponent-cursor highlight pointed at the wrong card).
+  const [netGroup, setNetGroup] = useState<string | null>(null);
   const [netMine, setNetMine] = useState<{ id: string | null; locked: boolean }>({ id: null, locked: false });
   const [netOpp, setNetOpp] = useState<{ id: string | null; locked: boolean; liveIdx: number | null }>({ id: null, locked: false, liveIdx: null });
   const [netError, setNetError] = useState<string | null>(null);
@@ -477,6 +487,12 @@ function PlayPageInner() {
       });
     } else if (t === 'unlock') {
       setNetOpp(prev => ({ ...prev, locked: false }));
+    } else if (t === 'group') {
+      // Guest: the host picked the universe (chars* folder id) — join them
+      // in character select on that folder.
+      const src = typeof m.src === 'string' ? m.src : '';
+      if (!src) return;
+      setNetGroup(src);
     } else if (t === 'go') {
       // Guest: the host finalised the match (both fighters + stage).
       const p1 = typeof m.p1 === 'string' ? m.p1 : '';
@@ -518,6 +534,14 @@ function PlayPageInner() {
   const handleNetCursor = useCallback((index: number) => {
     const net = (globalThis as any).ikemenNet;
     try { net?.control?.({ t: 'cursor', role: netRoleRef.current === 'join' ? 'guest' : 'host', idx: index }); } catch { /* ignore */ }
+  }, []);
+
+  // Host confirmed the universe → sync it to the guest and advance both
+  // sides to character select (the phase machine fires on netGroup).
+  const handleNetGroupPick = useCallback((sourceId: string) => {
+    setNetGroup(sourceId);
+    const net = (globalThis as any).ikemenNet;
+    try { net?.control?.({ t: 'group', src: sourceId }); } catch { /* the poller reports real drops */ }
   }, []);
 
   // Role picked → connect: wait for the .pak (the build-check hash is
@@ -608,7 +632,7 @@ function PlayPageInner() {
   // 'connecting' waits for the bridge to report established; afterwards a
   // few consecutive dead polls (or an explicit failure) end the flow.
   useEffect(() => {
-    if (!['connecting', 'charselect', 'stageselect', 'waiting'].includes(netPhase)) return;
+    if (!['connecting', 'groupselect', 'charselect', 'stageselect', 'waiting'].includes(netPhase)) return;
     let misses = 0;
     const timer = setInterval(() => {
       const net = (globalThis as any).ikemenNet;
@@ -617,7 +641,11 @@ function PlayPageInner() {
         if (typeof net.connected === 'function' && net.connected()) {
           setNetMine({ id: null, locked: false });
           setNetOpp({ id: null, locked: false, liveIdx: null });
-          setNetPhase('charselect');
+          // Normal fighting-game flow: the universe is picked BEFORE the
+          // fighter. Host chooses on the group screen; the guest spectates
+          // there until the host's 'group' frame arrives.
+          setNetGroup(null);
+          setNetPhase('groupselect');
         } else if (typeof net.failed === 'function' && net.failed()) {
           setNetError('Connection failed. Both players should retry (a VPN or hotspot can help stubborn routers).');
           setNetPhase('error');
@@ -640,10 +668,16 @@ function PlayPageInner() {
   }, [netPhase]);
 
   // ---- Online phase machine ----
-  // Both picks in → host goes to stage select, guest to the waiting view.
-  // A re-pick walks the phase back so the other side sees it live.
+  // Host picks the universe → both sides advance to the fighter grid. Both
+  // picks in → host goes to stage select, guest to the waiting view. A
+  // re-pick walks the phase back so the other side sees it live.
   useEffect(() => {
-    if (netPhase === 'charselect') {
+    if (netPhase === 'groupselect') {
+      // Host: advances on their own pick. Guest: advances when the host's
+      // 'group' control frame lands (spectate mode blocks local picks, so
+      // netGroup can only be set remotely for them).
+      if (netGroup) setNetPhase('charselect');
+    } else if (netPhase === 'charselect') {
       if (netRole === 'host' && netMine.locked && netOpp.locked) setNetPhase('stageselect');
       if (netRole === 'join' && netMine.locked) setNetPhase('waiting');
     } else if (netPhase === 'stageselect') {
@@ -651,7 +685,7 @@ function PlayPageInner() {
     } else if (netPhase === 'waiting') {
       if (!netMine.locked) setNetPhase('charselect');
     }
-  }, [netPhase, netRole, netMine.locked, netOpp.locked]);
+  }, [netPhase, netRole, netGroup, netMine.locked, netOpp.locked]);
 
   // ---- Deep link (the host's QR / a shared link): /play?net=1&join=CODE ----
   // Skip the role screen and drive the bridge straight into joining.
@@ -1048,11 +1082,14 @@ function PlayPageInner() {
         // Netplay modes (both use the WebRTC bridge - public/game/webrtc.js,
         // engine netplay_js.go):
         //   net=1      ONLINE MODE via the WEBSITE: role pick (host/join) and
-        //              room codes on the site, then BOTH players pick their
-        //              fighter (and the host the stage) on the site's own
-        //              select screens — picks ride the bridge as IKWS control
-        //              frames — and the engine boots into the fight with the
-        //              agreed roster. NO engine-side menus at any point.
+        //              room codes on the site, then the normal fighting-game
+        //              chain — the HOST picks the universe (group screen,
+        //              synced to the guest via a 'group' control frame), BOTH
+        //              players pick their fighter, the host the stage — all
+        //              on the site's own select screens, picks riding the
+        //              bridge as IKWS control frames — and the engine boots
+        //              into the fight with the agreed roster. NO engine-side
+        //              menus at any point.
         //   net=direct boot straight into a netplay fight with the URL's fixed
         //              roster: -p1/-p2/-s + -ip ('' hosts, anything else joins -
         //              the address string is meaningless on the WebRTC build).
@@ -1926,10 +1963,24 @@ function PlayPageInner() {
           </div>
         </div>
       )}
+      {netPhase === 'groupselect' && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 40, overflowY: 'auto', background: 'var(--paper, #f2ecda)' }}>
+          {/* Normal fighting-game flow, online edition: after the room opens
+              the HOST picks the universe and the guest spectates this same
+              screen until the 'group' control frame syncs the pick. */}
+          <GroupSelect
+            onConfirm={handleNetGroupPick}
+            onCancel={cancelNetFlow}
+            spectate={netRole === 'join'}
+            spectateNote="YOUR OPPONENT IS CHOOSING THE UNIVERSE…"
+          />
+        </div>
+      )}
       {netPhase === 'charselect' && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 40, overflowY: 'auto', background: 'var(--paper, #f2ecda)' }}>
           <CharacterSelect
             isTouch={isTouch}
+            initialSource={netGroup ?? undefined}
             online={{
               role: netRole === 'join' ? 'guest' : 'host',
               opponentId: netOpp.id,

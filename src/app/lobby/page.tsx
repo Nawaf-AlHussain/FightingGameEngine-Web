@@ -22,11 +22,12 @@ import { useWipeNavigation } from '@/components/WipeTransition';
  *
  * Menu items:
  * - LOCAL PLAY → /mode-select (pick the game mode + difficulty, then the
- *   roster at /local: mode select → character select → stage select → fight)
- * - ONLINE PLAY → /play?net=1 (website flow: host/join room codes, then BOTH
- *   players pick fighters + stage on the site's own select screens — synced
- *   over the WebRTC bridge — and the engine boots straight into the fight.
- *   Zero engine-side menus.)
+ *   universe, then the roster: mode select → group select → character
+ *   select → stage select → fight)
+ * - ONLINE PLAY → /play?net=1 (website flow: host/join room codes, then the
+ *   HOST picks the universe and BOTH players pick fighters + stage on the
+ *   site's own select screens — synced over the WebRTC bridge — and the
+ *   engine boots straight into the fight. Zero engine-side menus.)
  * - SETTINGS → /settings (engine config, key remapping)
  * - ABOUT → /about (project info)
  *

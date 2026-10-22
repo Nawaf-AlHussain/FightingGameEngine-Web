@@ -1699,6 +1699,251 @@ html.phone-landscape body.fighting {
 }
 .ms__hint span { color: var(--royal); }
 
+/* --- Group Select — "paper poster" (ISSUE No. 02 — THE UNIVERSES) ---
+   The dedicated screen where the character group (roster source folder in
+   the Assets repo: MARVEL / DC / GUILTY GEAR / DRAGON BALL / ALL-STARS) is
+   picked, between mode select and the fighter grid. Clones the mode
+   screen's print language and reuses the .cs__reg marks and
+   .cs__btn-back/.cs__btn-fight buttons so the flow reads as one publication.
+   Spectate (online guest while the host picks): cards grey out, hints drop. */
+.gs {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  padding: 1.1rem 1.5rem 3.2rem;
+  position: relative;
+  background: var(--paper);
+  color: var(--ink);
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.gs__bg-wedges {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+.gs__bg-wedges::before {
+  content: '';
+  position: absolute;
+  top: -10%;
+  bottom: -10%;
+  left: -14%;
+  width: 42%;
+  background: rgba(232, 40, 60, 0.1);
+  transform: skewX(-14deg);
+}
+.gs__bg-wedges::after {
+  content: '';
+  position: absolute;
+  top: -10%;
+  bottom: -10%;
+  right: -14%;
+  width: 42%;
+  background: rgba(49, 67, 214, 0.12);
+  transform: skewX(-14deg);
+}
+.gs__bg-dots {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: radial-gradient(rgba(16, 22, 64, 0.08) 1px, transparent 1.2px);
+  background-size: 16px 16px;
+  animation: halftonePan 9s ease-in-out infinite alternate;
+}
+
+/* Masthead — kicker + poster headline + selected-universe blurb */
+.gs__title {
+  text-align: center;
+  margin: 0.4rem auto 1.2rem;
+  z-index: 1;
+  position: relative;
+}
+.gs__kicker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.42em;
+  text-indent: 0.42em;
+  text-transform: uppercase;
+  color: var(--royal);
+}
+.gs__kicker-rule {
+  width: 40px;
+  height: 2px;
+  background: var(--crimson);
+  opacity: 0.85;
+  flex: none;
+}
+.gs__title-main {
+  font-family: var(--font-poster);
+  font-size: clamp(2.2rem, 5.2vw, 3.8rem);
+  font-weight: 400;
+  text-transform: uppercase;
+  color: var(--royal);
+  letter-spacing: 0.01em;
+  line-height: 0.92;
+  margin: 0.3rem 0 0.4rem;
+  text-shadow: 0.05em -0.038em 0 var(--crimson);
+}
+.gs__title-sub {
+  font-size: 0.66rem;
+  letter-spacing: 0.32em;
+  text-indent: 0.32em;
+  color: var(--ink);
+  opacity: 0.6;
+  font-weight: 700;
+  text-transform: uppercase;
+  min-height: 1em;
+}
+
+/* Group cards — five universes, so a narrower board than the mode grid
+   (3-up desktop) keeps the rows even. Selected card prints in crimson. */
+.gs__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0.7rem;
+  width: min(900px, 100%);
+  margin: 0 auto;
+  z-index: 1;
+  position: relative;
+}
+.gs__card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.32rem;
+  align-items: flex-start;
+  text-align: left;
+  padding: 0.7rem 0.85rem 0.78rem;
+  background: var(--paper);
+  color: var(--ink);
+  border: 2px solid var(--ink);
+  clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+  box-shadow: 3px 3px 0 var(--ink);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, transform 0.15s, box-shadow 0.15s, filter 0.15s, opacity 0.15s;
+}
+.gs__card:hover {
+  background: #fffbea;
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 var(--ink);
+}
+.gs__card--active {
+  background: var(--crimson);
+  color: var(--paper);
+  transform: translate(-2px, -2px);
+  box-shadow: none;
+  filter: drop-shadow(4px 4px 0 var(--royal));
+}
+.gs__card--active:hover {
+  background: var(--crimson);
+  color: var(--paper);
+}
+.gs__card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+}
+.gs__card-num {
+  font-family: var(--font-poster);
+  font-size: 1rem;
+  line-height: 1;
+  color: var(--royal);
+  opacity: 0.85;
+}
+.gs__card--active .gs__card-num { color: var(--paper); opacity: 0.9; }
+.gs__card-tag {
+  font-size: 0.5rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  padding: 0.16rem 0.5rem;
+  background: var(--royal);
+  color: var(--paper);
+  clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%);
+}
+.gs__card--active .gs__card-tag {
+  background: var(--paper);
+  color: var(--crimson);
+}
+.gs__card-label {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.04rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  line-height: 1;
+}
+.gs__card-desc {
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+  color: var(--gray-dark);
+}
+.gs__card--active .gs__card-desc { color: rgba(242, 236, 218, 0.88); }
+
+/* Spectate — the online guest watches the host choose: cards recede */
+.gs__grid--spectate .gs__card {
+  cursor: default;
+  opacity: 0.45;
+  filter: saturate(0.4);
+}
+.gs__grid--spectate .gs__card:hover {
+  background: var(--paper);
+  color: var(--ink);
+  transform: none;
+  box-shadow: 3px 3px 0 var(--ink);
+}
+.gs__grid--spectate .gs__card--active {
+  background: var(--paper);
+  color: var(--ink);
+  transform: none;
+  box-shadow: 3px 3px 0 var(--ink);
+  filter: none;
+}
+.gs__grid--spectate .gs__card--active .gs__card-desc { color: var(--gray-dark); }
+.gs__placeholder {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 2rem;
+  color: var(--gray);
+  font-size: 0.85rem;
+  letter-spacing: 0.2em;
+}
+
+/* Footer — back + continue (mirrors the mode screen) */
+.gs__footer {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1rem;
+  margin-top: auto;
+  padding-top: 1.5rem;
+  z-index: 1;
+  position: relative;
+}
+.gs__hint {
+  text-align: center;
+  font-size: 0.62rem;
+  color: rgba(16, 22, 64, 0.55);
+  font-weight: 600;
+  font-family: var(--font-display);
+  letter-spacing: 0.05em;
+  margin-top: 0.9rem;
+  z-index: 1;
+  position: relative;
+  line-height: 1.6;
+}
+.gs__hint span { color: var(--royal); }
+
 /* --- Stage Select — "paper poster" --- */
 .ss {
   min-height: 100vh;
@@ -2374,6 +2619,20 @@ body.fighting {
   .ms__difficulty { margin-top: 0.9rem; }
   .ms__hint { margin-top: 0.7rem; }
 
+  /* Group select — 2-up cards, tighter masthead (mirrors mode select) */
+  .gs { padding: 0.9rem 0.75rem 3rem; }
+  .gs__title { margin: 0.7rem auto 0.9rem; }
+  .gs__title-main { font-size: clamp(1.7rem, 8vw, 2.4rem); }
+  .gs__kicker { font-size: 0.52rem; letter-spacing: 0.3em; gap: 8px; }
+  .gs__kicker-rule { width: 26px; }
+  .gs__title-sub { font-size: 0.56rem; letter-spacing: 0.22em; }
+  .gs__grid { grid-template-columns: repeat(2, 1fr); gap: 0.5rem; }
+  .gs__card { padding: 0.6rem 0.7rem 0.65rem; min-height: 84px; }
+  .gs__card-label { font-size: 0.92rem; }
+  .gs__card-desc { font-size: 0.56rem; }
+  .gs__card-tag { font-size: 0.46rem; letter-spacing: 0.14em; }
+  .gs__hint { margin-top: 0.7rem; }
+
   /* Difficulty bar — also scrollable */
   .cs__difficulty-bar {
     flex-wrap: nowrap;
@@ -2518,6 +2777,13 @@ body.fighting {
   .ms__card-desc { font-size: 0.52rem; }
   .ms__footer { gap: 0.7rem; }
 
+  /* Group select — same tightening */
+  .gs__title-main { font-size: 1.8rem; }
+  .gs__card { padding: 0.55rem 0.6rem 0.6rem; min-height: 78px; }
+  .gs__card-label { font-size: 0.85rem; }
+  .gs__card-desc { font-size: 0.52rem; }
+  .gs__footer { gap: 0.7rem; }
+
   /* VS bar — make tags smaller */
   .cs__player-tag-label { font-size: 0.55rem; }
   .cs__player-tag-name { font-size: 0.65rem; }
@@ -2556,6 +2822,27 @@ body.fighting {
   .ms__difficulty { margin-top: 0.55rem; }
   .ms__footer { padding-top: 0.6rem; }
   .ms__hint { display: none; }
+
+  /* Group select — the same compact band, except the subtitle STAYS:
+     in the online spectate flow it is the "YOUR OPPONENT IS CHOOSING…"
+     note, and the short-landscape band is exactly where online phone
+     players wait. Slimmer type keeps it one line. */
+  .gs { padding: 0.5rem 1rem 2.2rem; }
+  .gs__title { margin: 0.15rem auto 0.5rem; }
+  .gs__title-main { font-size: 1.5rem; margin: 0.15rem 0 0.2rem; }
+  .gs__title-sub {
+    font-size: 0.5rem;
+    letter-spacing: 0.18em;
+    margin-top: 0.2rem;
+  }
+  .gs__kicker { font-size: 0.46rem; letter-spacing: 0.24em; gap: 6px; }
+  .gs__kicker-rule { width: 18px; }
+  .gs__grid { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0.45rem; }
+  .gs__card { padding: 0.45rem 0.65rem 0.5rem; gap: 0.18rem; }
+  .gs__card-desc { display: none; }
+  .gs__card-tag { font-size: 0.44rem; padding: 0.12rem 0.4rem; }
+  .gs__footer { padding-top: 0.6rem; }
+  .gs__hint { display: none; }
 }
 
 /* ---- Fight exit button: landscape orientation tweaks ---- */
