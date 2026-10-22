@@ -500,7 +500,7 @@ export default function StageSelect({
       <header className="ss__title">
         <div className="ss__kicker">
           <span className="cs__kicker-rule" aria-hidden="true" />
-          <span>ISSUE No. 03 — THE BATTLEGROUND</span>
+          <span>ISSUE No. 04 — THE BATTLEGROUND</span>
           <span className="cs__kicker-rule" aria-hidden="true" />
         </div>
         <h1 className="ss__title-main">SELECT STAGE</h1>

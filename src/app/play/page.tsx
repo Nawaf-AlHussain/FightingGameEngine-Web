@@ -501,6 +501,26 @@ function PlayPageInner() {
   const [netLeaveAsk, setNetLeaveAsk] = useState(false); // BACK / cancel confirmation
   const [netRematchSent, setNetRematchSent] = useState(false); // guest: request pending
   const [netOppRematch, setNetOppRematch] = useState(false); // host: request received
+  // ---- Pre-fight connection quality ----
+  // The bridge measures an RTT with its own netping/netpong IKWS frames
+  // (see webrtc.js dispatchControl) — surfaced as a small comic pill on the
+  // pre-fight screens so both players can see the link quality BEFORE
+  // committing to a fight. The engine's rollback ping takes over mid-fight
+  // (diagnostics header), so the pill only renders pre-fight.
+  const [netRtt, setNetRtt] = useState(-1);
+  const netRttVisible =
+    netPhase === 'connecting' || netPhase === 'groupselect' ||
+    netPhase === 'charselect' || netPhase === 'stageselect' || netPhase === 'waiting';
+  useEffect(() => {
+    if (!netRttVisible) return;
+    const read = () => {
+      const r = (globalThis as any).ikemenNet?.rtt?.();
+      setNetRtt(typeof r === 'number' && r >= 0 ? Math.round(r) : -1);
+    };
+    read();
+    const id = setInterval(read, 1000);
+    return () => clearInterval(id);
+  }, [netRttVisible]);
   const netLastFightRef = useRef<{ p1: string; p2: string; stage: string; dm: NetDisplayMode } | null>(null);
   const netRebootRef = useRef<((cfg: NetFightConfig, dm: NetDisplayMode) => Promise<void>) | null>(null);
   // Display mode synced for this online fight (host: its own choice;
@@ -2292,7 +2312,7 @@ function PlayPageInner() {
           }}
         >
           <div style={{ fontSize: '0.65rem', letterSpacing: '0.35em', color: 'var(--crimson, #e8283c)', fontWeight: 700 }}>
-            ISSUE No. 03 — THE NETWORK
+            ISSUE No. 05 — THE NETWORK
           </div>
           <h1 style={{
             fontFamily: 'var(--font-poster)', fontSize: '2.6rem', letterSpacing: '0.04em',
@@ -2334,7 +2354,7 @@ function PlayPageInner() {
           <div style={{
             fontSize: '0.65rem', letterSpacing: '0.35em', color: 'var(--crimson, #e8283c)', fontWeight: 700,
           }}>
-            ISSUE No. 03 — THE NETWORK
+            ISSUE No. 05 — THE NETWORK
           </div>
           <div style={{
             fontFamily: 'var(--font-poster)', fontSize: '2.2rem', letterSpacing: '0.04em',
@@ -2425,7 +2445,7 @@ function PlayPageInner() {
           }}
         >
           <div style={{ fontSize: '0.65rem', letterSpacing: '0.35em', color: 'var(--crimson, #e8283c)', fontWeight: 700 }}>
-            ISSUE No. 03 — THE NETWORK
+            ISSUE No. 05 — THE NETWORK
           </div>
           <h2 style={{
             fontFamily: 'var(--font-poster)', fontSize: '2.4rem', letterSpacing: '0.04em',
@@ -2488,7 +2508,7 @@ function PlayPageInner() {
           }}
         >
           <div style={{ fontSize: '0.65rem', letterSpacing: '0.35em', color: 'var(--crimson, #e8283c)', fontWeight: 700 }}>
-            ISSUE No. 03 — THE NETWORK
+            ISSUE No. 05 — THE NETWORK
           </div>
           <div style={{
             fontFamily: 'var(--font-poster)', fontSize: '2.2rem', letterSpacing: '0.04em',
@@ -2500,6 +2520,35 @@ function PlayPageInner() {
           <div style={{ fontSize: '0.65rem', letterSpacing: '0.2em', color: 'var(--gray-dark, #4a4a56)', textAlign: 'center' }}>
             {netRebootMsg || 'PREPARING…'}
           </div>
+        </div>
+      )}
+
+      {/* Pre-fight connection quality (bridge RTT from webrtc.js). Fixed
+          top-right so it clears the centered select-screen mastheads;
+          pointer-events none — pure readout. Sits UNDER the bridge's room
+          panel (z 1000) during 'connecting', taking the corner once the
+          panel retires itself 2.5s after connect. */}
+      {netRttVisible && netRtt >= 0 && (
+        <div
+          style={{
+            position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 10px)', right: 10, zIndex: 41,
+            display: 'flex', alignItems: 'center', gap: '0.45rem',
+            background: 'var(--paper, #f2ecda)', border: '2px solid var(--ink, #101018)',
+            boxShadow: '3px 3px 0 var(--ink, #101018)', borderRadius: 2,
+            padding: '0.3rem 0.6rem', pointerEvents: 'none',
+          }}
+        >
+          <span
+            aria-hidden="true"
+            style={{
+              width: 9, height: 9, borderRadius: '50%', display: 'inline-block',
+              background: netRtt <= 70 ? 'var(--green, #43a058)'
+                : netRtt <= 130 ? 'var(--royal, #3143d6)' : 'var(--crimson, #e8283c)',
+            }}
+          />
+          <span style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.08em', color: 'var(--ink, #101018)' }}>
+            {netRtt} MS
+          </span>
         </div>
       )}
 

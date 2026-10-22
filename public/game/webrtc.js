@@ -138,13 +138,19 @@
     for (const t of ['mousedown', 'mouseup', 'click', 'dblclick', 'keydown', 'keyup', 'wheel', 'touchstart', 'touchmove', 'touchend']) {
       overlay.addEventListener(t, (e) => e.stopPropagation());
     }
-    const video = el('video', 'width:min(92vw,480px);max-height:60vh;border:1px solid #444;border-radius:8px;background:#000');
+    const video = el('video', 'width:min(92vw,480px);max-height:60vh;border:2px solid var(--ink,#101018);border-radius:2px;background:#000;box-shadow:6px 6px 0 var(--ink,#101018)');
     video.setAttribute('playsinline', ''); // iOS Safari: never hijack to fullscreen
     video.muted = true;
-    const msg = el('div', 'color:#eee;font:13px monospace;text-align:center', "Point the camera at the host's QR code...");
+    const msg = el('div',
+      'color:var(--ink,#101018);background:var(--paper,#f2ecda);border:2px solid var(--ink,#101018);' +
+      'box-shadow:3px 3px 0 var(--ink,#101018);padding:6px 12px;' +
+      'font:700 12px system-ui,sans-serif;letter-spacing:0.05em;text-align:center',
+      "Point the camera at the host's QR code...");
     const stopBtn = el('button',
-      'background:#333;color:#eee;border:1px solid #666;border-radius:4px;' +
-      'padding:6px 14px;font:13px monospace;cursor:pointer', 'Cancel');
+      'background:var(--royal,#3143d6);color:var(--paper,#f2ecda);border:2px solid var(--ink,#101018);' +
+      'border-radius:2px;padding:6px 14px;cursor:pointer;' +
+      'font:700 11px ' + PANEL_FONT + ';letter-spacing:0.12em;text-transform:uppercase;' +
+      'box-shadow:3px 3px 0 var(--crimson,#e8283c)', 'Cancel');
     overlay.appendChild(video); overlay.appendChild(msg); overlay.appendChild(stopBtn);
     document.body.appendChild(overlay);
     const cleanup = () => {
@@ -333,7 +339,8 @@
       else document.body.appendChild(diag);
     }
     diag.textContent = (diagOpen ? '▼ ' : '▶ ') +
-      'NETPLAY' + (pingMs >= 0 ? ' [ping ' + pingMs + 'ms]' : '') +
+      'NETPLAY' + (pingMs >= 0 ? ' [ping ' + pingMs + 'ms]'
+        : bridgeRttMs >= 0 ? ' [rtt ' + bridgeRttMs + 'ms]' : '') +
       ' (recv ' + bytesRecv + 'B / engine-read ' + bytesReadByEngine + 'B / sent ' + bytesSent + 'B)\n' +
       diagLines.join('\n');
   }
@@ -350,6 +357,8 @@
     peerHash = null; hashVerdict = null;
     peerNetcode = null; ncVerdict = null;
     gdc = null; gQueue = []; pingMs = -1;
+    if (rttTimer) { clearInterval(rttTimer); rttTimer = null; }
+    probeId = 0; probeSentAt = 0; bridgeRttMs = -1; rttLogged = false;
     queueRole = ''; queueP1 = ''; queueP2 = ''; queueStartedAt = 0; queueMatchSeq = 0;
     if (hshakeStallTimer) { clearTimeout(hshakeStallTimer); hshakeStallTimer = null; }
     if (!localHash) computeBuildHash();
@@ -402,6 +411,48 @@
   let controlHandler = null, controlBacklog = [];
   function localNetcode() { return globalThis.engineNetcode === 'rollback' ? 1 : 0; }
   function ncName(v) { return v ? 'Rollback' : 'Delay'; }
+
+  // Pre-fight connection quality: a tiny IKWS "netping"/"netpong" pair the
+  // BRIDGE answers itself, so the site can show an RTT while the players are
+  // still on the select screens - before any engine exists to report the
+  // rollback ping (which takes over in the overlay mid-fight). Probes are
+  // dispatched here and NEVER reach the site's control handler or the
+  // engine stream; a peer running older code just ignores the frame.
+  let probeId = 0, probeSentAt = 0, bridgeRttMs = -1, rttLogged = false, rttTimer = null;
+  function sendCtrlRaw(obj) {
+    if (!dc || dc.readyState !== 'open') return false;
+    try {
+      const payload = new TextEncoder().encode(JSON.stringify(obj));
+      const msg = new Uint8Array(4 + payload.length);
+      msg.set(WS_MAGIC, 0); msg.set(payload, 4);
+      dc.send(msg);
+      return true;
+    } catch (e) { return false; }
+  }
+  function probeRtt() {
+    if (!dc || dc.readyState !== 'open' || isClosed || isFailed) return;
+    // No pending-guard: a fresh probe every beat supersedes the last (pong
+    // replies are matched by id, so a late answer for an old probe is dropped).
+    probeId++;
+    probeSentAt = performance.now();
+    sendCtrlRaw({ t: 'netping', id: probeId });
+  }
+  // Single gateway for IKWS frames (live traffic AND the pre-registration
+  // backlog replay): bridge-level frames are consumed here, everything else
+  // goes to the site handler (or the backlog when it has not registered yet).
+  function dispatchControl(m) {
+    if (m && m.t === 'netping') { sendCtrlRaw({ t: 'netpong', id: m.id }); return; }
+    if (m && m.t === 'netpong' && m.id === probeId) {
+      bridgeRttMs = Math.max(1, Math.round(performance.now() - probeSentAt));
+      if (!rttLogged) {
+        rttLogged = true;
+        netLog('bridge rtt ' + bridgeRttMs + 'ms (pre-fight connection quality)');
+      }
+      markDiag();
+      return;
+    }
+    if (controlHandler) controlHandler(m); else controlBacklog.push(m);
+  }
 
   // Deterministic content hash (cyrb64), 8 bytes. Deliberately NOT
   // crypto.subtle: that Web Crypto API is undefined over plain http://
@@ -510,6 +561,11 @@
       } catch (e) { netLog('netcode send failed: ' + e.message); }
       setStatus('Connected! Setting up the match...');
       setTimeout(hidePanel, 2500);
+      // Start the pre-fight RTT probes (first answer lands in ~one RTT).
+      bridgeRttMs = -1; rttLogged = false;
+      probeRtt();
+      if (rttTimer) clearInterval(rttTimer);
+      rttTimer = setInterval(probeRtt, 4000);
       watchTransport();
     };
     dc.onmessage = (e) => {
@@ -532,7 +588,7 @@
       if (u.length > 4 && WS_MAGIC.every((b, i) => u[i] === b)) {
         try {
           const m = JSON.parse(new TextDecoder().decode(u.subarray(4)));
-          if (controlHandler) controlHandler(m); else controlBacklog.push(m);
+          dispatchControl(m);
         } catch (err) { netLog('bad control frame: ' + err.message); }
         return; // website-level message, never for the engine
       }
@@ -743,6 +799,11 @@
   const dec = (s) => JSON.parse(atob(s.trim()));
 
   // ---------- signaling panel UI ----------
+  // Themed to the site's Squadron Comic skin (paper card, ink border, hard
+  // offset shadow) via the same CSS custom properties the React screens use
+  // - var() falls back to the literal palette when the page doesn't define
+  // them (dev harness). Geometry (top-right, 340px) is unchanged.
+  const PANEL_FONT = "var(--font-display,Impact),'Bebas Neue',system-ui,sans-serif";
   function el(tag, style, text) {
     const e = document.createElement(tag);
     e.style.cssText = style || '';
@@ -753,28 +814,41 @@
   function showPanel(mode) {
     hidePanel();
     panel = el('div',
-      'position:fixed;top:8px;right:8px;z-index:1000;background:#1c1c22;color:#eee;' +
-      'border:1px solid #555;border-radius:8px;padding:12px;width:340px;' +
-      'font:13px monospace;box-shadow:0 4px 16px #000a');
+      'position:fixed;top:8px;right:8px;z-index:1000;box-sizing:border-box;' +
+      'background:var(--paper,#f2ecda);color:var(--ink,#101018);' +
+      'background-image:radial-gradient(rgba(16,16,24,0.1) 1.2px,transparent 1.4px);' +
+      'background-size:13px 13px;' +
+      'border:2px solid var(--ink,#101018);border-radius:2px;padding:14px;width:340px;' +
+      'box-shadow:6px 6px 0 var(--ink,#101018);' +
+      'font:13px/1.45 system-ui,sans-serif');
     // The engine listens for mouse/keyboard on the whole document; without
     // this, clicks can't focus the textareas and typing feeds the game.
     for (const t of ['mousedown', 'mouseup', 'click', 'dblclick', 'keydown', 'keyup', 'keypress', 'wheel', 'contextmenu']) {
       panel.addEventListener(t, (e) => e.stopPropagation());
     }
-    panel.appendChild(el('div', 'font-weight:bold;margin-bottom:6px',
+    panel.appendChild(el('div',
+      'font-weight:700;font-size:15px;letter-spacing:0.14em;text-transform:uppercase;' +
+      'font-family:' + PANEL_FONT + ';' +
+      'color:var(--ink,#101018);text-shadow:2px 2px 0 var(--crimson,#e8283c);' +
+      'margin-bottom:8px',
       mode === 'host' ? 'NETPLAY - You are hosting'
         : mode === 'queue' ? 'NETPLAY - Ranked match'
           : 'NETPLAY - Joining a host'));
     // pre-line so a status can carry a second paragraph (the queue's
     // build-mismatch hint) without needing markup.
-    const status = el('div', 'color:#9fd;margin-bottom:8px;min-height:16px;white-space:pre-line', 'Preparing connection...');
+    const status = el('div',
+      'color:var(--royal-deep,#232f9e);font-weight:600;margin-bottom:8px;min-height:16px;white-space:pre-line',
+      'Preparing connection...');
     panel.appendChild(status);
     panel.__status = status;
 
     const mkArea = (label, readonly) => {
-      panel.appendChild(el('div', 'margin-top:6px;color:#aaa', label));
+      panel.appendChild(el('div',
+        'margin-top:6px;margin-bottom:2px;color:var(--gray-dark,#2c2c3a);' +
+        'font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase', label));
       const ta = el('textarea',
-        'width:100%;height:64px;background:#111;color:#cfc;border:1px solid #444;' +
+        'width:100%;height:64px;background:var(--paper-dim,#e5ddc5);color:var(--ink,#101018);' +
+        'border:2px solid var(--ink,#101018);border-radius:2px;padding:4px 6px;' +
         'font:11px monospace;resize:none;box-sizing:border-box');
       ta.readOnly = !!readonly;
       panel.appendChild(ta);
@@ -783,18 +857,35 @@
 
     const mkBtn = (label, fn) => {
       const b = el('button',
-        'margin-top:6px;margin-right:6px;background:#333;color:#eee;border:1px solid #666;' +
-        'border-radius:4px;padding:4px 10px;cursor:pointer;font:12px monospace', label);
+        'margin-top:6px;margin-right:6px;background:var(--royal,#3143d6);color:var(--paper,#f2ecda);' +
+        'border:2px solid var(--ink,#101018);border-radius:2px;padding:5px 12px;cursor:pointer;' +
+        'font:700 11px ' + PANEL_FONT + ';letter-spacing:0.12em;text-transform:uppercase;' +
+        'box-shadow:3px 3px 0 var(--crimson,#e8283c)', label);
+      // Callers flip .disabled directly (create/join/QR buttons); mirror it
+      // visually - a "pressed" dim without the crimson shadow - or a dead
+      // royal button would read as clickable.
+      Object.defineProperty(b, 'disabled', {
+        get() { return b.hasAttribute('disabled'); },
+        set(v) {
+          if (v) b.setAttribute('disabled', ''); else b.removeAttribute('disabled');
+          b.style.opacity = v ? '0.55' : '';
+          b.style.cursor = v ? 'default' : 'pointer';
+          b.style.boxShadow = v ? '1px 1px 0 var(--crimson,#e8283c)' : '3px 3px 0 var(--crimson,#e8283c)';
+        },
+      });
       b.onclick = fn;
       panel.appendChild(b);
       return b;
     };
 
     const mkInput = (label, placeholder) => {
-      panel.appendChild(el('div', 'margin-top:6px;color:#aaa', label));
+      panel.appendChild(el('div',
+        'margin-top:6px;margin-bottom:2px;color:var(--gray-dark,#2c2c3a);' +
+        'font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase', label));
       const inp = el('input',
-        'width:100%;background:#111;color:#cfc;border:1px solid #444;' +
-        'font:13px monospace;padding:4px 6px;box-sizing:border-box');
+        'width:100%;background:var(--paper-dim,#e5ddc5);color:var(--ink,#101018);' +
+        'border:2px solid var(--ink,#101018);border-radius:2px;padding:5px 8px;' +
+        'font:13px monospace;box-sizing:border-box');
       inp.type = 'text';
       inp.placeholder = placeholder || '';
       inp.autocomplete = 'off';
@@ -924,10 +1015,15 @@
             gotRoom = true;
             netLog('room created: ' + m.code);
             ui.clearBody();
-            panel.appendChild(el('div', 'margin-top:8px;color:#aaa', 'Give this room code to your friend:'));
+            panel.appendChild(el('div',
+              'margin-top:8px;margin-bottom:2px;color:var(--gray-dark,#2c2c3a);' +
+              'font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase',
+              'Give this room code to your friend:'));
             const codeEl = el('div',
-              'margin-top:4px;padding:8px;background:#111;border:1px solid #464;border-radius:6px;' +
-              'font:bold 20px monospace;color:#8f8;text-align:center;user-select:all', m.code);
+              'margin-top:4px;padding:10px;background:var(--paper-dim,#e5ddc5);' +
+              'border:2px solid var(--royal,#3143d6);border-radius:2px;box-sizing:border-box;' +
+              'font:bold 22px monospace;color:var(--royal-deep,#232f9e);letter-spacing:0.14em;' +
+              'text-align:center;user-select:all', m.code);
             panel.appendChild(codeEl);
             ui.mkBtn('Copy code', () => {
               const r = document.createRange(); r.selectNodeContents(codeEl);
@@ -945,7 +1041,7 @@
                 img.style.cssText = 'margin-top:8px;display:block;margin-left:auto;margin-right:auto;' +
                   'image-rendering:pixelated;border:6px solid #fff;border-radius:4px;box-sizing:border-box';
                 panel.appendChild(img);
-                panel.appendChild(el('div', 'margin-top:4px;color:#886;font-size:11px;text-align:center',
+                panel.appendChild(el('div', 'margin-top:4px;color:var(--gray-dark,#2c2c3a);font-size:11px;text-align:center',
                   'Friend scans this to join instantly'));
                 setStatus('Waiting for your friend to join...');
               } catch (e) {
@@ -953,7 +1049,7 @@
               }
               if (btn) btn.disabled = false;
             });
-            if (passInp.value.trim()) panel.appendChild(el('div', 'margin-top:6px;color:#886', "Don't forget to tell them the password too."));
+            if (passInp.value.trim()) panel.appendChild(el('div', 'margin-top:6px;color:var(--gray-dark,#2c2c3a)', "Don't forget to tell them the password too."));
             setStatus('Waiting for your friend to join...');
           } else if (m.t === 'peer') {
             setStatus('Friend joined! Connecting...');
@@ -1267,8 +1363,12 @@
     },
     onControl(cb) {
       controlHandler = cb || null;
-      while (controlHandler && controlBacklog.length) controlHandler(controlBacklog.shift());
+      while (controlHandler && controlBacklog.length) dispatchControl(controlBacklog.shift());
     },
+    // Bridge-measured round-trip in ms from the select screens (the engine's
+    // rollback ping takes over once the fight is running). -1 = not measured
+    // yet (channel still negotiating, or the peer predates the probe).
+    rtt() { return bridgeRttMs; },
     // Ranked-queue state for the engine (netplay_js.go): which side the
     // server assigned us ('' until matched), and the verified display
     // names as "p1\np2" for the in-match plates.
@@ -1398,6 +1498,7 @@
       isClosed = true; isConnected = false;
       joinBusy = false;
       if (hshakeStallTimer) { clearTimeout(hshakeStallTimer); hshakeStallTimer = null; }
+      if (rttTimer) { clearInterval(rttTimer); rttTimer = null; }
       netLog('session closed');
       hidePanel();
       setTimeout(hideDiag, 8000); // leave the log up briefly after teardown
