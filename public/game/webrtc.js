@@ -41,10 +41,18 @@
   // needs no server at all. Priority: ?signal= URL param > SIGNAL_URL const
   // > this file > the localhost dev default below.
   let fileSignalUrl = '';
-  fetch('/game/netrelay-url.txt', { cache: 'no-store' })
-    .then((r) => (r.ok ? r.text() : ''))
-    .then((t) => { const u = (t || '').trim().split(/\s+/)[0]; if (u) fileSignalUrl = u; })
-    .catch(() => { /* offline or 404: manual connect still works */ });
+  // The fetch is CAPTURED as a promise so the first room/queue open can WAIT
+  // for it instead of racing it. Field race: a fast click on HOST/JOIN (or a
+  // deep link auto-joining) ran signalUrl() before this fetch resolved, and
+  // the player was silently dropped into the manual copy-paste flow despite
+  // the deployed lobby - the room-code panel just never appeared.
+  const fileSignalUrlReady = new Promise((resolve) => {
+    fetch('/game/netrelay-url.txt', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.text() : ''))
+      .then((t) => { const u = (t || '').trim().split(/\s+/)[0]; if (u) fileSignalUrl = u; })
+      .catch(() => { /* offline or 404: manual connect still works */ })
+      .finally(resolve);
+  });
 
   function signalUrl() {
     const q = new URLSearchParams(location.search).get('signal');
@@ -54,6 +62,14 @@
     // Local dev convenience: the reference server's default port.
     if (/^(localhost|127\.)/.test(location.hostname)) return 'ws://localhost:8940/ws';
     return '';
+  }
+  // signalUrl() after the config fetch has settled. Capped at 4s so a hung
+  // proxy can never stall the panel - past the cap we fall back exactly as
+  // the old racy code did (manual flow), the fetch result simply arriving
+  // too late to help this attempt.
+  async function signalUrlWhenReady() {
+    await Promise.race([fileSignalUrlReady, new Promise((r) => setTimeout(r, 4000))]);
+    return signalUrl();
   }
 
   // ---------- QR / deep-link pairing (scan-to-join) ----------
@@ -1165,15 +1181,17 @@
     setStatus(AUTO ? 'Joining from link...' : 'Type the room code your friend gave you.');
   }
 
-  function startHost() {
+  async function startHost() {
     const ui = showPanel('host');
-    const url = signalUrl();
+    const url = await signalUrlWhenReady();
+    if (!panel) return; // user closed the panel during the (capped) wait
     if (url) roomHost(ui, url); else manualHostUI(ui);
   }
 
-  function startJoin() {
+  async function startJoin() {
     const ui = showPanel('join');
-    const url = signalUrl();
+    const url = await signalUrlWhenReady();
+    if (!panel) return; // user closed the panel during the (capped) wait
     if (url) roomJoin(ui, url); else manualJoinUI(ui);
   }
 
@@ -1196,9 +1214,10 @@
   // module uses, so a build with identity disabled reports nowhere.
   const IDENTITY_URL = ((globalThis.FG_BRAND && globalThis.FG_BRAND.identityUrl) || '').replace(/\/+$/, '');
 
-  function startQueue() {
+  async function startQueue() {
     const ui = showPanel('queue');
-    const url = signalUrl();
+    const url = await signalUrlWhenReady();
+    if (!panel) return; // user closed the panel during the (capped) wait
     if (!url) {
       setStatus('No matchmaking server configured for this build. Use Host/Join with a friend instead.');
       return;

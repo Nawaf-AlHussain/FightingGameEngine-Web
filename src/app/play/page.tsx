@@ -508,6 +508,14 @@ function PlayPageInner() {
   // committing to a fight. The engine's rollback ping takes over mid-fight
   // (diagnostics header), so the pill only renders pre-fight.
   const [netRtt, setNetRtt] = useState(-1);
+  // ---- Live spectate cursors (group + stage screens) ----
+  // The character grid shows the opponent's browsing cursor live; the
+  // universe and stage screens used to go dark instead (audit nit). The
+  // browsing side publishes its index ('gcursor'/'scursor' frames) and the
+  // spectating guest highlights that card. Indexes are ABSOLUTE positions
+  // in the manifest-ordered lists, identical on both sides (build check).
+  const [netGroupCursor, setNetGroupCursor] = useState<number | null>(null);
+  const [netStageCursor, setNetStageCursor] = useState<number | null>(null);
   const netRttVisible =
     netPhase === 'connecting' || netPhase === 'groupselect' ||
     netPhase === 'charselect' || netPhase === 'stageselect' || netPhase === 'waiting';
@@ -550,6 +558,13 @@ function PlayPageInner() {
       const src = typeof m.src === 'string' ? m.src : '';
       if (!src) return;
       setNetGroup(src);
+      setNetGroupCursor(null); // browsing is over — clear the spectate cursor
+    } else if (t === 'gcursor') {
+      const idx = typeof m.idx === 'number' ? m.idx : null;
+      setNetGroupCursor(idx);
+    } else if (t === 'scursor') {
+      const idx = typeof m.idx === 'number' ? m.idx : null;
+      setNetStageCursor(idx);
     } else if (t === 'go') {
       // Guest: the host finalised the match (both fighters + stage).
       const p1 = typeof m.p1 === 'string' ? m.p1 : '';
@@ -573,6 +588,8 @@ function PlayPageInner() {
       }
       setNetPhase('fight');
       setNetOppDrop(false);
+      setNetGroupCursor(null);
+      setNetStageCursor(null);
       if (netResolveRef.current) {
         // FIRST fight of this session: resolve the bootEngine park.
         netResolveRef.current({ p1, p2, stage });
@@ -592,6 +609,8 @@ function PlayPageInner() {
       setNetOpp({ id: null, locked: false, liveIdx: null });
       setNetRematchSent(false);
       setNetOppRematch(false);
+      setNetGroupCursor(null);
+      setNetStageCursor(null);
       setNetPhase('charselect');
     } else if (t === 'leave') {
       // The opponent left the session on purpose (lobby / room closed).
@@ -617,6 +636,41 @@ function PlayPageInner() {
   const handleNetCursor = useCallback((index: number) => {
     const net = (globalThis as any).ikemenNet;
     try { net?.control?.({ t: 'cursor', role: netRoleRef.current === 'join' ? 'guest' : 'host', idx: index }); } catch { /* ignore */ }
+  }, []);
+
+  // Browsing cursors for the universe / stage screens (same sync family as
+  // the character grid's 'cursor' frame — tiny, fire-and-forget, dropped
+  // silently when the channel is dead; the poller reports real drops).
+  const handleNetGroupCursor = useCallback((index: number) => {
+    const net = (globalThis as any).ikemenNet;
+    try { net?.control?.({ t: 'gcursor', idx: index }); } catch { /* ignore */ }
+  }, []);
+  const handleNetStageCursor = useCallback((index: number) => {
+    const net = (globalThis as any).ikemenNet;
+    try { net?.control?.({ t: 'scursor', idx: index }); } catch { /* ignore */ }
+  }, []);
+
+  // ---- Leaving /play must not orphan the bridge (audit nit) ----
+  // Every BUTTONED exit is a full-page navigation (sockets die with the
+  // tab), but browser BACK during the ENGINE-driven ranked queue runs no
+  // guard (netPhase is 'idle' there) and lands on /lobby as an SPA
+  // navigation — the bridge, its queue socket (relay slot still held) and
+  // the floating NETPLAY panel all survive onto the new page. Unmount is
+  // the one point every departure crosses: say goodbye first (courtesy
+  // 'leave' frame, opponent's error screen lands instantly), then close.
+  useEffect(() => {
+    return () => {
+      const net = (globalThis as any).ikemenNet;
+      if (!net) return;
+      try {
+        if (typeof net.connected === 'function' && net.connected()) {
+          try { net.control?.({ t: 'leave' }); } catch { /* channel dead */ }
+          setTimeout(() => { try { net.close(); } catch { /* gone */ } }, 200);
+        } else {
+          net.close();
+        }
+      } catch { /* page is going away anyway */ }
+    };
   }, []);
 
   // Host confirmed the universe → sync it to the guest and advance both
@@ -2391,6 +2445,8 @@ function PlayPageInner() {
             onCancel={cancelNetFlow}
             spectate={netRole === 'join'}
             spectateNote="YOUR OPPONENT IS CHOOSING THE UNIVERSE…"
+            onCursor={handleNetGroupCursor}
+            opponentIndex={netGroupCursor}
           />
         </div>
       )}
@@ -2417,6 +2473,8 @@ function PlayPageInner() {
             isTouch={isTouch}
             spectate={netPhase === 'waiting'}
             spectateNote="YOUR OPPONENT IS CHOOSING THE STAGE…"
+            onCursor={handleNetStageCursor}
+            opponentIndex={netStageCursor}
             onSelect={handleNetStage}
             onCancel={cancelNetFlow}
           />

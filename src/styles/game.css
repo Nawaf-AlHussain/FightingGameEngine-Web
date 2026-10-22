@@ -1820,6 +1820,7 @@ html.phone-landscape body.fighting {
   position: relative;
 }
 .gs__card {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 0.32rem;
@@ -1901,6 +1902,29 @@ html.phone-landscape body.fighting {
   cursor: default;
   opacity: 0.45;
   filter: saturate(0.4);
+}
+/* Online spectate cursor — the card the browsing host is on lifts out of
+   the receding grid with a crimson ring + a P1 corner flag. The flag sits
+   on the TOP-RIGHT corner: this card's clip-path cuts the top-left one. */
+.gs__card--opp {
+  border-color: var(--crimson);
+  box-shadow: 3px 3px 0 var(--crimson);
+}
+.gs__grid--spectate .gs__card--opp {
+  opacity: 1;
+  filter: saturate(1);
+}
+.gs__card-opp {
+  position: absolute;
+  top: 0;
+  right: 0;
+  background: var(--p1-color);
+  color: var(--paper);
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  padding: 2.5px 8px;
+  line-height: 1.4;
 }
 .gs__grid--spectate .gs__card:hover {
   background: var(--paper);

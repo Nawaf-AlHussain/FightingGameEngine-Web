@@ -72,6 +72,14 @@ interface GroupSelectProps {
    * Undefined = restore the persisted choice, falling back to All-Stars.
    */
   initialSource?: string | null;
+  /**
+   * Online cursor sync: publish the index of the universe being browsed
+   * (keyboard cycles AND taps land here) so the spectating guest sees the
+   * choice form live. Same sync family as the character grid's cursor.
+   */
+  onCursor?: (index: number) => void;
+  /** The opponent's live browsing index (spectate side highlight). */
+  opponentIndex?: number | null;
 }
 
 export default function GroupSelect({
@@ -80,6 +88,8 @@ export default function GroupSelect({
   spectate = false,
   spectateNote = '',
   initialSource = null,
+  onCursor,
+  opponentIndex = null,
 }: GroupSelectProps) {
   const isTouch = useIsTouchDevice();
 
@@ -160,6 +170,17 @@ export default function GroupSelect({
     });
   }, [groups]);
 
+  // ---- Online cursor sync: publish the browsed universe ------------------
+  // Fires on keyboard cycles AND taps (both go through `selected`). The
+  // spectating guest's only live view of this screen — without it they
+  // stare at a receding grid until the pick lands. Suppressed while
+  // spectating (the guest never browses) and until the list is real.
+  useEffect(() => {
+    if (!onCursor || spectate || loading || error) return;
+    const i = groups.findIndex(g => g.id === selected);
+    if (i >= 0) onCursor(i);
+  }, [selected, groups, spectate, loading, error, onCursor]);
+
   // ---- Keyboard (skipped on touch and while spectating) ------------------
   useEffect(() => {
     if (isTouch || spectate) return;
@@ -192,8 +213,10 @@ export default function GroupSelect({
   }, [isTouch, spectate, cycle, confirm, onCancel]);
 
   const selectedGroup = groups.find(g => g.id === selected);
+  const oppGroup = opponentIndex != null ? groups[opponentIndex] : undefined;
   const subLine = spectate
-    ? (spectateNote || 'YOUR OPPONENT IS CHOOSING THE UNIVERSE…')
+    ? (spectateNote || 'YOUR OPPONENT IS CHOOSING THE UNIVERSE…') +
+      (oppGroup ? ` — ${oppGroup.label.toUpperCase()}` : '')
     : loading
     ? 'LOADING UNIVERSES…'
     : error
@@ -252,10 +275,15 @@ export default function GroupSelect({
             type="button"
             role="radio"
             aria-checked={selected === g.id}
-            className={`gs__card${selected === g.id ? ' gs__card--active' : ''}`}
+            className={`gs__card${selected === g.id ? ' gs__card--active' : ''}${
+              spectate && opponentIndex === i ? ' gs__card--opp' : ''
+            }`}
             onClick={() => { if (!spectate) setSelected(g.id); }}
             title={`Characters from the ${g.id}/ folder`}
           >
+            {spectate && opponentIndex === i && (
+              <span className="gs__card-opp" aria-hidden="true">P1</span>
+            )}
             <span className="gs__card-top">
               <span className="gs__card-num" aria-hidden="true">{String(i + 1).padStart(2, '0')}</span>
               <span className="gs__card-tag">{counts[g.id] ?? 0} FIGHTERS</span>

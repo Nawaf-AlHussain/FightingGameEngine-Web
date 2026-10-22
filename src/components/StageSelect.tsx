@@ -45,6 +45,15 @@ interface StageSelectProps {
    */
   spectate?: boolean;
   spectateNote?: string;
+  /**
+   * Online cursor sync: publish the index of the stage being browsed so
+   * the spectating guest watches the choice form live (keyboard moves AND
+   * taps land here — both go through selectedIndex). Indexes are absolute
+   * positions in the manifest-ordered list, identical on both sides.
+   */
+  onCursor?: (index: number) => void;
+  /** The opponent's live browsing index (spectate side display cursor). */
+  opponentIndex?: number | null;
 }
 
 type DownloadStatus = 'idle' | 'downloading' | 'cached' | 'error';
@@ -72,6 +81,8 @@ export default function StageSelect({
   isTouch = false,
   spectate = false,
   spectateNote = '',
+  onCursor,
+  opponentIndex = null,
 }: StageSelectProps) {
   // The stage list is the CDN manifest only — the engine ships no bundled
   // stages anymore (the training stage was removed).
@@ -273,7 +284,28 @@ export default function StageSelect({
     return cachedIds.has(s.id);
   }, [cachedIds]);
 
-  const selectedStage = useMemo(() => stages[selectedIndex], [stages, selectedIndex]);
+  const selectedStage = useMemo(
+    // Spectate: the display cursor FOLLOWS THE HOST (their live browsing
+    // index) so the preview panel and the selection ring track what they
+    // are looking at — the guest's own selectedIndex stays frozen at its
+    // entry value and is meaningless here. All confirm/download paths that
+    // read selectedStage are spectate-guarded.
+    () => {
+      if (spectate && opponentIndex != null && stages[opponentIndex]) {
+        return stages[opponentIndex];
+      }
+      return stages[selectedIndex];
+    },
+    [stages, selectedIndex, spectate, opponentIndex],
+  );
+
+  // ---- Online cursor sync: publish the browsed stage --------------------
+  // Same sync family as the character grid's cursor frame — tiny JSON,
+  // fire-and-forget. Suppressed while spectating (the guest never browses).
+  useEffect(() => {
+    if (!onCursor || spectate || loading || !stages.length) return;
+    onCursor(selectedIndex);
+  }, [selectedIndex, spectate, loading, stages.length, onCursor]);
   const selectedReady = isReady(selectedStage);
 
   // ---- Filtered view (on-device filter) ----
@@ -623,7 +655,9 @@ export default function StageSelect({
           filteredIndices.map(index => {
             const stage = stages[index];
             if (!stage) return null;
-            const isSelected = index === selectedIndex;
+            // Spectate: the ring follows the OPPONENT's cursor (their live
+            // browsing position), not the frozen local selection.
+            const isSelected = index === (spectate && opponentIndex != null && stages[opponentIndex] ? opponentIndex : selectedIndex);
             return (
               <div
                 key={stage.id}
@@ -634,6 +668,9 @@ export default function StageSelect({
                 role="gridcell"
                 tabIndex={-1}
               >
+                {spectate && opponentIndex != null && index === opponentIndex && (
+                  <span className="cs__card-cursor cs__cursor--p1">P1</span>
+                )}
                 <span className="ss__card-caret" aria-hidden="true" />
                 <div className="ss__card-head">
                   <span className="ss__card-num">
@@ -708,14 +745,18 @@ export default function StageSelect({
         </div>
       </div>
 
-      {/* Online guest overlay: the host is picking the stage */}
+      {/* Online guest overlay: the host is picking the stage. The scrim is
+          LIGHT (was a near-opaque 0.82 wall) so the guest can actually
+          watch the host's cursor move over the grid — that live view is
+          the point of the cursor sync. The note sits on its own ink panel
+          so it stays readable on the lightened scrim. */}
       {spectate && (
         <div
           style={{
             position: 'fixed',
             inset: 0,
             zIndex: 60,
-            background: 'rgba(16,16,24,0.82)',
+            background: 'rgba(16,16,24,0.35)',
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
@@ -728,13 +769,39 @@ export default function StageSelect({
         >
           <div
             style={{
-              fontSize: '0.8rem',
-              letterSpacing: '0.25em',
-              color: 'var(--paper)',
-              fontWeight: 700,
+              background: 'var(--ink-soft, #1d1d2a)',
+              border: '2px solid var(--paper, #f2ecda)',
+              boxShadow: '5px 5px 0 rgba(16,16,24,0.55)',
+              padding: '1rem 1.6rem',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.5rem',
+              alignItems: 'center',
             }}
           >
-            {spectateNote || 'WAITING FOR THE HOST…'}
+            <div
+              style={{
+                fontSize: '0.8rem',
+                letterSpacing: '0.25em',
+                color: 'var(--paper)',
+                fontWeight: 700,
+              }}
+            >
+              {spectateNote || 'WAITING FOR THE HOST…'}
+            </div>
+            {/* Live: the stage under the host's cursor right now. */}
+            {spectate && opponentIndex != null && stages[opponentIndex] && (
+              <div
+                style={{
+                  fontSize: '0.65rem',
+                  letterSpacing: '0.2em',
+                  color: 'var(--paper)',
+                  opacity: 0.8,
+                }}
+              >
+                THEY’RE SCOUTING: {stages[opponentIndex].displayName.toUpperCase()}
+              </div>
+            )}
           </div>
           <button
             type="button"
