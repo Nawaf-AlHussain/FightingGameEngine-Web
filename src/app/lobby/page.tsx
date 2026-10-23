@@ -28,10 +28,14 @@ import { useWipeNavigation } from '@/components/WipeTransition';
  *   HOST picks the universe and BOTH players pick fighters + stage on the
  *   site's own select screens — synced over the WebRTC bridge — and the
  *   engine boots straight into the fight. Zero engine-side menus.)
- * - SETTINGS → /settings (engine config, key remapping)
  * - ABOUT → /about (project info)
  *
- * Keyboard: Enter / Space → selected item · Arrows move · L/O/S/A shortcuts
+ * SETTINGS is disabled for the public showcase build (FINDINGS F-041): the
+ * menu item is gone and /settings redirects to /lobby. To restore, add back
+ * { label: 'SETTINGS', action: () => navigate('/settings'), key: 'S' } and
+ * its keyboard branch.
+ *
+ * Keyboard: Enter / Space → selected item · Arrows move · L/O/A shortcuts
  * · I → INSTALL APP (only while the browser offers installation).
  * Motion: bars slide in staggered, caret nudges, ribbon + halftone + art
  * crossfade run on transform/opacity loops — all disabled under
@@ -88,10 +92,9 @@ export default function LobbyPage() {
   const menuItems = [
     { label: 'LOCAL PLAY', action: () => navigate('/mode-select'), key: 'L' },
     { label: 'ONLINE PLAY', action: () => navigate('/play?net=1'), key: 'O' },
-    { label: 'SETTINGS', action: () => navigate('/settings'), key: 'S' },
     { label: 'ABOUT', action: () => navigate('/about'), key: 'A' },
     // Only offered when the browser can actually install the app —
-    // a menu item with no runtime effect must never render. Prints as 05.
+    // a menu item with no runtime effect must never render. Prints as 04.
     ...(installEvent
       ? [{ label: 'INSTALL APP', action: () => void promptInstall(), key: 'I' }]
       : []),
@@ -113,9 +116,6 @@ export default function LobbyPage() {
     } else if (e.key === 'o' || e.key === 'O') {
       e.preventDefault();
       navigate('/play?net=1');
-    } else if (e.key === 's' || e.key === 'S') {
-      e.preventDefault();
-      navigate('/settings');
     } else if (e.key === 'a' || e.key === 'A') {
       e.preventDefault();
       navigate('/about');

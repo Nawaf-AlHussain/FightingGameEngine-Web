@@ -1263,3 +1263,35 @@ the current tree before writing.
 commits — docs are the handoff, and reconstructing nine days of work
 from commit messages is far more expensive than writing one entry per
 session.
+
+## F-041 | Showcase build: Settings disabled, Watch mode removed from the UI
+ **Date**: 2026-10-24 | **Type**: Finding
+
+The user is presenting the site to an audience and asked to disable
+Settings and remove Watch mode. Implemented as entry-point removal, NOT
+machinery deletion — every change is a one-line revert:
+
+- Lobby (`src/app/lobby/page.tsx`): the SETTINGS menu item and its `S`
+  keyboard shortcut removed. Menu is now LOCAL / ONLINE / ABOUT
+  (+ INSTALL APP when the browser offers it).
+- `/settings`: `page.tsx` replaced by `route.ts`, a route handler
+  answering a real HTTP 307 to /lobby — even hand-typed URLs land on
+  the lobby. (First tried a server-component `redirect()`, but Next 16
+  serves that as 200 + meta-refresh on document requests; the route
+  handler gives a true 307.) `components/SettingsMenu.tsx` is untouched
+  (dead but intact).
+- Mode catalog (`src/lib/mode-catalog.ts`): the `watch` entry removed
+  from `MODES` (comment in the file shows the exact restore line).
+  `/mode-select` renders from the catalog, so the WATCH card is gone.
+- Safety nets that make catalog removal sufficient: `/local` validates
+  `?mode=` against `MODES` and falls back to the saved/default mode, and
+  `loadSavedModeChoice()` ignores any stale `watch` value in localStorage.
+- The `watch` type union + progression machinery (game-modes.ts, /local,
+  /match-prep, /play, /results) is left intact on purpose.
+
+Accepted hole: a hand-crafted `/match-prep?qmode=watch&...` URL would
+still run a watch fight — unreachable through any UI, not worth the
+extra guard for a showcase build.
+
+**Lesson**: Disable features at their entry points, keep the machinery —
+reversible in one line and zero risk to the six modes that still ship.

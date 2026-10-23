@@ -53,7 +53,12 @@ export const MODES: ModeDef[] = [
   { id: 'arcade',      label: 'ARCADE',      description: 'Fight through a five-opponent ladder.',                    tag: '5 FIGHTS',      p2Label: 'RANDOM OPPONENTS', progression: true },
   { id: 'survival',    label: 'SURVIVAL',    description: 'Defeat as many opponents as possible. Endless.',           tag: 'ENDLESS',       p2Label: 'RANDOM OPPONENTS', progression: true },
   { id: 'time-attack', label: 'TIME ATTACK', description: 'Complete three fights as quickly as possible. 60s rounds.', tag: '3 FIGHTS · 60S', p2Label: 'RANDOM OPPONENTS', progression: true },
-  { id: 'watch',       label: 'WATCH',       description: 'Watch two CPU-controlled fighters battle.',                tag: 'AI VS AI',      p2Label: 'CPU',              progression: true },
+  // 'watch' (AI vs AI showcase) is intentionally OFF for the public showcase
+  // build (FINDINGS F-041). The card above is the only UI entry point —
+  // /local validates ?mode= against this list and loadSavedModeChoice()
+  // ignores stale saved values, so removing it here fully retires the flow.
+  // To restore: re-add the entry below.
+  // { id: 'watch',    label: 'WATCH',    description: 'Watch two CPU-controlled fighters battle.', tag: 'AI VS AI', p2Label: 'CPU', progression: true },
 ];
 
 export const DIFFICULTIES: { id: Difficulty; label: string }[] = [

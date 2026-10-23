@@ -1,5 +1,41 @@
 # PROGRESS — Fighting Game Engine Web
 
+## Session: October 24, 2026 — Showcase build (Settings off, Watch removed)
+
+### Context
+
+The user is presenting the site to an audience and asked to disable
+Settings and remove Watch mode before the showcase. Implemented per
+F-041: entry-point removal with the machinery left intact, so every
+change reverts in one line after the showcase.
+
+### Work Done
+
+1. **Settings disabled** — lobby menu item + `S` shortcut removed;
+   `/settings` is now a route handler answering a real HTTP 307 to
+   `/lobby` (instant, works without JS). `SettingsMenu.tsx` untouched.
+2. **Watch mode removed from the UI** — the `watch` entry deleted from
+   `MODES` in `mode-catalog.ts` (restore line kept as a comment in the
+   file). `/mode-select` renders from the catalog, so the card is gone;
+   `/local`'s existing `?mode=` validation and `loadSavedModeChoice()`
+   make stale links/saved values fall back safely.
+3. **Docs synced** — README (6 modes), TODO (✅ list + F-041 note),
+   AGENT.md (page-flow menu line + key-files row).
+
+### Verification
+
+- `tsc --noEmit` clean; `next build` clean (16/16 routes).
+- Live browser vs `next start`: lobby shows LOCAL(01)/ONLINE(02)/ABOUT(03)
+  with no SETTINGS; `/mode-select` shows 6 cards with no WATCH;
+  `/settings` bounces to the lobby; `/local?mode=watch` falls back to
+  VS CPU.
+
+### Current Status / Next Steps
+
+- Status: showcase-ready. Six modes live; Settings + Watch off.
+- After the showcase: revert the mode-catalog comment line + lobby item
+  + settings page body (each documented in place) to re-enable both.
+
 ## Session: October 24, 2026 — AGENT.md next-steps 1+2 (Esc menu + F-006)
 
 ### Context

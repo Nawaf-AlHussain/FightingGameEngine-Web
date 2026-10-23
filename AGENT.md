@@ -102,7 +102,8 @@ FightingGameEngine-Demo (this repo, Vercel)   FightingGameEngine/Assets (GitHub)
 
 ```
 LOCAL:
-/lobby  →  PRESS START (menu: LOCAL / ONLINE / SETTINGS / ABOUT / INSTALL)
+/lobby  →  PRESS START (menu: LOCAL / ONLINE / ABOUT; +INSTALL when offered.
+                SETTINGS disabled for showcase F-041 — /settings redirects here)
   ↓
 /mode-select?—  ISSUE 01: game mode + difficulty
   ↓
@@ -212,7 +213,7 @@ go.env = { GOGC: '100', GOMEMLIMIT: '800MiB' };
 
 | File | Purpose |
 |------|---------|
-| `src/app/lobby/page.tsx` | Title screen (Squadron Comic poster). Menu → /mode-select, /play?net=1, /settings, /about |
+| `src/app/lobby/page.tsx` | Title screen (Squadron Comic poster). Menu → /mode-select, /play?net=1, /about (+ /settings, disabled for showcase F-041) |
 | `src/app/mode-select/page.tsx` | ISSUE 01 — game mode + difficulty (local flow stop 1) |
 | `src/app/group-select/page.tsx` | ISSUE 02 — universe/group select (local flow stop 2) |
 | `src/app/local/page.tsx` | ISSUE 03 — roster screen (pure React): P1/P2 picks, AI level, then stage select |

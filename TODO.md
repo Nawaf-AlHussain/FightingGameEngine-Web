@@ -34,8 +34,9 @@
   incl. heavy DBZ with specials (F-038 spatial grid broad-phase); no
   mid-round GC pauses (F-033); IndexedDB caching (F-037); .pak fast load
   (F-029); 87 characters + 5 stages on the production CDN.
-- ✅ 7 game modes all working (VS CPU, VS Player, Training, Arcade,
-  Survival, Time Attack, Watch).
+- ✅ 6 game modes all working (VS CPU, VS Player, Training, Arcade,
+  Survival, Time Attack). Watch is disabled for the public showcase
+  (F-041) — machinery intact; restore = re-add the MODES catalog entry.
 - ✅ **This repo (`FightingGameEngine-Demo`) and
   `FightingGameEngine-Web` are byte-identical mirrors** — same commit
   history, pushed in lockstep. The Vercel deployments differ only in env

@@ -82,7 +82,7 @@ This is the **successor** to [FightingGameEngine](https://github.com/Nawaf-AlHus
          rematch in place
 ```
 
-7 modes: VS CPU · VS Player · Training · Arcade · Survival · Time Attack · Watch.
+6 modes: VS CPU · VS Player · Training · Arcade · Survival · Time Attack.
 
 Display ladder: TALL 4:3 · FITTED · 3:2 WIDE · 14:9 · 5:3 · EXPANDED (classic 4:3), stage zoom on close action, portrait "Game Boy" mode. Installable PWA.
 
