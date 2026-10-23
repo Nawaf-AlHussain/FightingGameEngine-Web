@@ -27,9 +27,13 @@
   unique ISSUE numbers per screen (05 NETWORK on the netplay overlays),
   transparent character portraits.
 - ✅ Demo asset mirror: the demo deployment reads
-  `FightingGameEngine/DemoAssets` (curated roster) via the
-  `ASSETS_GH_REPO` env switch; `scripts/sync-demo-assets.py` mirrors
-  content from the production `FightingGameEngine/Assets`.
+  `FightingGameEngine/DemoAssets` via the
+  `ASSETS_GH_REPO` env switch — now a **Marvel-only roster**
+  (87 charsMARVEL characters + portraits + Masjid stage; the 71-char
+  DBZ `chars/` was removed, manifest bumped to v3 with `sources`
+  and portrait fields). `scripts/sync-demo-assets.py` must NOT be run
+  against it anymore without an include-list update — it would
+  re-add the removed DBZ `chars/`.
 - ✅ Frontend 2.1 complete (spec §56 DoD); 100% 60fps for ALL characters
   incl. heavy DBZ with specials (F-038 spatial grid broad-phase); no
   mid-round GC pauses (F-033); IndexedDB caching (F-037); .pak fast load
