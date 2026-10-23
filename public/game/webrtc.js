@@ -446,7 +446,12 @@
     } catch (e) { return false; }
   }
   function probeRtt() {
-    if (!dc || dc.readyState !== 'open' || isClosed || isFailed) return;
+    // NOTE: isFailed deliberately does NOT stop the probes. A latched failure
+    // flag (zombie watchdog, transient dc error) can be a false positive
+    // during the pre-fight load window; the probe is exactly what disproves
+    // it — the peer's netpong proves the round trip and heals the latch
+    // (see dispatchControl). Only a genuinely closed channel stops.
+    if (!dc || dc.readyState !== 'open' || isClosed) return;
     // No pending-guard: a fresh probe every beat supersedes the last (pong
     // replies are matched by id, so a late answer for an old probe is dropped).
     probeId++;
@@ -460,6 +465,18 @@
     if (m && m.t === 'netping') { sendCtrlRaw({ t: 'netpong', id: m.id }); return; }
     if (m && m.t === 'netpong' && m.id === probeId) {
       bridgeRttMs = Math.max(1, Math.round(performance.now() - probeSentAt));
+      // Transport self-heal: the peer only pongs a netping it actually
+      // RECEIVED, so an arriving pong is proof the round trip works right
+      // now. If a failure flag is latched at that moment (zombie-watchdog
+      // sample taken while the opponent was mid-download on a congested
+      // phone link, or a transient dc error), it is provably stale — clear
+      // it instead of letting the page kill a working session. A REAL black
+      // hole never receives our netping, so no pong ever arrives and the
+      // latch stands.
+      if (isFailed && isConnected) {
+        isFailed = false;
+        netLog('transport self-healed - latched failure flag disproved by a live round trip');
+      }
       if (!rttLogged) {
         rttLogged = true;
         netLog('bridge rtt ' + bridgeRttMs + 'ms (pre-fight connection quality)');

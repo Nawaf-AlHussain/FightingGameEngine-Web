@@ -50,8 +50,12 @@ interface StageSelectProps {
    * the spectating guest watches the choice form live (keyboard moves AND
    * taps land here — both go through selectedIndex). Indexes are absolute
    * positions in the manifest-ordered list, identical on both sides.
+   * The stage ID rides along (second argument) so the guest can PREFETCH
+   * the dwelled-on stage before 'go' — an index alone is a per-device
+   * position in the availability-probed list, which can differ per device;
+   * the id is authoritative.
    */
-  onCursor?: (index: number) => void;
+  onCursor?: (index: number, stageId: string | null) => void;
   /** The opponent's live browsing index (spectate side display cursor). */
   opponentIndex?: number | null;
 }
@@ -304,8 +308,8 @@ export default function StageSelect({
   // fire-and-forget. Suppressed while spectating (the guest never browses).
   useEffect(() => {
     if (!onCursor || spectate || loading || !stages.length) return;
-    onCursor(selectedIndex);
-  }, [selectedIndex, spectate, loading, stages.length, onCursor]);
+    onCursor(selectedIndex, stages[selectedIndex]?.id ?? null);
+  }, [selectedIndex, spectate, loading, stages, onCursor]);
   const selectedReady = isReady(selectedStage);
 
   // ---- Filtered view (on-device filter) ----

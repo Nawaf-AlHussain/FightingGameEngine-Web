@@ -516,7 +516,10 @@ function PlayPageInner() {
   // in the manifest-ordered lists, identical on both sides (build check).
   const [netGroupCursor, setNetGroupCursor] = useState<number | null>(null);
   const [netStageCursor, setNetStageCursor] = useState<number | null>(null);
-  const netRttVisible =
+  // Guest-side stage prefetch timer ('scursor'-driven; see handleNetControl).
+  // Cleared on unmount — a pending debounce must not outlive the flow.
+  const netStagePrefetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const netRttVisible = 
     netPhase === 'connecting' || netPhase === 'groupselect' ||
     netPhase === 'charselect' || netPhase === 'stageselect' || netPhase === 'waiting';
   useEffect(() => {
@@ -565,6 +568,31 @@ function PlayPageInner() {
     } else if (t === 'scursor') {
       const idx = typeof m.idx === 'number' ? m.idx : null;
       setNetStageCursor(idx);
+      // Guest-side stage prefetch — the "disconnects before the match starts"
+      // family. The guest learns the stage only at 'go', which used to drop a
+      // multi-MB download INSIDE the engine-boot window: the window where the
+      // opponent's engine is already waiting on the netplay handshake and
+      // where the documented phone renderer-kill lives. The host's live
+      // browsing cursor is the earliest signal available — download the
+      // DWELLED-ON stage now (debounced; fly-overs cancelled), so 'go' finds
+      // it cached or mid-flight (the downloader's in-flight registry dedupes
+      // and the boot path piggybacks on it). The stage id rides the frame
+      // because the index is a per-device position in a probed list (the
+      // availability probe can keep different stages per device).
+      const sid = typeof m.id === 'string' ? m.id : '';
+      if (sid && netRoleRef.current === 'join') {
+        if (netStagePrefetchTimer.current) clearTimeout(netStagePrefetchTimer.current);
+        netStagePrefetchTimer.current = setTimeout(() => {
+          netStagePrefetchTimer.current = null;
+          (async () => {
+            try {
+              const manifest = await fetchAssetsManifest();
+              const stg = manifest.stages.find(s => s.id === sid);
+              if (stg) await downloadStageToCache(stg);
+            } catch { /* boot fallback reports real failures */ }
+          })();
+        }, 1200);
+      }
     } else if (t === 'go') {
       // Guest: the host finalised the match (both fighters + stage).
       const p1 = typeof m.p1 === 'string' ? m.p1 : '';
@@ -645,9 +673,11 @@ function PlayPageInner() {
     const net = (globalThis as any).ikemenNet;
     try { net?.control?.({ t: 'gcursor', idx: index }); } catch { /* ignore */ }
   }, []);
-  const handleNetStageCursor = useCallback((index: number) => {
+  const handleNetStageCursor = useCallback((index: number, stageId: string | null) => {
     const net = (globalThis as any).ikemenNet;
-    try { net?.control?.({ t: 'scursor', idx: index }); } catch { /* ignore */ }
+    // The id rides along so the spectating guest can PREFETCH the dwelled-on
+    // stage before 'go' (see the 'scursor' branch in handleNetControl).
+    try { net?.control?.({ t: 'scursor', idx: index, id: stageId || undefined }); } catch { /* ignore */ }
   }, []);
 
   // ---- Leaving /play must not orphan the bridge (audit nit) ----
@@ -661,6 +691,7 @@ function PlayPageInner() {
   useEffect(() => {
     return () => {
       const net = (globalThis as any).ikemenNet;
+      if (netStagePrefetchTimer.current) clearTimeout(netStagePrefetchTimer.current);
       if (!net) return;
       try {
         if (typeof net.connected === 'function' && net.connected()) {
@@ -842,6 +873,13 @@ function PlayPageInner() {
   useEffect(() => {
     if (!NET_LIVE_PHASES.includes(netPhase)) return;
     let misses = 0;
+    // connected-but-flagged patience: the bridge's failure flag can latch on
+    // a false positive (zombie-watchdog sample taken while the opponent is
+    // mid-download on a congested phone link, transient dc error). The flag
+    // must STAY up across ~4s of polls before the overlay fires — long
+    // enough for the bridge's pong self-heal to disprove a blip (a real
+    // black hole never receives a pong, so its latch survives this window).
+    let failTicks = 0;
     const timer = setInterval(() => {
       const net = (globalThis as any).ikemenNet;
       if (!net) return;
@@ -865,17 +903,27 @@ function PlayPageInner() {
         // dc.onclose is the only thing that flips isConnected mid-fight (the
         // transport's transient 'disconnected' rides a 12s recovery grace in
         // the bridge and never touches isConnected), so 3 dead polls = the
-        // channel is genuinely gone. The overlay is informational — the
-        // engine will exit on its own when its reads return null, and the
-        // post-run triage lands the phase machine on 'error'.
-        if (typeof net.connected === 'function' && net.connected() && !(typeof net.failed === 'function' && net.failed())) {
+        // channel is genuinely gone. A latched failure flag alone needs the
+        // patient failTicks window below instead. The overlay is
+        // informational AND self-retracting: if the flag was a blip and the
+        // bridge heals it, a later alive poll takes the report back down.
+        // The engine will exit on its own when its reads return null, and
+        // the post-run triage lands the phase machine on 'error'.
+        const alive = typeof net.connected === 'function' && net.connected();
+        const flagged = typeof net.failed === 'function' && net.failed();
+        if (alive && !flagged) {
           misses = 0;
+          failTicks = 0;
+          setNetOppDrop(false); // no-op while hidden; retracts a healed blip
           return;
         }
-        misses += 1;
-        if (misses >= 3 || (typeof net.failed === 'function' && net.failed())) {
-          setNetOppDrop(true);
+        if (!alive) {
+          misses += 1;
+          if (misses >= 3) setNetOppDrop(true);
+          return;
         }
+        failTicks += 1;
+        if (failTicks >= 8) setNetOppDrop(true);
         return;
       }
       if (netPhase === 'postfight') {
@@ -932,6 +980,44 @@ function PlayPageInner() {
     return () => {
       window.removeEventListener('popstate', onPop);
       window.removeEventListener('beforeunload', onBeforeUnload);
+    };
+  }, [sessionLive]);
+
+  // ---- Screen Wake Lock across the live net flow ----
+  // Two phones in a room: the WAITING player's screen dozes (auto-lock) and
+  // the OS suspends the tab — the P2P datachannel dies, and the opponent's
+  // FIGHT press lands on a dead session ("disconnects before the match
+  // starts", field report). Hold a screen wake lock for the whole live
+  // window (connecting → postfight): the select screens are exactly where a
+  // player idles without touching the screen. Mid-fight the engine's
+  // continuous rendering keeps the screen alive on its own; the lock costs
+  // nothing there and re-arms automatically if the tab is hidden and shown
+  // again (the OS releases the sentinel on hide, per spec).
+  useEffect(() => {
+    if (!sessionLive) return;
+    type WakeSentinel = { release: () => Promise<void>; addEventListener: (t: string, cb: () => void) => void };
+    let sentinel: WakeSentinel | null = null;
+    let disposed = false;
+    const acquire = async () => {
+      if (sentinel || disposed) return;
+      try {
+        const wl = (navigator as Navigator & {
+          wakeLock?: { request: (type: 'screen') => Promise<WakeSentinel> };
+        }).wakeLock;
+        if (!wl) return; // unsupported (older browser) — purely best-effort
+        sentinel = await wl.request('screen');
+        sentinel.addEventListener('release', () => { sentinel = null; });
+      } catch { /* denied / low battery / not allowed — silently fine */ }
+    };
+    const onVisible = () => { if (document.visibilityState === 'visible') void acquire(); };
+    void acquire();
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      disposed = true;
+      document.removeEventListener('visibilitychange', onVisible);
+      const s = sentinel;
+      sentinel = null;
+      if (s) s.release().catch(() => { /* already released */ });
     };
   }, [sessionLive]);
 
