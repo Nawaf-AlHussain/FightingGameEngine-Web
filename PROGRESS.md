@@ -1,5 +1,51 @@
 # PROGRESS — Fighting Game Engine Web
 
+## Session: October 24, 2026 — Comic Print System v2 (full-page motion)
+
+### Context
+
+The user asked for the frontend to feel "more animated" like the
+Rocket-Squadron Rive showcase (the lobby's original reference). The
+lobby already had the v1 showpiece loops; every interior screen
+(mode/group/stage select, roster, match-prep, results, about) was
+nearly static — one shared halftone pan and a couple of title fades.
+
+### Work Done
+
+All CSS, single new section at the end of game.css
+(`COMIC PRINT SYSTEM v2`), no TSX changes:
+
+1. **Entrance choreography** — press-roller `pressIn` on titles/panels,
+   `pressInCard` dealt cards (staggered nth-child on mode/group grids),
+   `popIn` chips + FIGHT buttons, `flyInLeft/Right` for the roster
+   plates and the match-prep VS fighters, `vsSlam` for the VS badge.
+2. **Ambient loops** — bg wedges sway, registration marks blink out of
+   sync, `titleJitter` (steps() misregistration) on big titles, portraits
+   float in their frames, about-page ribbon stripes crawl seamlessly.
+3. **Micro-interactions** — cards press INTO the paper on click
+   (shadow compresses), stronger hover lift on mode/group cards
+   (spectate + selected cards excluded), ink shine sweep across the
+   FIGHT/CONTINUE button on hover.
+4. Everything is transform/opacity only (GPU-composited, no per-frame
+   JS) and disabled under a dedicated prefers-reduced-motion block
+   (F-042 documents two composition gotchas fixed along the way).
+
+### Verification
+
+- next build clean (16/16); live probes via getComputedStyle on every
+  screen: ms/gs card stagger + title jitter + wedge drift, roster
+  plate fly-ins, match-prep VS slam + portrait float, about section
+  stagger + stripe ticker; screenshots mid-entrance and settled.
+- Compiled CSS: all 12 new keyframes present, 2 reduced-motion blocks
+  shipped. Lobby regression-checked (v1 loops intact, showcase state
+  intact — no SETTINGS).
+
+### Current Status / Next Steps
+
+- Status: every chrome screen now carries continuous, themed motion.
+- Possible next: progress-screen stat stagger, roster search re-filter
+  micro-animation, stage-card hover zoom.
+
 ## Session: October 24, 2026 — Showcase build (Settings off, Watch removed)
 
 ### Context

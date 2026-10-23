@@ -4506,3 +4506,332 @@ body.fighting {
     left: calc(12px + env(safe-area-inset-left));
   }
 }
+
+/* ========================================
+   COMIC PRINT SYSTEM v2 — full-page motion
+   Brings the Rocket-Squadron-Rive feel to every chrome screen:
+   staggered press-roller entrances, ambient print-shop loops
+   (wedge sway, registration-mark blink, portrait float) and
+   press/hover micro-interactions on cards, chips and buttons.
+   Rules carried over from v1: transform/opacity ONLY (GPU-composited,
+   no layout, no repaint-per-frame), everything disabled under
+   prefers-reduced-motion, zero per-frame JS.
+   ======================================== */
+
+/* -- Keyframes --------------------------------------------------------- */
+
+/* press roller: a sheet rises off the press and settles */
+@keyframes pressIn {
+  from { opacity: 0; transform: translateY(22px) rotate(0.5deg) scale(0.985); }
+  to   { opacity: 1; transform: translateY(0) rotate(0deg) scale(1); }
+}
+/* comic panel dealt onto the table */
+@keyframes pressInCard {
+  from { opacity: 0; transform: translateY(16px) rotate(-0.9deg) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) rotate(0deg) scale(1); }
+}
+/* chip / badge pop with overshoot */
+@keyframes popIn {
+  0%   { opacity: 0; transform: scale(0.6); }
+  70%  { opacity: 1; transform: scale(1.07); }
+  100% { opacity: 1; transform: scale(1); }
+}
+/* VS fighters slide in from their corners */
+@keyframes flyInLeft {
+  from { opacity: 0; transform: translateX(-64px) rotate(-1.2deg); }
+  to   { opacity: 1; transform: translateX(0) rotate(0deg); }
+}
+@keyframes flyInRight {
+  from { opacity: 0; transform: translateX(64px) rotate(1.2deg); }
+  to   { opacity: 1; transform: translateX(0) rotate(0deg); }
+}
+/* VS badge slams down between the two panels */
+@keyframes vsSlam {
+  0%   { opacity: 0; transform: rotate(-14deg) scale(2.6); }
+  55%  { opacity: 1; transform: rotate(-6deg) scale(0.94); }
+  75%  { transform: rotate(-6deg) scale(1.05); }
+  100% { opacity: 1; transform: rotate(-6deg) scale(1); }
+}
+/* crisp 1-frame print misregistration jitter (steps = comic, not wobble) */
+@keyframes titleJitter {
+  0%, 92%, 100% { transform: translate(0, 0); }
+  93%           { transform: translate(-1.5px, 1px); }
+  95%           { transform: translate(1.5px, -1px); }
+  97%           { transform: translate(-1px, -1px); }
+}
+/* registration marks test their alignment, now and then */
+@keyframes regMarkBlink {
+  0%, 86%, 100% { opacity: 1; transform: translate(0, 0); }
+  88%           { opacity: 0.25; transform: translate(1px, -1px); }
+  91%           { opacity: 1; transform: translate(-1px, 1px); }
+  94%           { opacity: 0.4; transform: translate(0, 0); }
+}
+/* print-shop wedges sway behind the paper */
+@keyframes wedgeDriftL {
+  from { transform: skewX(-14deg) translateX(-10px); }
+  to   { transform: skewX(-16.5deg) translateX(12px); }
+}
+@keyframes wedgeDriftR {
+  from { transform: skewX(-14deg) translateX(10px); }
+  to   { transform: skewX(-11.5deg) translateX(-12px); }
+}
+/* portraits / preview art breathe */
+@keyframes floatY {
+  from { transform: translateY(-3px); }
+  to   { transform: translateY(3px); }
+}
+/* button hover: one ink-bar shine sweeps across */
+@keyframes shineSweep {
+  from { transform: translateX(-130%) skewX(-18deg); }
+  to   { transform: translateX(230%) skewX(-18deg); }
+}
+/* about-page ribbon stripes crawl (one pattern period = seamless loop) */
+@keyframes stripeTicker {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-68px); }
+}
+
+/* -- Shared micro-interactions ------------------------------------------
+   Cards press INTO the paper (offset shadow shrinks), buttons too. */
+
+.ms__card:not(.ms__card--active):hover,
+.gs__grid:not(.gs__grid--spectate) .gs__card:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0 var(--ink);
+}
+.ms__card:not(.ms__card--active):active,
+.gs__grid:not(.gs__grid--spectate) .gs__card:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 var(--ink);
+}
+.ss__card:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 var(--ink);
+}
+.ss__chip:hover { transform: translate(-1px, -1px); }
+.ss__chip:active { transform: translate(1px, 1px); }
+
+/* FIGHT / CONTINUE button: ink shine sweeps across on hover */
+.cs__btn-fight {
+  position: relative;
+  overflow: hidden;
+}
+.cs__btn-fight::after {
+  content: '';
+  position: absolute;
+  top: -20%;
+  bottom: -20%;
+  left: 0;
+  width: 34%;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent);
+  transform: translateX(-130%) skewX(-18deg);
+}
+.cs__btn-fight:hover:not(:disabled)::after {
+  animation: shineSweep 0.7s ease-out;
+}
+.cs__btn-back:active,
+.cs__btn-fight:active:not(:disabled) {
+  transform: translate(1px, 1px);
+}
+
+/* -- MODE SELECT (/mode-select) ----------------------------------------- */
+
+.ms__title,
+.gs__title {
+  animation: pressIn 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.1) backwards;
+}
+.ms__title-main,
+.gs__title-main {
+  animation: titleJitter 7s steps(1, end) 1.2s infinite;
+}
+.ms__grid .ms__card,
+.gs__grid .gs__card {
+  animation: pressInCard 0.42s cubic-bezier(0.2, 0.9, 0.3, 1.12) backwards;
+}
+/* deal the cards like comic panels — stagger capped, late cards arrive together */
+.ms__grid .ms__card:nth-child(1) { animation-delay: 0.08s; }
+.ms__grid .ms__card:nth-child(2) { animation-delay: 0.14s; }
+.ms__grid .ms__card:nth-child(3) { animation-delay: 0.2s; }
+.ms__grid .ms__card:nth-child(4) { animation-delay: 0.26s; }
+.ms__grid .ms__card:nth-child(5) { animation-delay: 0.32s; }
+.ms__grid .ms__card:nth-child(6) { animation-delay: 0.38s; }
+.ms__grid .ms__card:nth-child(7) { animation-delay: 0.44s; }
+.ms__grid .ms__card:nth-child(n + 8) { animation-delay: 0.5s; }
+.gs__grid .gs__card:nth-child(1) { animation-delay: 0.1s; }
+.gs__grid .gs__card:nth-child(2) { animation-delay: 0.18s; }
+.gs__grid .gs__card:nth-child(3) { animation-delay: 0.26s; }
+.gs__grid .gs__card:nth-child(4) { animation-delay: 0.34s; }
+.gs__grid .gs__card:nth-child(n + 5) { animation-delay: 0.42s; }
+.ms__difficulty .cs__diff-btn {
+  animation: popIn 0.3s cubic-bezier(0.2, 1.4, 0.4, 1) backwards;
+}
+.ms__difficulty .cs__diff-btn:nth-child(2) { animation-delay: 0.5s; }
+.ms__difficulty .cs__diff-btn:nth-child(3) { animation-delay: 0.57s; }
+.ms__difficulty .cs__diff-btn:nth-child(4) { animation-delay: 0.64s; }
+.ms__footer .cs__btn-back,
+.gs__footer .cs__btn-back {
+  animation: pressIn 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.1) 0.55s backwards;
+}
+.ms__footer .cs__btn-fight,
+.gs__footer .cs__btn-fight {
+  animation: pressIn 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.1) 0.63s backwards;
+}
+
+/* -- STAGE SELECT -------------------------------------------------------- */
+
+.ss__title {
+  animation: pressIn 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.1) backwards;
+}
+.ss__title-main {
+  animation: titleJitter 7s steps(1, end) 1.2s infinite;
+}
+.ss__preview {
+  animation: pressIn 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.1) 0.15s backwards;
+}
+.ss__preview-img {
+  animation: floatY 5s ease-in-out infinite alternate;
+}
+.ss__chips .ss__chip {
+  animation: popIn 0.28s cubic-bezier(0.2, 1.4, 0.4, 1) backwards;
+}
+.ss__chips .ss__chip:nth-child(1) { animation-delay: 0.4s; }
+.ss__chips .ss__chip:nth-child(2) { animation-delay: 0.47s; }
+.ss__chips .ss__chip:nth-child(3) { animation-delay: 0.54s; }
+.ss__chips .ss__chip:nth-child(n + 4) { animation-delay: 0.6s; }
+
+/* -- ROSTER (additions; cards already enter via csCardEnter) ------------- */
+
+.cs__search {
+  animation: pressIn 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.1) 0.2s backwards;
+}
+.cs__plate--p1 {
+  animation: flyInLeft 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.1) backwards;
+}
+.cs__plate--p2 {
+  animation: flyInRight 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.1) 0.1s backwards;
+}
+
+/* -- MATCH PREP (the VS splash — showpiece screen) ----------------------- */
+
+.match-prep__mode {
+  animation: pressIn 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.1) backwards;
+}
+.match-prep__player--p1 {
+  animation: flyInLeft 0.55s cubic-bezier(0.2, 0.9, 0.3, 1.1) 0.1s backwards;
+}
+.match-prep__player--p2 {
+  animation: flyInRight 0.55s cubic-bezier(0.2, 0.9, 0.3, 1.1) 0.18s backwards;
+}
+.match-prep__vs-text {
+  animation: vsSlam 0.5s cubic-bezier(0.2, 0.9, 0.3, 1) 0.35s backwards;
+}
+.match-prep__portrait {
+  animation: floatY 4.5s ease-in-out 1.2s infinite alternate;
+}
+.match-prep__stage {
+  animation: pressIn 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.1) 0.45s backwards;
+}
+.match-prep__rules {
+  animation: pressIn 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.1) 0.55s backwards;
+}
+.match-prep__buttons .cs__btn-fight {
+  animation: popIn 0.32s cubic-bezier(0.2, 1.4, 0.4, 1) 0.65s backwards;
+}
+
+/* -- RESULTS -------------------------------------------------------------- */
+
+.results__content {
+  animation: pressIn 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.1) backwards;
+}
+.results__mode {
+  animation: barIn 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.15) backwards;
+}
+/* .results__title keeps its own resultsTitleIn entrance — no jitter here:
+   two transform animations on one element don't compose */
+.results__stat {
+  animation: pressIn 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.1) backwards;
+}
+.results__stat:nth-of-type(1) { animation-delay: 0.35s; }
+.results__stat:nth-of-type(2) { animation-delay: 0.45s; }
+.results__stat:nth-of-type(3) { animation-delay: 0.55s; }
+.results__buttons .cs__btn-back,
+.results__buttons .cs__btn-fight {
+  animation: popIn 0.3s cubic-bezier(0.2, 1.4, 0.4, 1) 0.7s backwards;
+}
+
+/* -- ABOUT ---------------------------------------------------------------- */
+
+.about__masthead {
+  animation: pressIn 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.1) backwards;
+}
+.about__title {
+  animation: pressInCard 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.1) 0.1s backwards;
+}
+.about__subtitle {
+  animation: popIn 0.35s cubic-bezier(0.2, 1.4, 0.4, 1) 0.35s backwards;
+}
+.about__section {
+  animation: pressIn 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.1) 0.3s backwards;
+}
+/* sibling-chain stagger — robust to non-section siblings (ribbon, subtitle) */
+.about__section ~ .about__section { animation-delay: 0.42s; }
+.about__section ~ .about__section ~ .about__section { animation-delay: 0.54s; }
+.about__section ~ .about__section ~ .about__section ~ .about__section { animation-delay: 0.66s; }
+.about__section ~ .about__section ~ .about__section ~ .about__section ~ .about__section { animation-delay: 0.78s; }
+.about__ribbon-stripe {
+  /* oversized so the 68px-period pattern can crawl without exposing gaps */
+  left: -68px;
+  right: -68px;
+  animation: stripeTicker 3.2s linear infinite;
+}
+.about__reg {
+  animation: regMarkBlink 9s steps(1, end) infinite;
+}
+
+/* -- Ambient loops (all screens) ------------------------------------------ */
+
+.ms__bg-wedges::before,
+.gs__bg-wedges::before {
+  animation: wedgeDriftL 11s ease-in-out infinite alternate;
+}
+.ms__bg-wedges::after,
+.gs__bg-wedges::after {
+  animation: wedgeDriftR 11s ease-in-out infinite alternate;
+}
+.ms .cs__reg,
+.gs .cs__reg,
+.ss .cs__reg {
+  animation: regMarkBlink 9s steps(1, end) infinite;
+}
+.ms .cs__reg--tr,
+.gs .cs__reg--tr,
+.ss .cs__reg--tr {
+  animation-delay: -4.5s; /* desync the pair so they don't blink in unison */
+}
+
+/* -- Reduced motion: v2 additions only (v1 has its own block) ------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .ms__title, .gs__title, .ms__title-main, .gs__title-main,
+  .ms__grid .ms__card, .gs__grid .gs__card,
+  .ms__difficulty .cs__diff-btn,
+  .ms__footer .cs__btn-back, .ms__footer .cs__btn-fight,
+  .gs__footer .cs__btn-back, .gs__footer .cs__btn-fight,
+  .ss__title, .ss__title-main, .ss__preview, .ss__preview-img,
+  .ss__chips .ss__chip,
+  .cs__search, .cs__plate--p1, .cs__plate--p2,
+  .match-prep__mode, .match-prep__player--p1, .match-prep__player--p2,
+  .match-prep__vs-text, .match-prep__portrait, .match-prep__stage,
+  .match-prep__rules, .match-prep__buttons .cs__btn-fight,
+  .results__content, .results__mode, .results__stat,
+  .results__buttons .cs__btn-back, .results__buttons .cs__btn-fight,
+  .about__masthead, .about__title, .about__subtitle, .about__section,
+  .about__ribbon-stripe, .about__reg,
+  .ms__bg-wedges::before, .ms__bg-wedges::after,
+  .gs__bg-wedges::before, .gs__bg-wedges::after,
+  .ms .cs__reg, .gs .cs__reg, .ss .cs__reg {
+    animation: none !important;
+  }
+  .cs__btn-fight::after { display: none; }
+}

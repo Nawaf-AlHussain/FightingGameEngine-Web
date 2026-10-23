@@ -34,6 +34,9 @@
   incl. heavy DBZ with specials (F-038 spatial grid broad-phase); no
   mid-round GC pauses (F-033); IndexedDB caching (F-037); .pak fast load
   (F-029); 87 characters + 5 stages on the production CDN.
+- ✅ Comic Print System v2 (F-042): full-page motion on every chrome
+  screen — staggered entrances, ambient print-shop loops, hover/press
+  micro-interactions; transform/opacity only, reduced-motion honored.
 - ✅ 6 game modes all working (VS CPU, VS Player, Training, Arcade,
   Survival, Time Attack). Watch is disabled for the public showcase
   (F-041) — machinery intact; restore = re-add the MODES catalog entry.

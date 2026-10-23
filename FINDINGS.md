@@ -1295,3 +1295,34 @@ extra guard for a showcase build.
 
 **Lesson**: Disable features at their entry points, keep the machinery —
 reversible in one line and zero risk to the six modes that still ship.
+
+## F-042 | Comic Print System v2 — CSS transform animations don't compose
+ **Date**: 2026-10-24 | **Type**: Finding
+
+Full-page motion pass modeled on the Rocket-Squadron Rive reference:
+staggered press-roller entrances on every chrome screen, ambient
+print-shop loops (wedge sway, registration-mark blink, portrait float,
+stripe ticker) and hover/press micro-interactions — all in one appended
+`COMIC PRINT SYSTEM v2` section of game.css, transform/opacity only,
+zero per-frame JS, fully disabled under prefers-reduced-motion (its own
+media block so v1's stays untouched).
+
+Two structural gotchas hit mid-implementation, both fixed in place:
+1. Two animations on ONE element don't compose for the same property —
+   the later animation wins for its whole duration. Adding titleJitter
+   to `.results__title` silently killed its resultsTitleIn slam. Fix:
+   one transform animation per element; jitter only on elements without
+   an entrance (or on a child).
+2. nth-child delays silently misfire when a label element shares the
+   container (ms difficulty buttons are children 2-4, ss chips are
+   children 2-4 — the "SHOW" label is child 1). Verify against markup,
+   not intent. For the about page, sibling-chain selectors
+   (`.about__section ~ .about__section`) replaced nth-of-type entirely —
+   robust to non-section siblings.
+
+Also: `repeating-linear-gradient` tickers only loop seamlessly if the
+translate distance equals the pattern period (stripe = 68px, stripe
+element oversized -68px left/right so no gap is exposed).
+
+**Lesson**: CSS choreography is markup-coupled — probe the live DOM
+(getComputedStyle) on every screen before trusting a delay map.
