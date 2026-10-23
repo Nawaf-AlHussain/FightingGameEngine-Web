@@ -21,11 +21,11 @@ export default function AboutPage() {
 
       <div className="about__content">
         <header className="about__masthead" aria-hidden="true">
-          <span>Fighting Game Engine · An Arcade Serial</span>
+          <span>OpenFighter · An Arcade Serial</span>
           <span>Issue <em>01</em> — The Story</span>
         </header>
 
-        <h1 className="about__title">FIGHTING<br />GAME ENGINE</h1>
+        <h1 className="about__title">OPEN<br />FIGHTER</h1>
 
         <div className="about__ribbon" aria-hidden="true">
           <span className="about__ribbon-stripe" />

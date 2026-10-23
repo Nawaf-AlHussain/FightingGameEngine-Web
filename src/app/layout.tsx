@@ -40,8 +40,8 @@ const anton = Anton({
 });
 
 export const metadata: Metadata = {
-  title: 'Fighting Game Engine — Web',
-  description: 'Browser-based fighting game platform running a custom WebAssembly engine',
+  title: 'OpenFighter',
+  description: 'A comic-book fighting game platform — MUGEN-style community rosters in your browser. Zero install, 60 FPS, WASM.',
 };
 
 // Viewport: prevent pinch-zoom (annoying during gameplay), support
@@ -93,7 +93,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black" />
-        <meta name="apple-mobile-web-app-title" content="Fighting Game Engine" />
+        <meta name="apple-mobile-web-app-title" content="OpenFighter" />
         <script dangerouslySetInnerHTML={{ __html: captureInstallPrompt }} />
         <script src="/game/fullscreen.js" defer />
       </head>

@@ -158,7 +158,7 @@ export default function LobbyPage() {
 
       {/* ── Masthead kicker row ───────────────────────────────────────── */}
       <header className="lobby__masthead" aria-hidden="true">
-        <span className="lobby__masthead-left">Fighting Game Engine · An Arcade Serial</span>
+        <span className="lobby__masthead-left">OpenFighter · An Arcade Serial</span>
         <span className="lobby__masthead-right">Build 1.0 — <em>No Ceiling</em></span>
       </header>
 
@@ -197,12 +197,12 @@ export default function LobbyPage() {
           geometry; opposite clip-path polygons split them along the
           diagonal — royal + crimson misregistration on paper, cream
           knockout on the panel. */}
-      <h1 className="sr-only">Fighting Game</h1>
+      <h1 className="sr-only">OpenFighter</h1>
       <div className="lobby__headline lobby__headline--paper" aria-hidden="true">
-        <span>FIGHTING<br />GAME</span>
+        <span>OPEN<br />FIGHTER</span>
       </div>
       <div className="lobby__headline lobby__headline--panel" aria-hidden="true">
-        <span>FIGHTING<br />GAME</span>
+        <span>OPEN<br />FIGHTER</span>
       </div>
 
       {/* ── Winged emblem + wordmark ──────────────────────────────────── */}
@@ -218,7 +218,7 @@ export default function LobbyPage() {
           <polygon points="68,45 88,52 68,54" fill="currentColor" />
         </svg>
         <div className="lobby__brand-text">
-          <div className="lobby__brand-name">Fighting Game Engine</div>
+          <div className="lobby__brand-name">OpenFighter</div>
           <div className="lobby__brand-tag">One Engine · Two Warriors · No Ceiling</div>
           <div className="lobby__brand-stamp">v1.0 WEB — Made by Nawaf Al Hussain</div>
         </div>

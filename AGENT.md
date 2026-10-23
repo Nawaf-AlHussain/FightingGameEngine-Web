@@ -1,6 +1,6 @@
 # AGENT.md — Project Context for AI Agents
 
-This file contains everything needed to continue working on the Fighting Game Engine web project without prior conversation context. Read this first.
+This file contains everything needed to continue working on OpenFighter (the FightingGameEngine-Demo web project) without prior conversation context. Read this first.
 
 ---
 

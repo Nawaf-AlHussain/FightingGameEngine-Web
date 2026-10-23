@@ -1,6 +1,6 @@
-# Fighting Game Engine — Web
+# OpenFighter
 
-Browser-based 2D fighting game platform using the **IKEMEN GO fighting-game engine** compiled to WebAssembly, with a Next.js frontend that renders every menu, and online play over WebRTC P2P.
+**OpenFighter** (repos: `FightingGameEngine-Demo` / `FightingGameEngine-Web`) is a browser-based 2D fighting game platform using the **IKEMEN GO fighting-game engine** compiled to WebAssembly, with a Next.js frontend that renders every menu, and online play over WebRTC P2P.
 
 This is the **successor** to [FightingGameEngine](https://github.com/Nawaf-AlHussain/FightingGameEngine), which used the Dolmexica Infinite C++ engine. Dolmexica's character-format compatibility proved too limited despite 63+ engine fixes — localcoord crashes, incomplete trigger/state-controller coverage, and SFF v2 edge cases made many characters unplayable. The Go engine provides far broader classic-format (1.0/1.1) compatibility out of the box.
 
