@@ -445,9 +445,25 @@ function BootStatsHud({ stats }: { stats: BootStats }) {
   );
 }
 
+// sessionStorage key: the raw query string (?p1=...&p2=...&stage=...) of the
+// most recent LOCAL fight, captured the moment the URL is stripped from the
+// address bar (clean-URL — see "Clean-URL handoff" in bootEngine). An F5 on a
+// running fight, or the error screen's RETRY (location.reload()), lands on a
+// bare /play whose params live only here; Navigation Timing 'reload'
+// distinguishes that from a hand-typed /play, which still gets the
+// missing-parameters error. Netplay URLs (?net=1 / ?net=direct) are never
+// stripped — they ARE the room deep link both players open.
+const PLAY_QUERY_BACKUP_KEY = 'play-query-backup';
+
 function PlayPageInner() {
   const bootRef = useRef<HTMLPreElement>(null);
   const searchParams = useSearchParams();
+  // True once this mount captured match params and stripped them from the
+  // address bar. Next.js syncs useSearchParams after history.replaceState,
+  // which re-runs the boot effect on a now-param-less URL — that re-run must
+  // recover the params from the backup (and fully restart the boot, which
+  // the cancelled flag + scriptPromises dedupe already handle), not error.
+  const capturedCleanUrlRef = useRef(false);
   const isTouch = useIsTouchDevice();
   // Touch controls are shown after the boot log fades (i.e., engine is running).
   // We toggle this true once go.run() is called.
@@ -1145,10 +1161,27 @@ function PlayPageInner() {
       // before go.run). StrictMode double-mount just resets the counters.
       bootTimingStart();
 
+      // ---- Clean-URL handoff (effective params) ---------------------------
+      // Normal boot: read the live URL. Two param-less cases recover instead
+      // of erroring: (a) F5 / RETRY reload of a stripped URL (Navigation
+      // Timing says 'reload'), (b) a boot re-run later in this same mount —
+      // Next syncs useSearchParams right after our replaceState below, the
+      // cancelled flag aborts the first pass and this restart takes over.
+      // Any other param-less /play is hand-typed → the error below still fires.
+      const backupQuery = (() => {
+        try { return sessionStorage.getItem(PLAY_QUERY_BACKUP_KEY); } catch { return null; }
+      })();
+      const navEntry = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
+      const liveHasMatch = !!searchParams.get('p1') || searchParams.get('net') === '1';
+      const canRestore = !!backupQuery && (capturedCleanUrlRef.current || navEntry?.type === 'reload');
+      const ep: { get(name: string): string | null } =
+        liveHasMatch || !canRestore || !backupQuery ? searchParams : new URLSearchParams(backupQuery);
+      if (!liveHasMatch && canRestore) capturedCleanUrlRef.current = true;
+
       // Online (net=1) fights return to the lobby — there is no website
       // select session to go back to mid-flow. Computed here because the
       // catch block below sits outside the try scope where netMenu lives.
-      const exitTarget = (searchParams.get('net') || '') === '1' ? '/lobby' : '/local';
+      const exitTarget = (ep.get('net') || '') === '1' ? '/lobby' : '/local';
 
       // NOTE: no touch-binding config snapshot here anymore. touch.js no
       // longer parses config.ini — the engine ignores config key sections for
@@ -1308,16 +1341,29 @@ function PlayPageInner() {
         // were removed from the engine), so every fight must name both
         // fighters and a stage. net=1 resolves its roster later via the
         // lobby select flow, so it is exempt from this check.
-        const p1 = searchParams.get('p1') || '';
-        const p2 = searchParams.get('p2') || '';
-        const stage = searchParams.get('stage') || '';
-        if (searchParams.get('net') !== '1' && (!p1 || !p2 || !stage)) {
+        const p1 = ep.get('p1') || '';
+        const p2 = ep.get('p2') || '';
+        const stage = ep.get('stage') || '';
+        if (ep.get('net') !== '1' && (!p1 || !p2 || !stage)) {
           throw new Error('Missing match parameters - /play needs ?p1=<char>&p2=<char>&stage=<stage-id>. Start a fight from the select screen instead of typing this URL by hand.');
         }
-        const p2ai = searchParams.get('p2ai'); // null = human, number = AI level
-        const p1ai = searchParams.get('p1ai') || '0'; // 0 = human, >0 = AI level
-        const training = searchParams.get('training') || '0';
-        const time = searchParams.get('time') || '99';
+        // Clean-URL: the boot owns the config now — back the query up, then
+        // strip it from the address bar. Local fights only (ANY net URL —
+        // ?net=1 or ?net=direct — is the room deep link that both players
+        // open, and stays), and only when the LIVE URL actually carried p1 —
+        // the restore path must never overwrite the backup with an empty
+        // string.
+        if (!searchParams.get('net') && searchParams.get('p1')) {
+          capturedCleanUrlRef.current = true;
+          try {
+            sessionStorage.setItem(PLAY_QUERY_BACKUP_KEY, window.location.search);
+            window.history.replaceState(null, '', window.location.pathname);
+          } catch { /* storage blocked — the query just stays visible in the bar */ }
+        }
+        const p2ai = ep.get('p2ai'); // null = human, number = AI level
+        const p1ai = ep.get('p1ai') || '0'; // 0 = human, >0 = AI level
+        const training = ep.get('training') || '0';
+        const time = ep.get('time') || '99';
         // NOTE: 'aspect' URL param is no longer used. The display mode is
         // controlled by the Settings UI via the persisted config.ini
         // (written by applyDisplayModeChoice). vfs.js reads the config on
@@ -1457,7 +1503,7 @@ function PlayPageInner() {
         // listeners, so keeping it alive across the whole select phase served
         // nothing: no canvas exists until the engine creates one, and the
         // online select screens manage their own scrolling.
-        const qmode = searchParams.get('qmode') || 'quickvs'; // progression mode
+        const qmode = ep.get('qmode') || 'quickvs'; // progression mode
         // Netplay modes (both use the WebRTC bridge - public/game/webrtc.js,
         // engine netplay_js.go):
         //   net=1      ONLINE MODE via the WEBSITE: role pick (host/join) and
@@ -1473,11 +1519,11 @@ function PlayPageInner() {
         //              roster: -p1/-p2/-s + -ip ('' hosts, anything else joins -
         //              the address string is meaningless on the WebRTC build).
         //              Both players must open the SAME p1/p2/stage link.
-        const netParam = searchParams.get('net') || '';
+        const netParam = ep.get('net') || '';
         const netMenu = netParam === '1';
         const netDirect = netParam === 'direct';
         const netMode = netMenu || netDirect;
-        const netDirectRole = searchParams.get('role') === 'join' ? 'join' : 'host';
+        const netDirectRole = ep.get('role') === 'join' ? 'join' : 'host';
 
         if (!netMenu) {
           log(`Match: P1=${p1} vs P2=${p2}${p2ai ? ` (CPU lv${p2ai})` : ''}`);

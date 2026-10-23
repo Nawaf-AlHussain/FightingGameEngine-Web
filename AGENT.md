@@ -118,6 +118,10 @@ stage select  —  ISSUE 04: battleground
           → Engine boots with quick-match args (-qp1, -qp2, -qstage, ...)
           → IKEMEN's quick-match path skips ALL menus, straight into the fight
           → After the fight: /results?result=..&mode=..&wins=..&losses=..&time=..
+          NOTE clean-URL: /play backs the query up to sessionStorage and strips
+          it from the address bar once captured (F5 / RETRY restore the same
+          matchup from the backup; hand-typed /play still errors). Net URLs
+          (?net=1 / ?net=direct) are never stripped — they are the room link.
 
 ONLINE:
 /lobby → /play?net=1  —  ISSUE 05 NETWORK panel (host / join code + QR /
