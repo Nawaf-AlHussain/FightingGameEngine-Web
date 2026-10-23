@@ -1,6 +1,6 @@
 # AGENT.md — Project Context for AI Agents
 
-This file contains everything needed to continue working on FightingGameEngine-Web without prior conversation context. Read this first.
+This file contains everything needed to continue working on the Fighting Game Engine web project without prior conversation context. Read this first.
 
 ---
 
@@ -71,10 +71,12 @@ Do:
 
 ## Project Overview
 
-**Goal**: Build a browser-based MUGEN fighting game platform using IKEMEN GO v2 compiled to WebAssembly, deployed on Vercel, with characters/stages served from a separate GitHub repo via jsDelivr CDN.
+**Goal**: Build a browser-based MUGEN fighting game platform using IKEMEN GO v2 compiled to WebAssembly, deployed on Vercel, with characters/stages served from a separate GitHub repo via CDN proxies, and online play over WebRTC P2P.
 
-**This repo** (`Nawaf-AlHussain/FightingGameEngine-Web`): Engine + frontend, deployed to Vercel.
-**Assets repo** (`FightingGameEngine/Assets` on GitHub): 85+ characters, 5+ stages, served via `cdn.jsdelivr.net/gh/FightingGameEngine/Assets@main/`.
+**Active dev repo** (`Nawaf-AlHussain/FightingGameEngine-Demo`, THIS repo): engine + frontend.
+**Mirror repo** (`Nawaf-AlHussain/FightingGameEngine-Web`): byte-identical mirror — same commit history, pushed in lockstep (same HEAD sha at all times).
+**Production assets** (`FightingGameEngine/Assets` on GitHub): 87 characters, 5+ stages — the DEFAULT roster source (`DEFAULT_ASSETS_REPO` in both API routes).
+**Demo assets mirror** (`FightingGameEngine/DemoAssets`): curated roster the DEMO Vercel deployment reads via the `ASSETS_GH_REPO` env switch; synced from production by `scripts/sync-demo-assets.py`.
 
 This is the **successor** to the older `FightingGameEngine` repo which used the Dolmexica Infinite C++ engine and had fundamental MUGEN compatibility issues.
 
@@ -83,32 +85,45 @@ This is the **successor** to the older `FightingGameEngine` repo which used the 
 ## Architecture
 
 ```
-FightingGameEngine-Web (this repo, Vercel)    FightingGameEngine/Assets (GitHub)
+FightingGameEngine-Demo (this repo, Vercel)   FightingGameEngine/Assets (GitHub)
   Next.js 16 App Router                         manifest.json (v2, per-file listings)
-  /lobby → title screen                         characters/ (85+, mostly DBZ)
-  /local → React character select                stages/
-  /play?p1=..&p2=.. → engine (fight only)       Accessed via jsDelivr CDN
-  /game/ikemen-fs/file/* → static VFS files (edge CDN; the old
-  /api/ikemen-fs/* serverless routes were removed in Batch 4)
-  public/game/ikemen.wasm (22MB engine)
-  public/game/vfs.js (800-line virtual FS)
-  public/game/wasm_exec.js (Go WASM runtime)
+  /lobby → title screen                         characters/ (87, mostly DBZ)
+  /mode-select → /group-select → /local         stages/
+  /match-prep → /play (fight only)              DEFAULT roster source
+  /play?net=1 → online flow                     via /api/cdn + /api/assets-manifest
+  public/game/engine.wasm (22MB) + .gz (5.1MB)  FightingGameEngine/DemoAssets
+  public/game/engine-fs/file/* → static VFS     (demo mirror roster, ASSETS_GH_REPO)
+  public/game/engine-fs/game.pak (3.6MB bundle)
+  public/game/vfs.js (virtual FS)  wasm_exec.js  webrtc.js (netplay bridge)
+  netrelay/cloudflare/worker.js → Cloudflare Worker (signaling + ranked queue)
 ```
 
 ### Page Flow (CRITICAL — this is the core architecture)
 
 ```
-/lobby  →  PRESS START
+LOCAL:
+/lobby  →  PRESS START (menu: LOCAL / ONLINE / SETTINGS / ABOUT / INSTALL)
   ↓
-/local  →  Select mode (VS CPU / VS Player / Training)
-          Select P1 character, P2 character, stage, AI level
-          Click FIGHT
+/mode-select?—  ISSUE 01: game mode + difficulty
   ↓
-/play?p1=kfm&p2=kfm&stage=stages/stage0-720.def&p2ai=5
-          → Engine boots with CLI args (-p1, -p2, -loadmotif, -stage)
-          → IKEMEN's main.f_commandLine() skips ALL menus
-          → Goes directly into the fight
-          → After fight ends (os.exit), redirects back to /local
+/group-select?mode=&diff=  —  ISSUE 02: universe (character group)
+  ↓
+/local?mode=&diff=  —  ISSUE 03: roster (P1/P2 picks, AI level)
+  ↓
+stage select  —  ISSUE 04: battleground
+  ↓
+/match-prep  —  real asset readiness check + countdown
+  ↓
+/play?p1=..&p2=..&stage=..&mode=..
+          → Engine boots with quick-match args (-qp1, -qp2, -qstage, ...)
+          → IKEMEN's quick-match path skips ALL menus, straight into the fight
+          → After the fight: /results?result=..&mode=..&wins=..&losses=..&time=..
+
+ONLINE:
+/lobby → /play?net=1  —  ISSUE 05 NETWORK panel (host / join code + QR /
+          ranked queue). Select screens run shared with live spectate
+          cursors synced over the WebRTC bridge; the engine boots into
+          the fight, then the postfight panel offers rematch in place.
 ```
 
 **Key principle**: The engine NEVER renders menus. The website (React) handles ALL UI. The WASM engine is loaded only during fights and boots directly into combat.
@@ -117,18 +132,25 @@ This matches the FightingGameEngine-Demo2 architecture pattern ("website UI + en
 
 ### How the Engine Loads (updated)
 
-1. User clicks FIGHT on `/local` → navigates to `/play?p1=kfm&p2=kfm&stage=...`
-2. `src/app/play/page.tsx` reads URL params and builds CLI arg array
-3. Installs keyboard `preventDefault` handler on `window` (stops browser shortcuts; engine listens for native keydown/keyup on `document` directly — no poll-based bridge)
-4. Pins `devicePixelRatio` to 1 (glfw-js requirement)
-5. Patches `window.fetch` so VFS requests redirect to `/game/ikemen-fs/file/...` (static assets; previously `/api/ikemen-fs/file/...` serverless — removed)
-6. Dynamically loads `/game/vfs.js` then `/game/wasm_exec.js`
-7. Initializes VFS with manifest and preload list
-8. `vfs.js` calls `restorePersisted()` which loads `localStorage['ikemen-vfs12:save/config.ini']` (the Settings UI's authoritative config). VFS does NOT overwrite GameWidth/GameHeight/KeepAspect/RollbackNetcode/Motif — Settings UI is the single source of truth.
-9. Creates `Go` instance with `go.argv = ['ikemen', '-qp1', p1, '-qp2', p2, '-qstage', stage, '-qp2ai', aiLevel, ...]` (quick-match flags, bypasses laggy menu)
-10. Loads WASM via `instantiateStreaming`, calls `go.run()`
-11. Engine's `main.lua` detects CLI args → calls `main.f_quickMatch()` → skips menus → fight starts
-12. After fight, `os.exit()` is caught → redirects to `/local`
+1. User clicks FIGHT on `/match-prep` (after the readiness countdown) → `/play?...`
+2. `src/app/play/page.tsx` reads URL params and resolves the asset lists
+3. Fetches the assets manifest MANDATORILY and computes the roster
+   fingerprint (`setRosterFingerprint` in `character-downloader.ts`) —
+   netplay mixes it into the bridge build check
+4. Installs keyboard `preventDefault` handler on `window` (stops browser shortcuts; engine listens for native keydown/keyup on `document` directly — no poll-based bridge)
+5. Pins `devicePixelRatio` to 1 (glfw-js requirement)
+6. Patches `window.fetch` so VFS requests resolve to `/game/engine-fs/file/...` (static assets) and the CDN proxy for roster files
+7. Dynamically loads `/game/vfs.js` then `/game/wasm_exec.js`; gz engine
+   boot uses `boot-decompress.ts` (DecompressionStream worker, cache-first)
+8. Initializes VFS with manifest and preload list
+9. `vfs.js` calls `restorePersisted()` which loads the persisted config
+   (localStorage `engine-vfs12:save/config.ini` — the Settings UI's
+   authoritative config). VFS does NOT overwrite display-mode choices —
+   the Settings UI / display ladder is the single source of truth.
+10. Creates `Go` instance with `go.argv = ['ikemen', '-qp1', p1Path, '-qp2', p2Path, '-qstage', stagePath, '-qp2ai', ai, '-qmode', mode, ...]` (quick-match flags, bypasses laggy menu) — argv is set AFTER CDN downloads, with resolved paths
+11. Loads WASM via `instantiateStreaming`, calls `go.run()`
+12. Engine's quick-match path skips menus → fight starts
+13. After the fight: `/results?result=..&mode=..&wins=..&losses=..&time=..` (local) or the postfight rematch panel (online)
 
 ### How Menu Skipping Works (F-017, BREAKTHROUGH)
 
@@ -186,25 +208,31 @@ go.env = { GOGC: '100', GOMEMLIMIT: '800MiB' };
 
 | File | Purpose |
 |------|---------|
-| `src/app/lobby/page.tsx` | Title screen. "PRESS START" → navigates to `/local` |
-| `src/app/local/page.tsx` | **Character select screen** (pure React). Mode select, P1/P2 slots, AI level, stage select, FIGHT button |
-| `src/app/play/page.tsx` | **Fight page**. Reads URL params, boots WASM with CLI args, keyboard bridge, auto-redirects to `/local` after fight |
-| `public/game/ikemen.wasm` | IKEMEN GO v2 engine compiled to WASM (22MB). Built from source (see Build Section) |
-| `public/game/vfs.js` | Browser filesystem shim (800+ lines). Replaces `syscall/fs_js.go` with HTTP-backed VFS. From WebMUGEN kit v1.7 |
+| `src/app/lobby/page.tsx` | Title screen (Squadron Comic poster). Menu → /mode-select, /play?net=1, /settings, /about |
+| `src/app/mode-select/page.tsx` | ISSUE 01 — game mode + difficulty (local flow stop 1) |
+| `src/app/group-select/page.tsx` | ISSUE 02 — universe/group select (local flow stop 2) |
+| `src/app/local/page.tsx` | ISSUE 03 — roster screen (pure React): P1/P2 picks, AI level, then stage select |
+| `src/app/match-prep/page.tsx` | Real asset readiness check + countdown before the fight |
+| `src/app/play/page.tsx` | **Fight page** (~3000 lines): boots WASM with quick-match args, netplay lifecycle (connecting → groupselect → charselect → stageselect → waiting → fight → postfight), rematch-in-place, disconnect handling |
+| `public/game/engine.wasm` / `engine.wasm.gz` | IKEMEN GO v2 engine (22MB raw / 5.1MB gz). Built from source (see Build Section) |
+| `public/game/vfs.js` | Browser filesystem shim. Replaces `syscall/fs_js.go` with HTTP-backed VFS; also implements the display-ladder stage fits |
 | `public/game/wasm_exec.js` | Go's official WASM JavaScript runtime. From WebMUGEN kit |
-| `public/game/ikemen-fs/file/save/config.ini` | Engine config: video 1280x720, P1/P2 key bindings, audio, debug settings |
-| `public/game/ikemen-fs/file/data/select.def` | Character roster definition. Currently: `kfm` + `randomselect` |
-| `public/game/ikemen-fs/file/external/script/main.lua` | IKEMEN's main Lua script. Contains `main.f_commandLine()` menu skip path (line 4061) |
-| `public/game/ikemen-fs/file/data/ikemen1/` | Screenpack: `system.def`, `system.sff` (9.1MB sprites), `system.snd` (3.6MB sounds), fonts |
-| `public/game/ikemen-fs/file/chars/kfm/` | Kung Fu Man character (11 files: .def, .cns, .cmd, .air, .sff, .snd, etc) |
-| `public/game/ikemen-fs/file/stages/stage0-720/` | One stage (.def + .sff) |
-| `public/game/ikemen-fs/manifest.json` | VFS manifest (generated by `scripts/generate-manifest.js`) |
-| `vercel.json` | WASM MIME type + cache headers (stamped engine files immutable; Batch 1) |
-| `src/app/api/cdn/[...path]/route.ts` | GitHub-raw CDN proxy — streaming + edge-cached (Batch 3) |
-| `src/app/api/assets-manifest/route.ts` | Assets roster manifest proxy — edge-cached 60s (Batch 4) |
+| `public/game/webrtc.js` | Netplay bridge: P2P data channels, room codes, ranked queue, build check + roster fingerprint, IKWS frames (cursor/char/stage/go/netping/rematch/back/leave) |
+| `public/game/engine-fs/file/save/config.ini` | Shipped engine config: video, P1/P2 key bindings, audio, debug settings |
+| `public/game/engine-fs/manifest.json` | VFS manifest (generated by `scripts/generate-manifest.js`) |
+| `public/game/engine-fs/game.pak` (+`.gz`) | Bundled engine data for fast boot (F-029) |
+| `public/game/netrelay-url.txt` | Production signaling relay URL (Cloudflare Worker) |
+| `src/lib/engine-config.ts` | Config storage keys, display-mode ladder presets (TALL/FITTED/3:2/14:9/5:3/EXPANDED), config apply logic |
+| `src/lib/character-downloader.ts` | CDN roster fetch, IndexedDB download, roster fingerprint (cyrb64) for netplay |
+| `src/lib/game-modes.ts` | Progression state machine + MODE_LABELS / MODE_RULES |
+| `vercel.json` | WASM MIME type + cache headers |
+| `netrelay/cloudflare/worker.js` | Signaling relay + ranked queue (Cloudflare Workers); `netrelay/relay.ts` is the Deno dev version |
+| `src/app/api/cdn/[...path]/route.ts` | GitHub-raw CDN proxy — `ASSETS_GH_REPO` env switch (default `FightingGameEngine/Assets`) |
+| `src/app/api/assets-manifest/route.ts` | Assets roster manifest proxy — same repo switch |
+| `scripts/sync-demo-assets.py` | Mirrors production Assets content into DemoAssets |
 | `TODO.md` | Phased task list (Phase 0-5). Authoritative task list |
 | `PROGRESS.md` | What's done, current status, next steps |
-| `FINDINGS.md` | Technical discoveries F-001 through F-017 |
+| `FINDINGS.md` | Technical discoveries F-001 through F-040 |
 
 ### Go Source (NOT in repo, local only)
 
@@ -276,49 +304,41 @@ The upstream engine uses Go 1.20+ experimental `arena` package for rollback netc
 `vfs.js` shims Go's `syscall/fs_js.go` with HTTP-backed file access.
 
 - **Format**: Per-file manifest (`{ files: { "path": size, ... } }`)
-- **Original URL pattern**: `./ikemen-fs/file/<vpath>` (relative)
-- **Patched pattern**: `/game/ikemen-fs/file/<vpath>` (via `window.fetch` patch in play page; static edge-cached assets)
-- **Manifest served at**: `/game/ikemen-fs/manifest.json` (static)
+- **URL pattern**: `/game/engine-fs/file/<vpath>` (static edge-cached assets; the old `/api/ikemen-fs/*` serverless routes were removed)
+- **Manifest served at**: `/game/engine-fs/manifest.json` (static)
+- **Writes**: `save/*` paths persist to localStorage (config.ini, key remaps, stats)
+- **Display ladder**: vfs.js implements the stage-view fits (TALL/FITTED/3:2/14:9/5:3/EXPANDED markers from `DISPLAY_MODE_STORAGE_KEY`)
 
-### For Phase 2 (CDN assets):
-The file API route will need to check locally first, then proxy to jsDelivr CDN for character/stage files not in the VFS.
+### CDN assets:
+Character/stage files come from `/api/cdn/<path>` (GitHub-raw proxy with
+`ASSETS_GH_REPO` switch) and are cached in IndexedDB
+(`character-cache.ts` + `character-downloader.ts`, transactional).
 
 ---
 
-## Current State (August 22, 2026)
+## Current State (October 24, 2026)
 
 ### What works:
-- [x] Engine boots normally (title screen → attract mode → menus → fight)
-- [x] Auto-fight (attract mode) runs at smooth 60 FPS
-- [x] VFS serves all engine data files correctly (with static file serving + Promise cache fix)
-- [x] Deployed on Vercel
-- [x] WASM rebuilt with frame-skip yield + loader Gosched fixes (F-025)
-- [x] Poll-based keyboard bridge (JS→Go direction works)
-- [x] `1` key (Start) verified working through full input path
+- [x] Local play end to end: mode → universe → roster → stage → fight → results, all 7 modes
+- [x] 100% 60fps for ALL characters incl. heavy DBZ with specials (F-038)
+- [x] No mid-round GC pauses (GOGC=off + safety-net GC every 60s, F-033)
+- [x] IndexedDB asset caching — download once, instant on repeat (F-037)
+- [x] Online play: rooms, QR join, ranked queue, rematch-in-place,
+      spectate cursors, RTT pill, disconnect hardening (see TODO Phase 4)
+- [x] Display ladder: TALL 4:3 / FITTED / 3:2 / 14:9 / 5:3 / EXPANDED +
+      stage zoom + portrait Game Boy mode
+- [x] PWA install, touch controls, keyboard remapping, 9-tab settings
+- [x] Demo asset mirror (ASSETS_GH_REPO → FightingGameEngine/DemoAssets)
 
-### What's NOT working:
-- [ ] **Engine menus freeze after a few seconds** (F-026 — GC pressure from unoptimized menu rendering)
-- [ ] **Cannot start fights through engine menu** (too laggy)
-- [ ] Fight input (WASD, UIO, JKL) untested — blocked until fights can be started
-- [ ] Escape key opens native IKEMEN pause menu during fight
-- [ ] Only 1 character (KFM) and 1 stage available
-- [ ] No sound effects or music in the web UI
-- [ ] No touch controls for mobile
+### Known gaps (see TODO.md for the authoritative list):
+- [ ] Native pause menu still opens on Esc (EscOpensMenu=1 in shipped config)
+- [ ] Production Assets repo case-sensitivity (F-006: BroliT, THE NIGHTMARE)
+- [ ] Phase 5 device/browser matrix untested (needs real hardware)
+- [ ] Online remainders: full match spectating, ladder persistence,
+      mid-fight desync detection
 
-### Architecture (current):
-- `/lobby` → React title screen → PRESS START → `/play`
-- `/play` → boots engine normally (`go.argv = ['ikemen']`, no CLI args)
-- Engine renders its own title screen, attract mode, menus, fights
-- `/local` → React character select (exists but unlinked — engine handles char select)
-
-### Architecture (planned):
-- `/lobby` → React title screen → PRESS START → `/local`
-- `/local` → React character select → FIGHT → `/play`
-- `/play` → boots engine with modified attract-mode entry that starts fight directly
-- Engine only runs `game()` (smooth path), never renders menus
-
-### Key insight (F-026):
-The engine's fight rendering path is optimized (allocation-free, GL command buffer) but the menu rendering path is NOT. Menus allocate heavily every frame → GC pressure builds → menu freezes after a few seconds. The solution is to bypass menus entirely and use the smooth `game()` path for all fights.
+### Key insight (F-026, still true):
+The engine's fight rendering path is optimized but the menu rendering path is NOT. The site renders ALL UI; the engine only ever runs the smooth quick-match/fight path.
 
 ---
 
@@ -352,25 +372,26 @@ The engine's fight rendering path is optimized (allocation-free, GL command buff
 | F-024 | Finding | Frame-skip tight loop blocks browser — fixed with time.Sleep(0) in WASM |
 | F-025 | Breakthrough | WASM rebuilt with GOEXPERIMENT=arenas + frame-skip yield + loader Gosched |
 | **F-026** | **Finding** | **Menu freezes after a few seconds — GC pressure from unoptimized menu rendering** |
+| F-038 | Breakthrough | Spatial grid broad-phase — 164ms spikes eliminated, 100% 60fps |
+| F-039 | Fixed | Dead FILL/16:9 toggle removed — display always aspect-fits |
+| F-040 | Mistake | Docs drift — 15 commits shipped without session entries; TODO said "Phase 4 NOT STARTED" for live features |
 
 ---
 
 ## Next Steps (from TODO.md)
 
-### Immediate (BLOCKING):
-1. **Menu bypass implementation** — modify main.lua attract mode to detect keypress and start a fight directly via `main.f_demoStart()` pattern, bypassing the laggy menu entirely. This uses the smooth `game()` path.
-2. **Test fight input** — once fights can be started, verify WASD, UIO, JKL work during gameplay
-3. **Disable native pause menu** — set `EscOpensMenu=0` in config.ini
+### Online remainders (Phase 4 tail):
+1. Full match spectating (rollback supports it; today only select screens are spectated)
+2. Ranked ladder persistence (server-side W/L records)
+3. Mid-fight desync detection (beyond the handshake build/roster refusal)
 
-### Phase 1 remaining:
-1. React character select that passes parameters to the engine
-2. Persona 5 UI polish (WipeTransition, FightOverlays, game.css from Demo repo)
-3. Touch controls for mobile
+### Minor fixes:
+1. `EscOpensMenu=0` in shipped config.ini (native pause menu still opens on Esc)
+2. Case-sensitivity fix in the production Assets repo (F-006)
+3. Move list display + site UI sound effects (Phase 3 tails)
 
-### Phase 2 (Asset Pipeline):
-1. Point VFS file route to jsDelivr CDN for character/stage files
-2. Character download & caching system
-3. Fix case-sensitivity in Assets manifest
+### Phase 5 (needs real hardware):
+1. Character/stage compat matrix, browser matrix, mobile testing, profiling
 
 ---
 
@@ -406,7 +427,7 @@ Current UI (lobby, local) uses a simpler dark theme with red accents. Upgrade to
 1. **Don't use Go 1.22+ for WASM builds** — runtime conflicts with arena on GOOS=js
 2. **Don't change GOGC from 100** — causes frame freezes at higher values
 3. **Don't serve .wasm without `application/wasm` MIME type** — browser won't streaming-compile
-4. **Don't forget the fetch patch** — vfs.js uses relative `./ikemen-fs/` URLs that won't resolve from `/play`
+4. **Don't forget the fetch patch** — vfs.js uses relative `./engine-fs/` URLs that won't resolve from `/play`
 5. **Don't put character/stage data in this repo** — assets come from CDN (Phase 2)
 6. **Don't try to use the engine's native menus** — they lag and input is broken. Use React UI + CLI args instead
 7. **Don't use `syscall/js` event callbacks for input** — JS→Go direction is broken (F-011). Use the poll bridge
@@ -421,6 +442,7 @@ Current UI (lobby, local) uses a simpler dark theme with red accents. Upgrade to
 ## GitHub Access
 
 - **User**: `Nawaf-AlHussain`
-- **Primary repo**: `Nawaf-AlHussain/FightingGameEngine-Web`
-- **Assets org**: `FightingGameEngine`
+- **Active dev repo**: `Nawaf-AlHussain/FightingGameEngine-Demo` (THIS repo — push here first)
+- **Mirror repo**: `Nawaf-AlHussain/FightingGameEngine-Web` (byte-identical; keep in lockstep — after pushing Demo, push the same commit(s) to Web)
+- **Production assets org**: `FightingGameEngine` (`Assets` = production roster, `DemoAssets` = demo mirror)
 - **PAT**: Stored securely by the user. Request it when needed.

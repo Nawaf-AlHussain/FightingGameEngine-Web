@@ -1,5 +1,70 @@
 # PROGRESS — Fighting Game Engine Web
 
+## Session: October 24, 2026 — Documentation reconciliation (F-040)
+
+### Context
+
+The last PROGRESS entry predates the entire October push. Between
+Oct 19-23 the repo shipped 15 commits (display ladder, PWA, UI split,
+online batches A/B/C, netplay hardening, asset mirror) with no session
+entries — and TODO.md still said "Phase 4 — Online Multiplayer (NOT
+STARTED)" for a feature that is live. This session brings the four
+project docs back in line with the shipped state (AGENT.md's own
+mandatory post-session step), so future agents inherit an accurate
+baseline.
+
+### Work Done
+
+1. **Reconstructed the October campaign from the commit record** (git
+   log Oct 19-23, full commit bodies + diffs) and verified every claim
+   against the current tree before writing:
+   - Display ladder: EXPANDED (classic 4:3) → TALL 4:3 → FITTED → 3:2
+     WIDE → 14:9 → 5:3, stage zoom on close action, portrait Game Boy
+     mode (commits 407277c..2f03948; presets live in
+     `src/lib/engine-config.ts` DISPLAY_MODE_PRESETS, vfs.js fits).
+   - UI split: dedicated /mode-select (ISSUE 01) and /group-select
+     (ISSUE 02) screens; unique ISSUE numbering across screens; Squadron
+     Comic skin; transparent portraits (9fa379c, 81e57fc, 7db921e).
+   - Online batches: A = rematch-in-place, BACK guard, mid-fight DC
+     report (7d82147); B = comic room panel, unique ISSUE numbers,
+     pre-fight netping/netpong RTT (1eb645e); C = signalUrl race fix,
+     queue orphan fix, live spectate cursors (1f0dc39).
+   - Hardening: pre-fight transport self-heal + guest stage prefetch +
+     Wake Lock (5e7e88e); weak-link strip + latch fixes so flagged-but-
+     alive sessions never wall the fight (f993437).
+   - Asset mirror: `ASSETS_GH_REPO` switch + `scripts/sync-demo-assets.py`
+     (2f71a3a) — demo deployment reads FightingGameEngine/DemoAssets.
+2. **Verified repo relationships via the GitHub API**: this repo and
+   `Nawaf-AlHussain/FightingGameEngine-Web` are byte-identical mirrors
+   (same HEAD sha 2f71a3a, same timestamps). Documented in TODO/AGENT/README.
+3. **Updated TODO.md** — current-state header moved to Oct 24; Phase 4
+   marked SHIPPED with the verifiable feature list and the genuine
+   remainders (match spectating, ladder persistence, mid-fight desync
+   detection); stale duplicate phase sections at the bottom of the file
+   removed; F-040 added to the findings table.
+4. **Updated AGENT.md** — architecture/page-flow (mode-select →
+   group-select → local → match-prep → play; /play?net=1 online), real
+   file paths (engine.wasm/.wasm.gz, engine-fs, game.pak, webrtc.js,
+   netrelay/), current state, mirror repos, GitHub access.
+5. **Updated README.md** — tech stack (Next.js 16 + React 19, engine
+   gz + Cloudflare relay), repo table (Demo = active dev repo, Web =
+   mirror, DemoAssets = demo asset mirror), netplay architecture.
+6. **FINDINGS.md** — added F-040 (docs drift, Mistake type) with the
+   lesson for future sessions.
+
+### Verification
+- `npx tsc --noEmit` clean; `npm run build` clean; all routes smoke-
+  tested 200 on the production server (docs-only change, but the tree
+  was re-verified end to end).
+- No engine, WASM, netcode, or UI code was touched.
+
+### Not done (deferred)
+- Phase 5 real-device testing still needs hardware (unchanged).
+- The remaining online items (match spectating, ladder persistence,
+  desync detection) are listed in TODO.md Phase 4 for a future session.
+
+---
+
 ## Session: September 24, 2026 — Frontend 2.1 remaining gaps closed (spec §16/§17/§21/§26/§33/§37/§48)
 
 ### Work Done

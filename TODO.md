@@ -2,26 +2,40 @@
 
 ## PRIMARY GOAL
 
-**Replace the Dolmexica Infinite WASM engine with IKEMEN GO v2 WASM, keeping the best UI from FightingGameEngine-Demo and the 85+ character roster from FightingGameEngine/Assets.**
+**Browser-based fighting game platform: IKEMEN GO v2 WASM engine + React UI that handles ALL menus, with the roster streamed from a CDN assets repo and online play over WebRTC P2P.**
 
-## CURRENT STATE (September 24, 2026) — ✅ FRONTEND 2.1 COMPLETE
+## CURRENT STATE (October 24, 2026) — ONLINE PLAY SHIPPED, DOCS REALIGNED
 
-- ✅ Frontend 2.1 spec remaining gaps closed (see PROGRESS.md 2026-09-24):
-  match-prep real asset readiness (§48), progress/results real names +
-  mode rules (§21/§22), retry affordances everywhere (§16/§33), dead
-  FILL/16:9 toggle removed (§26, F-039), touch-aware stage hints +
-  focus-visible (§31/§37)
-- ✅ 100% 60fps for ALL characters including heavy DBZ with specials (F-038)
-- ✅ Zero frame spikes during special attacks (spatial grid broad-phase)
-- ✅ No audio stutter during special attacks (audio buffer 8192)
-- ✅ No mid-round GC pauses (GOGC=off + safety-net GC every 60s)
-- ✅ IndexedDB caching — characters download once, instant on repeat (F-036)
-- ✅ 87 characters + 5 stages available from CDN
-- ✅ 7 game modes all working (VS CPU, VS Player, Training, Arcade, Survival, Time Attack, Watch)
-- ✅ Persona 5 UI with grid character select + stage select + wipe transitions
-- ✅ 3 resolution options (480p / 4:3 / 16:9) + FILL/16:9 toggle
-- ✅ Fast load (.pak bundling + parallel loading)
-- ✅ GOWASM=satconv,signext compiler optimizations
+- ✅ Online multiplayer live (Phase 4): WebRTC P2P lockstep over
+  `public/game/webrtc.js`, Cloudflare Workers signaling relay + ranked
+  queue (`netrelay/cloudflare/`), room codes + QR, build-hash + roster
+  fingerprint handshake (mismatched clients are REFUSED, not desynced),
+  rematch-in-place, pre-fight RTT pill, mid-fight DC report, weak-link
+  strip for slow links, guest stage prefetch, screen Wake Lock.
+- ✅ Display ladder complete: TALL 4:3 / FITTED / 3:2 WIDE / 14:9 / 5:3 /
+  EXPANDED (classic 4:3) + stage zoom on close action + portrait
+  "Game Boy" mode (no landscape locks).
+- ✅ Separated UI flow: /lobby → /mode-select (ISSUE 01) → /group-select
+  (ISSUE 02) → /local roster (ISSUE 03) → stage select (ISSUE 04) →
+  /match-prep → /play. Online rides the same select screens with live
+  spectate cursors synced over the bridge (host's pick is flagged).
+- ✅ PWA install (address-bar + menu entry), Squadron Comic skin with
+  unique ISSUE numbers per screen (05 NETWORK on the netplay overlays),
+  transparent character portraits.
+- ✅ Demo asset mirror: the demo deployment reads
+  `FightingGameEngine/DemoAssets` (curated roster) via the
+  `ASSETS_GH_REPO` env switch; `scripts/sync-demo-assets.py` mirrors
+  content from the production `FightingGameEngine/Assets`.
+- ✅ Frontend 2.1 complete (spec §56 DoD); 100% 60fps for ALL characters
+  incl. heavy DBZ with specials (F-038 spatial grid broad-phase); no
+  mid-round GC pauses (F-033); IndexedDB caching (F-037); .pak fast load
+  (F-029); 87 characters + 5 stages on the production CDN.
+- ✅ 7 game modes all working (VS CPU, VS Player, Training, Arcade,
+  Survival, Time Attack, Watch).
+- ✅ **This repo (`FightingGameEngine-Demo`) and
+  `FightingGameEngine-Web` are byte-identical mirrors** — same commit
+  history, pushed in lockstep. The Vercel deployments differ only in env
+  (`ASSETS_GH_REPO`).
 
 ---
 
@@ -30,7 +44,7 @@
 - [x] Build IKEMEN GO v2 WASM from source (energyjp/ikemen-go-web, Go 1.21 + GOEXPERIMENT=arenas)
 - [x] Extract engine JS files from WebMUGEN modding kit v1.7
 - [x] Copy engine data files from energyjp source
-- [x] Set up Next.js 16 project with App Router + TypeScript + Tailwind CSS 4
+- [x] Set up Next.js project with App Router + TypeScript + Tailwind CSS 4
 - [x] Create VFS manifest generator + .pak bundler
 - [x] Build `/play` page with WASM loader
 - [x] Configure `vercel.json` with WASM MIME type + immutable cache headers
@@ -45,16 +59,15 @@
 - [x] React character select (mode, P1/P2, stage, AI level, resolution)
 - [x] Player input (WASD/UIO/JKL for P1, arrows/numpad for P2)
 - [x] AI opponent (level 1-8)
-- [x] Resolution toggle (480p / 4:3 / 16:9)
 - [x] .pak bundling + parallel loading
 - [x] Immutable caching
 - [x] Auto-redirect after fight
+- [x] Touch controls for mobile (reads key bindings from config.ini)
+- [x] Escape/touch exit to quit fight back to the site
 
 ### Remaining (minor)
-- [ ] Disable native pause menu (EscOpensMenu=0 in config.ini)
-- [x] Add Escape key to quit fight (navigate back to /local) — done via touch exit button + synthetic Escape keydown
-- [x] Clone the Persona 5 UI from FightingGameEngine-Demo — done (lobby, character select, stage select, wipe transition)
-- [x] Touch controls for mobile — done (8-direction D-pad, 6 action buttons, Start, capture flow, reads from config.ini)
+- [ ] Disable native pause menu (`EscOpensMenu=0` in shipped config.ini —
+  currently `1`; the native IKEMEN menu still opens on Esc during a fight)
 
 ---
 
@@ -63,64 +76,112 @@
 - [x] CDN proxy route (/api/cdn/) — fetches from GitHub raw, serves with CORS
 - [x] Character download from CDN (parallel, batched, with progress)
 - [x] VFS injection API (ikemenInjectFile / ikemenHasFile)
-- [x] Character select shows full 85-character roster from Assets manifest
+- [x] Full roster from the Assets manifest on the select screen
 - [x] Lenient state controller parsing (F-032 — empty [State] blocks skipped)
 - [x] Browser caching of CDN files (force-cache)
+- [x] IndexedDB caching of downloaded characters/stages (F-037, transactional)
+- [x] Demo asset mirror (`ASSETS_GH_REPO` switch + `scripts/sync-demo-assets.py`)
 
 ### Remaining (minor)
-- [x] Character download progress bar in UI — done (per-card progress in CharacterSelect)
-- [x] IndexedDB caching of downloaded characters — done (character-cache.ts + character-downloader.ts, transactional)
-- [ ] Fix case-sensitivity issues in Assets repo (F-006)
+- [ ] Fix case-sensitivity issues in the production Assets repo (F-006 —
+  BroliT 2 files, THE NIGHTMARE 4 files; 404s on case-sensitive CDNs)
 
 ---
 
-## Phase 3 — UI Polish (MOSTLY COMPLETE)
+## Phase 3 — UI Polish (COMPLETE)
 
-- [x] Title/lobby screen (from Demo repo design)
+- [x] Title/lobby screen (Squadron Comic poster v2)
 - [x] Wipe transition between screens
-- [ ] Fight HUD (lifebars, timer, round indicator)
-- [ ] Character portraits on select screen
-- [ ] Move list display
-- [ ] Sound effects for UI
-- [x] Settings/options screen — done (9-tab React settings menu at /settings, all IKEMEN GO config options, keyboard remapping with capture flow)
-- [x] Mobile responsive UI — done (tap-to-lock character select, touch controls, rotate overlay, mobile-responsive CSS)
-- [x] Keyboard remapping — done (KEYS tab in settings, capture flow, conflict detection, stale binding detection)
+- [x] Character portraits on select screen (transparent PNGs from CDN)
+- [x] Settings/options screen — 9-tab React settings menu at /settings,
+  all IKEMEN GO config options, keyboard remapping with capture flow
+- [x] Mobile responsive UI (tap-to-lock select, touch controls, rotate overlay)
+- [x] Keyboard remapping (KEYS tab, capture flow, conflict detection)
+- [x] Match-prep screen with real asset readiness (spec §17/§48)
+- [x] Progress/results screens with real names + mode rules (spec §21/§22)
+- [x] Error/retry affordances on every fetch failure (spec §16/§33)
+
+### Remaining (minor)
+- [ ] Move list display (per-character command list)
+- [ ] Sound effects for the site UI (engine sounds work; site chrome is silent)
+
+Note: Fight HUD (lifebars/timer/rounds) is rendered natively by the
+engine — no site-side overlay is planned.
 
 ---
 
-## Phase 4 — Online Multiplayer (NOT STARTED)
+## Phase 4 — Online Multiplayer (SHIPPED — hardening continues)
 
-- [ ] WebRTC netplay (using WebMUGEN's `webrtc.js`)
-- [ ] Room/lobby system
-- [ ] Build ID verification
-- [ ] Desync detection and reporting
+- [x] WebRTC netplay (`public/game/webrtc.js` — P2P data channels,
+  lockstep input stream, STUN + optional TURN via `turn-creds.json`)
+- [x] Room/lobby system — signaling relay deployed on Cloudflare Workers
+  free tier (`netrelay/cloudflare/worker.js`), short room codes + QR
+  scan, in-memory rooms (max 500, 30-min expiry)
+- [x] Ranked queue — `?queue=1&build=...` matchmaking bucketed by Build
+  ID + netcode so only byte-identical clients pair
+- [x] Build ID verification — bridge build-check hash covers shipped
+  pack + browser mods + theme + roster manifest fingerprint
+  (`engineRosterHash`, cyrb64); mismatched clients are refused at the
+  handshake with a hard-refresh message instead of desyncing mid-fight
+- [x] Online flow over the site's own select screens — host picks the
+  universe, BOTH players pick fighters + stage with live spectate
+  cursors ('gcursor'/'scursor' IKWS frames); zero engine-side menus
+- [x] Rematch in place (fresh Go runtime + WASM instance from the
+  compiled module; REMATCH / CHANGE FIGHTERS / LOBBY panel)
+- [x] BACK guard (history guard + themed LEAVE-SESSION confirm +
+  beforeunload) and courtesy 'leave' frames on every exit path
+- [x] Disconnect handling — pre-fight transport self-heal (pong
+  disproof of stale failure latches), guest stage prefetch before 'go',
+  Wake Lock across the net flow, weak-link strip vs full DC report
+  (flagged-but-alive never walls the fight), mid-fight DC overlay
+- [x] Pre-fight RTT pill (netping/netpong every 4s; green ≤70ms /
+  royal ≤130 / crimson)
+
+### Remaining (online)
+- [ ] Full match spectating (IKEMEN rollback supports spectators; today
+  only the SELECT screens are spectated live)
+- [ ] Ranked ladder persistence (results live only in the session; no
+  server-side W/L record yet)
+- [ ] Desync DETECTION beyond prevention (hash-mismatch refusal exists;
+  no mid-fight state-hash comparison report yet)
+- [ ] Remove the old-peer compatibility shims once the fleet is current
+  (no-id frames degrade gracefully today)
 
 ---
 
-## Phase 5 — Compatibility & Testing (NOT STARTED)
+## Phase 5 — Compatibility & Testing (NOT STARTED — needs real hardware)
 
-- [ ] Test all 85 characters from Assets repo
-- [ ] Test all 5 stages
-- [ ] Test across browsers (Chrome, Firefox, Safari, Edge)
-- [ ] Test on mobile
-- [ ] Performance profiling
+- [ ] Test all characters from the production Assets repo
+  - Categorize: works perfectly / minor glitches / major issues / crashes
+  - Document findings in FINDINGS.md
+- [ ] Test all stages
+- [ ] Test across browsers (Chrome primary; Firefox, Safari, Edge)
+- [ ] Test on mobile (Android Chrome, iOS Safari)
+- [ ] Performance profiling on mid-range hardware
+  - GC pause patterns with `?gctrace=1`
+  - Heap profile with `?profile=1` for large rosters
 
 ---
 
-## Potential Future Optimizations (researched, not yet done)
+## Potential Future Optimizations (researched)
 
-### Tier 1: Safe, build-flag only (try first)
-- [ ] **PGO (Profile-Guided Optimization)**: Capture CPU profile during fight, rebuild with `-pgo=profile.pprof`. Go 1.21+ supports this for GOOS=js. Expected 5-15% faster hot paths. Need to add `runtime/pprof` CPU profile export via `syscall/js` (Blob download).
-- [ ] **`-gcflags="-B"` (disable bounds checks)**: Go inserts bounds checks on every array/slice access. Disabling them saves 3-8% in array-heavy code. One build flag, no code changes. Low-medium risk.
+### Tier 1: Safe, build-flag only
+- [ ] **PGO (Profile-Guided Optimization)**: capture CPU profile during
+  fight, rebuild with `-pgo=profile.pprof`. Go 1.21+ supports this for
+  GOOS=js. Expected 5-15% faster hot paths.
+- [ ] **`-gcflags="-B"` (disable bounds checks)**: 3-8% in array-heavy
+  code. One build flag, no code changes. Low-medium risk.
 
 ### Tier 2: Medium effort, medium risk
-- [ ] **Spatial grid broad-phase collision**: Bolt a uniform spatial grid in front of O(n²) collision check. Only check entities in same/adjacent cells. ~150 lines in char.go/system.go. Large gain during special attacks (50 entities → ~5 checks instead of ~2500).
-- [ ] **sync.Pool for hot allocations**: Pool frequently allocated structs (helpers, projectiles, explods). Reduces allocation overhead and shrinks live heap (shorter GC pauses).
+- [x] ~~Spatial grid broad-phase collision~~ — DONE (F-038, 164ms spikes
+  eliminated; the engine WASM already ships it)
+- [ ] **sync.Pool for hot allocations**: pool frequently allocated
+  structs (helpers, projectiles, explods). Requires a WASM rebuild.
 
 ### Tier 3: Confirmed dead ends (don't try)
 - [x] ~~WASM SIMD~~: Go compiler doesn't autovectorize. No stable path.
 - [x] ~~True multithreading~~: Go GOOS=js is single-threaded. No change as of Go 1.24.
-- [x] ~~Web Worker~~: Isolates from main thread but doesn't speed up engine.
+- [x] ~~Web Worker~~: isolates from main thread but doesn't speed up engine.
 
 ### Build command with all optimizations (for future rebuilds)
 ```bash
@@ -134,97 +195,20 @@ GOEXPERIMENT=arenas GOWASM=satconv,signext GOOS=js GOARCH=wasm CGO_ENABLED=0 \
 
 | ID | Status | Summary |
 |----|--------|---------|
-| F-007 | ✅ Corrected | Arena stub was NOT needed — GOEXPERIMENT=arenas |
-| F-018 | ✅ Fixed | BootLoadingMode=0 freeze |
-| F-019 | ❌ Wrong | RollbackNetcode was already 0 via VFS patch |
-| F-020 | ✅ Documented | VFS patches RollbackNetcode at boot |
-| F-021 | ✅ Fixed | Manifest generator overwrote file sizes with 0 |
-| F-022 | ❌ Not root cause | while-loading loop removed, freeze persisted |
+| F-017 | ✅ Breakthrough | IKEMEN GO CLI quick match — no WASM changes to skip menus |
 | F-023 | ✅ Fixed | vfs.js Promise cache storm |
-| F-024 | ✅ Fixed | Frame-skip tight loop |
 | F-025 | ✅ Applied | WASM rebuilt with yield fixes |
-| F-026 | ✅ Understood | Menu freezes due to GC pressure |
-| F-027 | ✅ Fixed | time.Sleep(0) was no-op (Claude caught it) |
-| F-028 | ✅ Breakthrough | f_quickMatch works — fights playable! |
+| F-028 | ✅ Breakthrough | f_quickMatch works — fights playable |
 | F-029 | ✅ Breakthrough | .pak bundling — 1 HTTP request instead of 48 |
-| F-030 | ✅ Fixed | Lazy file registration caused in-game lag |
-| F-031 | ✅ Documented | Character compatibility — .cmd syntax issues |
-| F-032 | ✅ Breakthrough | Lenient state parsing — all 85 chars load |
-| F-033 | ✅ Breakthrough | GOGC=off — eliminates mid-round GC pauses |
-| F-034 | ✅ Documented | Aspect ratio investigation — reverted to letterbox |
-| **F-035** | **✅ Breakthrough** | **Audio buffer + safety-net GC + GOWASM flags — best performance** |
-| F-036 | ✅ Fixed | GODEBUG=gctrace=1 was causing micro-stutters — removed |
-| F-037 | ✅ Feature | IndexedDB caching — download-on-select, instant fight start |
-| **F-038** | **✅ Breakthrough** | **Spatial grid broad-phase — 164ms spikes eliminated, 100% 60fps** |
+| F-032 | ✅ Breakthrough | Lenient state parsing — all chars load |
+| F-033 | ✅ Breakthrough | GOGC=off — no mid-round GC pauses |
+| F-035 | ✅ Breakthrough | Audio buffer + safety-net GC + GOWASM flags |
+| F-037 | ✅ Feature | IndexedDB caching — download-on-select, instant fights |
+| F-038 | ✅ Breakthrough | Spatial grid — 164ms spikes eliminated, 100% 60fps |
+| F-039 | ✅ Fixed | Dead FILL/16:9 toggle removed (display always fits) |
+| F-040 | ✅ Documented | Docs drift — 9 days of shipped work missing from docs |
 
----
-
-## Phase 2 — Asset Pipeline
-
-- [ ] Point VFS file route to jsDelivr CDN for character/stage files
-  - Serve engine data locally, proxy CDN requests transparently
-- [ ] Character download & caching system
-  - Download from jsDelivr CDN on character select
-  - Inject into browser VFS (IndexedDB or in-memory)
-  - Cache in browser for repeat visits
-  - Cache versioning (bust on manifest change)
-- [ ] Stage download & caching (same pattern)
-- [ ] Music download & caching (optional .ogg/.mp3)
-- [ ] Handle large characters (50MB+) gracefully
-  - Progress indicator
-  - Background download
-  - Netplay weight tags (green/yellow/red like WebMUGEN)
-- [ ] Fix case-sensitivity issues in Assets repo manifest
-  - Some characters have filename case mismatches (e.g. `basics.st` vs `Basics.st`)
-  - This caused 404s in the old project
-
----
-
-## Phase 3 — UI Polish (DONE — see top of file for completed items)
-
-The items below were the original Phase 3 plan. Most are now complete — see the "Phase 3 — UI Polish (MOSTLY COMPLETE)" section above for the current status. Remaining:
-
-- [ ] Fight HUD (lifebars, timer, round indicator, names)
-  - Note: IKEMEN GO renders these natively, so may just need CSS overlay
-- [ ] Character portraits on select screen
-  - Extract from SFF or use pre-rendered images
-- [ ] Move list display
-- [ ] Sound effects for UI (from Demo repo's `useSoundEffects`)
-
----
-
-## Phase 4 — Online Multiplayer
-
-- [ ] WebRTC netplay (using WebMUGEN's `webrtc.js`)
-  - STUN servers (free, works for most players)
-  - Optional TURN relay for strict NATs
-- [ ] Room/lobby system
-  - Room codes for matchmaking
-  - Spectator support (if IKEMEN supports it)
-- [ ] Build ID verification (ensure both players have same content)
-- [ ] Desync detection and reporting
-- [ ] Online identity (name + recovery code, from WebMUGEN)
-- [ ] Revisit arena stub for proper rollback memory management
-
----
-
-## Phase 5 — Compatibility & Testing
-
-- [ ] Test all 85 characters from Assets repo
-  - Categorize: works perfectly / minor glitches / major issues / crashes
-  - Document findings in FINDINGS.md
-- [ ] Test all 5 stages
-- [ ] Test across browsers
-  - Chrome (primary)
-  - Firefox
-  - Safari (macOS/iOS)
-  - Edge
-- [ ] Test on mobile
-  - Android Chrome
-  - iOS Safari
-- [ ] Performance profiling
-  - Identify GC pause patterns with `?gctrace=1`
-  - Profile heap with `?profile=1` for large rosters
+Full list: FINDINGS.md (F-001 → F-040).
 
 ---
 
@@ -232,11 +216,10 @@ The items below were the original Phase 3 plan. Most are now complete — see th
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
-| Go WASM GC pauses on large characters | Frame drops | Tuning GOGC/GOMEMLIMIT; WebMUGEN already measured this |
-| jsDelivr rate limiting / caching issues | Download failures | Fallback to raw GitHub; cache-busting strategy |
-| Vercel WASM MIME type misconfiguration | Black screen | Test early, document fix |
-| Mobile WebGL2 performance | Sub-60fps | 4:3 resolution default; asset size limits |
-| Some characters still incompatible with IKEMEN GO | Crashes | IKEMEN GO is much more compatible than Dolmexica; log remaining issues |
-| WebMUGEN kit license vs our project | Legal | Check license terms; IKEMEN GO itself is MIT |
-| Arena stub causes rollback netcode memory issues | Online lag/desync | Revisit in Phase 4; may need proper arena or different approach |
-| .zss files not recognized by engine | Boot failure | Test on Vercel; convert to .cns if needed |
+| Go WASM GC pauses on large characters | Frame drops | Tuned (GOGC=off + safety-net GC); F-038 spatial grid |
+| jsDelivr rate limiting / caching issues | Download failures | Fallback to raw GitHub; cache-buster bump `.r2` (see character-downloader.ts) |
+| Vercel WASM MIME type misconfiguration | Black screen | vercel.json pins `application/wasm`; tested |
+| Mobile WebGL2 performance | Sub-60fps | Display ladder + fitted modes; Game Boy portrait mode |
+| Some characters incompatible with IKEMEN GO | Crashes | Far more compatible than Dolmexica; log in FINDINGS.md |
+| Relay free-tier limits (Cloudflare WS wall-clock) | Queue/room 503s | Rooms expire 30min; ranked queue is bucketed; can move to paid tier |
+| Arena stub + rollback memory management | Online desync under pressure | Watch Phase 4 field reports; revisit if reproducible |

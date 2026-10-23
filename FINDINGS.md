@@ -1213,3 +1213,32 @@ The FightingGameEngine/Assets manifest references files by their `.def` filename
 Affected characters: BroliT (2 files), THE NIGHTMARE (4 files).
 
 **Lesson**: Always validate manifest file paths against actual filenames on a case-sensitive filesystem before deploying.
+
+---
+
+## F-040 | Documentation drift — 15 commits shipped without session entries
+**Date**: 2026-10-24 | **Type**: Mistake
+
+Between Oct 19-23 the repo shipped 15 commits (display ladder, PWA, UI
+split, online batches A/B/C, netplay hardening, asset mirror) with no
+PROGRESS.md session entries — the newest entry was Sep 24. TODO.md still
+said "Phase 4 — Online Multiplayer (NOT STARTED)" for a feature that was
+live with rooms, ranked queue and hardening fixes. AGENT.md described
+`ikemen.wasm` + `ikemen-fs` paths that no longer exist (now
+`engine.wasm(.gz)` + `engine-fs`), and README.md described THIS repo as
+an archived "design reference" while the active repo per its own docs was
+`FightingGameEngine-Web` — which is in fact a byte-identical mirror of
+this repo (verified via the GitHub API: same HEAD sha).
+
+AGENT.md's mandatory workflow (update TODO/PROGRESS/FINDINGS, then
+commit) is the project's handoff mechanism; skipping it for nine days
+meant every future agent would inherit a false baseline — e.g. they
+could have re-planned netplay from scratch or trusted the wrong file
+paths. Fixed in the 2026-10-24 session: TODO/PROGRESS/AGENT/README all
+reconciled against the commit record, with every claim verified against
+the current tree before writing.
+
+**Lesson**: Run the AGENT.md doc-sync step EVERY session, even for small
+commits — docs are the handoff, and reconstructing nine days of work
+from commit messages is far more expensive than writing one entry per
+session.
