@@ -25,7 +25,9 @@ import re
 import sys
 import urllib.request
 
-REPO = 'FightingGameEngine/Assets'
+# Upstream Assets repo — override with ASSETS_GH_REPO to target the demo
+# mirror repo (e.g. FightingGameEngine/DemoAssets).
+REPO = os.environ.get('ASSETS_GH_REPO', 'FightingGameEngine/Assets')
 BRANCH = 'main'
 SRC_DIR = 'stages'
 OUT_DIR = 'stages/thumbs'

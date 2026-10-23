@@ -15,11 +15,16 @@ import { NextResponse } from 'next/server';
 // cache: 'no-cache'), so freshness is bounded by the 60s window, not the
 // session.
 
-const GITHUB_RAW_URL = 'https://raw.githubusercontent.com/FightingGameEngine/Assets/main/manifest.json';
+// Upstream Assets repo. Production uses FightingGameEngine/Assets; the demo
+// deployment points ASSETS_GH_REPO at its own mirror (see the CDN proxy
+// route). Read per-request so a Vercel env change applies without a rebuild.
+const DEFAULT_ASSETS_REPO = 'FightingGameEngine/Assets';
 
 export async function GET() {
+  const repo = process.env.ASSETS_GH_REPO || DEFAULT_ASSETS_REPO;
+  const githubRawUrl = `https://raw.githubusercontent.com/${repo}/main/manifest.json`;
   try {
-    const res = await fetch(GITHUB_RAW_URL, { cache: 'no-store' });
+    const res = await fetch(githubRawUrl, { cache: 'no-store' });
 
     if (!res.ok) {
       return NextResponse.json(

@@ -48,8 +48,20 @@ import { NextRequest, NextResponse } from 'next/server';
 //     unreachable AND to force IndexedDB meta staleness (device-side
 //     re-download) in one deploy. r2 = this incident.
 
-const JSDELIVR_BASE = 'https://cdn.jsdelivr.net/gh/FightingGameEngine/Assets@main/';
-const GITHUB_RAW_BASE = 'https://raw.githubusercontent.com/FightingGameEngine/Assets/main/';
+// Upstream Assets repo. Production uses FightingGameEngine/Assets; the demo
+// deployment (FightingGameEngine-Demo on Vercel) points ASSETS_GH_REPO at its
+// own mirror repo (FightingGameEngine/DemoAssets) so the two rosters can
+// diverge. Read per-request (not at module scope) so a Vercel env change
+// applies on the next invocation without a rebuild.
+const DEFAULT_ASSETS_REPO = 'FightingGameEngine/Assets';
+
+function upstreamBases(): { jsdelivrBase: string; githubRawBase: string } {
+  const repo = process.env.ASSETS_GH_REPO || DEFAULT_ASSETS_REPO;
+  return {
+    jsdelivrBase: `https://cdn.jsdelivr.net/gh/${repo}@main/`,
+    githubRawBase: `https://raw.githubusercontent.com/${repo}/main/`,
+  };
+}
 
 // Files at or below this size are buffered and served with an exact
 // Content-Length (portraits, .def/.cns/.cmd/.air, most .sff/.snd). Larger
@@ -105,9 +117,10 @@ export async function GET(
   // `cache` option on these fetches — this handler is inherently dynamic
   // (per-request path) so Next's data cache does not engage, and passing
   // cache options through Next 16's patched fetch misbehaved in testing.
+  const { jsdelivrBase, githubRawBase } = upstreamBases();
   const upstreams: Array<{ url: string; cacheable: boolean }> = [
-    { url: JSDELIVR_BASE + vpath, cacheable: true },
-    { url: GITHUB_RAW_BASE + vpath, cacheable: false },
+    { url: jsdelivrBase + vpath, cacheable: true },
+    { url: githubRawBase + vpath, cacheable: false },
   ];
 
   for (const upstream of upstreams) {
