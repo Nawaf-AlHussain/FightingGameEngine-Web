@@ -1058,3 +1058,21 @@ Implemented the FRONTEND_2.1_REDESIGN_SPEC across 9 phases, preserving all exist
 - Touch controls (reads from same config as keyboard)
 - Match result handling (__ikemenMatchResult global from main.lua)
 - WipeTransition system
+
+## Session: October 24, 2026 — Git identity repair for Vercel deploy (history rewrite)
+
+### Problem
+- All commits since early history were authored with the container default identity
+  `Z User <z@container>` — an invalid email. Vercel's GitHub integration could not
+  resolve the commit author and blocked the deployment.
+
+### Fix
+- `git filter-branch --env-filter` over `refs/heads/main`: every commit with author or
+  committer email `z@container` rewritten to the owner's canonical GitHub noreply identity
+  `Nawaf-AlHussain <106799481+Nawaf-AlHussain@users.noreply.github.com>` (dates, messages,
+  and trees untouched; 231 commits rewritten).
+- Repo-local **and** global git config set to the same identity so future commits are valid.
+- Force-pushed both mirrors (`origin` Demo + `web` Web) with `--force-with-lease` pinned to
+  the pre-rewrite SHA `89c073c`. Both mirrors verified identical at the new tip.
+- No source code, config, or build changes — UI/engine trees are byte-identical; only
+  commit metadata changed (commit SHAs from `43abea5` upward are superseded).
