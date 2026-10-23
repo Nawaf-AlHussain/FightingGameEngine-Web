@@ -1,5 +1,59 @@
 # PROGRESS — Fighting Game Engine Web
 
+## Session: October 24, 2026 — AGENT.md next-steps 1+2 (Esc menu + F-006)
+
+### Context
+
+The docs-reconciliation session (F-040) left AGENT.md's "Minor fixes"
+list with three scoped items. This session cleared the first two:
+the native pause menu opening on Esc during fights, and the production
+Assets repo case-sensitivity 404s (F-006).
+
+### Work Done
+
+1. **EscOpensMenu=0 shipped default** (commit 6e324d7). During a fight,
+   Esc belongs to the site's exit flow (themed confirm), but the engine
+   ALSO opened its native IKEMEN menu on the same key. Flipped the
+   shipped `save/config.ini` default to 0 and regenerated `game.pak`/
+   `.gz`/manifest stamp (config.ini is a pak-essential file — a bare
+   file edit would never have reached packed-boot players). Returning
+   players' persisted config wins per the documented authority model,
+   and the native menu stays reachable via Settings > "ESC Opens Pause
+   Menu". No INI comments were added — the shipped file has none and
+   the engine parser's comment tolerance is unverified.
+2. **F-006 resolved in the Assets repo** (Assets commit 2f3da1c). A
+   decode-aware, case-sensitive audit of all 12,362 disk blobs vs 5,487
+   manifest entries found the Aug-21 finding (BroliT, THE NIGHTMARE —
+   both already clean) had grown with the October DC/MARVEL roster:
+   6 characters with wrong-cased cdnBase dirs (hellboy, Powergirl,
+   redtornado, nate, onslaught, Venom) + 3 wrong-cased portrait PNGs =
+   93 broken CDN paths, every fetch 404. Proved at jsDelivr (correct
+   case 200, wrong case 404), then patched the manifest's 9 fields to
+   disk casing via a surgical raw-text replacement (18-line diff) and
+   committed through the Contents API. Manifest-side fix chosen because
+   the engine VFS re-roots files as `chars/<id>/` (source prefixes are
+   CDN-only), and `update-manifest.py` derives ids from disk folder
+   names — a future regen heals TO this state.
+3. **Docs**: TODO Phase 1/2 "Remaining" items closed, F-006 added to the
+   findings table as Fixed, AGENT.md known-gaps/next-steps updated,
+   FINDINGS.md F-006 marked RESOLVED with full rationale.
+
+### Verification
+- `npx tsc --noEmit` clean; `npm run build` clean; committed 6e324d7 and
+  pushed to BOTH remotes in lockstep (Demo 275dba8..6e324d7, Web same).
+- Assets manifest: post-commit raw fetch shows zero wrong-cased cdnBase;
+  residual audit zero; jsDelivr serves all 6 chars at the fixed paths.
+- No engine/WASM/netcode code touched. Note: the pak/manifest stamp
+  shift moves the netplay build hash — old/new clients refuse to pair
+  at the handshake (by design; hard-refresh aligns them).
+
+### Not done (deferred)
+- AGENT.md Minor fixes tail: move list display + site UI sound effects.
+- Phase 5 real-device testing (needs hardware).
+- DemoAssets content copy still blocked on PAT repo access (user-side).
+
+---
+
 ## Session: October 24, 2026 — Documentation reconciliation (F-040)
 
 ### Context

@@ -6,6 +6,10 @@
 
 ## CURRENT STATE (October 24, 2026) — ONLINE PLAY SHIPPED, DOCS REALIGNED
 
+- ✅ Esc is reserved for the site's fight-exit flow (shipped
+  `EscOpensMenu=0`; Settings toggle restores the native menu) and the
+  Assets manifest casing is aligned with disk (F-006 closed — 6
+  characters' CDN downloads no longer 404).
 - ✅ Online multiplayer live (Phase 4): WebRTC P2P lockstep over
   `public/game/webrtc.js`, Cloudflare Workers signaling relay + ranked
   queue (`netrelay/cloudflare/`), room codes + QR, build-hash + roster
@@ -65,10 +69,6 @@
 - [x] Touch controls for mobile (reads key bindings from config.ini)
 - [x] Escape/touch exit to quit fight back to the site
 
-### Remaining (minor)
-- [ ] Disable native pause menu (`EscOpensMenu=0` in shipped config.ini —
-  currently `1`; the native IKEMEN menu still opens on Esc during a fight)
-
 ---
 
 ## Phase 2 — Asset Pipeline (COMPLETE)
@@ -81,10 +81,8 @@
 - [x] Browser caching of CDN files (force-cache)
 - [x] IndexedDB caching of downloaded characters/stages (F-037, transactional)
 - [x] Demo asset mirror (`ASSETS_GH_REPO` switch + `scripts/sync-demo-assets.py`)
-
-### Remaining (minor)
-- [ ] Fix case-sensitivity issues in the production Assets repo (F-006 —
-  BroliT 2 files, THE NIGHTMARE 4 files; 404s on case-sensitive CDNs)
+- [x] Assets manifest casing aligned with disk (F-006 closed — 6 characters
+  + 3 portraits were 404ing on case-sensitive CDNs)
 
 ---
 
@@ -195,6 +193,7 @@ GOEXPERIMENT=arenas GOWASM=satconv,signext GOOS=js GOARCH=wasm CGO_ENABLED=0 \
 
 | ID | Status | Summary |
 |----|--------|---------|
+| F-006 | ✅ Fixed | Assets manifest casing vs disk — 6 chars' CDN fetches 404'd |
 | F-017 | ✅ Breakthrough | IKEMEN GO CLI quick match — no WASM changes to skip menus |
 | F-023 | ✅ Fixed | vfs.js Promise cache storm |
 | F-025 | ✅ Applied | WASM rebuilt with yield fixes |

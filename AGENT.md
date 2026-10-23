@@ -331,8 +331,6 @@ Character/stage files come from `/api/cdn/<path>` (GitHub-raw proxy with
 - [x] Demo asset mirror (ASSETS_GH_REPO → FightingGameEngine/DemoAssets)
 
 ### Known gaps (see TODO.md for the authoritative list):
-- [ ] Native pause menu still opens on Esc (EscOpensMenu=1 in shipped config)
-- [ ] Production Assets repo case-sensitivity (F-006: BroliT, THE NIGHTMARE)
 - [ ] Phase 5 device/browser matrix untested (needs real hardware)
 - [ ] Online remainders: full match spectating, ladder persistence,
       mid-fight desync detection
@@ -386,9 +384,10 @@ The engine's fight rendering path is optimized but the menu rendering path is NO
 3. Mid-fight desync detection (beyond the handshake build/roster refusal)
 
 ### Minor fixes:
-1. `EscOpensMenu=0` in shipped config.ini (native pause menu still opens on Esc)
-2. Case-sensitivity fix in the production Assets repo (F-006)
-3. Move list display + site UI sound effects (Phase 3 tails)
+1. Move list display + site UI sound effects (Phase 3 tails)
+
+(Done 2026-10-24: EscOpensMenu=0 shipped default; F-006 manifest casing
+fixed in the Assets repo — commit 2f3da1c there, engine-invisible.)
 
 ### Phase 5 (needs real hardware):
 1. Character/stage compat matrix, browser matrix, mobile testing, profiling

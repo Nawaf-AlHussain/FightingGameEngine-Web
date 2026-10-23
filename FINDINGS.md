@@ -1206,11 +1206,32 @@ The main repo's `game.css` (714 lines) existed but was never imported until disc
 ---
 
 ## F-006 | Assets repo case-sensitivity causes silent 404s
-**Date**: 2026-08-21 | **Type**: Finding (carried over from FightingGameEngine)
+**Date**: 2026-08-21 | **Type**: Finding (carried over from FightingGameEngine) | **RESOLVED 2026-10-24**
 
-The FightingGameEngine/Assets manifest references files by their `.def` filename casing (e.g. `basics.st`), but actual files on disk have different case (e.g. `Basics.st`). This is invisible on Windows (case-insensitive) but causes 404s from GitHub raw/jsDelivr (case-sensitive).
+The FightingGameEngine/Assets manifest referenced files by their `.def` filename casing (e.g. `basics.st`), but actual files on disk had different case (e.g. `Basics.st`). This is invisible on Windows (case-insensitive) but causes 404s from GitHub raw/jsDelivr (case-sensitive).
 
-Affected characters: BroliT (2 files), THE NIGHTMARE (4 files).
+Original scope (Aug 21): BroliT (2 files), THE NIGHTMARE (4 files) — both already clean by October.
+
+**Resolution (2026-10-24, Assets commit 2f3da1c)**: a full manifest-vs-disk
+audit (12,362 blobs vs 5,487 manifest entries, decode-aware, case-sensitive)
+found the drift had grown to 6 characters — hellboy→HellBoy, Powergirl→
+PowerGirl, redtornado→RedTornado (charsDC), nate→Nate, onslaught→Onslaught,
+Venom→venom (charsMARVEL) — 93 file paths total, plus 3 portrait PNGs
+(nate/onslaught/Venom). Every CDN fetch for these characters 404'd.
+
+- **Fix direction**: patched the MANIFEST (9 fields) to match disk, not the
+  other way around. Rationale: (1) the site re-roots downloaded files into
+  the engine VFS as `chars/<id>/<file>` — the source-dir prefix never
+  reaches the engine, so manifest ids stay engine-invisible; (2) the
+  in-repo generator (`update-manifest.py`) derives `char_id = char_folder.name`
+  and resolves file refs with on-disk casing, so a future regen heals TO
+  this state; (3) renaming 93 paths on disk would serve stale jsDelivr
+  cache for hours and bloat git history.
+- **Verification**: correct-cased paths HEAD 200, old paths 404 at jsDelivr;
+  post-patch audit shows zero case-sensitive residual mismatches.
+- Manifest ids/roster fingerprint changed → netplay handshake refuses
+  old-vs-new client pairs by design (hard-refresh message).
+- DemoAssets untouched (zero overlap with the 6 characters).
 
 **Lesson**: Always validate manifest file paths against actual filenames on a case-sensitive filesystem before deploying.
 
