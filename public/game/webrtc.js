@@ -711,7 +711,15 @@
         clearTimeout(discTimer);
         discTimer = setTimeout(() => {
           if (pc && pc.connectionState === 'failed') {
-            isFailed = true; isClosed = true;
+            // isFailed ONLY - never isClosed here. The engine treats a null
+            // read() as "session over", and isClosed is what flips read()/
+            // readGGPO() to null; a link ICE has given up on can still be
+            // dragged back by a later connectivity check, and a poisoned
+            // read would kill the fight the moment it recovered. The real
+            // death still arrives as dc.onclose - the ONE signal allowed to
+            // set isClosed. Mid-fight the page turns this flag into a slim
+            // strip, not the full-screen report.
+            isFailed = true;
             setStatus('Connection failed. Both players should retry (a VPN or hotspot can help stubborn routers).');
             netLog('no connection after grace period' + (lastIceSummary ? ' [' + lastIceSummary + ']' : ''));
             openDiag();
@@ -725,8 +733,17 @@
         clearTimeout(discTimer);
         discTimer = setTimeout(() => {
           if (pc && pc.connectionState === 'disconnected') {
-            isFailed = true; isClosed = true;
-            setStatus('Connection lost and did not recover. Both players should retry.');
+            // Same rule as the 'failed' latch above: isFailed alone.
+            // 'disconnected' is the MOST recoverable ICE state (NAT
+            // remapping, a congested phone link dips into it routinely),
+            // but latching isClosed here used to null the engine's reads
+            // AND stop the rtt probes - so a match the transport was about
+            // to resurrect got killed from the page side, and the play
+            // field got walled with the "opponent lost" report the field
+            // report complained about. The flag clears itself when ICE
+            // reaches 'connected' again or a pong proves the round trip.
+            isFailed = true;
+            setStatus('Connection down 12s and counting - still trying to recover...');
             openDiag();
           }
         }, 12000);

@@ -498,6 +498,11 @@ function PlayPageInner() {
   const [netRebooting, setNetRebooting] = useState(false);
   const [netRebootMsg, setNetRebootMsg] = useState('');
   const [netOppDrop, setNetOppDrop] = useState(false); // in-fight opponent disconnect overlay
+  // Weak-link strip: the channel is still OPEN but the transport is suspect
+  // (bridge failure flag latched). Deliberately NOT the full-screen overlay —
+  // a slow link used to wall the play field with the "opponent lost" report
+  // while the fight underneath was still recoverable.
+  const [netWeakLink, setNetWeakLink] = useState(false);
   const [netLeaveAsk, setNetLeaveAsk] = useState(false); // BACK / cancel confirmation
   const [netRematchSent, setNetRematchSent] = useState(false); // guest: request pending
   const [netOppRematch, setNetOppRematch] = useState(false); // host: request received
@@ -616,6 +621,7 @@ function PlayPageInner() {
       }
       setNetPhase('fight');
       setNetOppDrop(false);
+      setNetWeakLink(false);
       setNetGroupCursor(null);
       setNetStageCursor(null);
       if (netResolveRef.current) {
@@ -766,6 +772,7 @@ function PlayPageInner() {
     } catch { /* the poller reports real drops */ }
     setNetPhase('fight');
     setNetOppDrop(false);
+    setNetWeakLink(false);
     if (netResolveRef.current) {
       // FIRST fight of this session: resolve the bootEngine park.
       netResolveRef.current(cfg);
@@ -820,6 +827,7 @@ function PlayPageInner() {
     try { net?.control?.({ t: 'go', p1: last.p1, p2: last.p2, stage: last.stage, dm: last.dm }); } catch { /* the poller reports real drops */ }
     setNetPhase('fight');
     setNetOppDrop(false);
+    setNetWeakLink(false);
     netRebootRef.current?.({ p1: last.p1, p2: last.p2, stage: last.stage }, last.dm);
   }, []);
 
@@ -901,29 +909,35 @@ function PlayPageInner() {
       }
       if (netPhase === 'fight') {
         // dc.onclose is the only thing that flips isConnected mid-fight (the
-        // transport's transient 'disconnected' rides a 12s recovery grace in
-        // the bridge and never touches isConnected), so 3 dead polls = the
-        // channel is genuinely gone. A latched failure flag alone needs the
-        // patient failTicks window below instead. The overlay is
-        // informational AND self-retracting: if the flag was a blip and the
-        // bridge heals it, a later alive poll takes the report back down.
-        // The engine will exit on its own when its reads return null, and
-        // the post-run triage lands the phase machine on 'error'.
+        // bridge's transient 'disconnected'/'failed' latches set isFailed
+        // alone and never touch isConnected), so 3 dead polls = the channel
+        // is genuinely gone. Two levels of badness, two visuals:
+        //   - alive-but-flagged: the transport is suspect but the channel is
+        //     open and the fight CAN still recover → a slim top strip
+        //     (netWeakLink) that never covers the play field. It self-retracts
+        //     when the bridge's pong self-heal or an ICE recovery clears the
+        //     flag. Field report this replaces: a slow link used to pop the
+        //     full-screen "opponent lost" wall over a match that was still
+        //     running underneath.
+        //   - !alive (real close): the fight is over — the full report overlay
+        //     fires after 3 dead polls. The engine will exit on its own when
+        //     its reads return null, and the post-run triage lands 'error'.
         const alive = typeof net.connected === 'function' && net.connected();
         const flagged = typeof net.failed === 'function' && net.failed();
         if (alive && !flagged) {
           misses = 0;
           failTicks = 0;
-          setNetOppDrop(false); // no-op while hidden; retracts a healed blip
+          setNetOppDrop(false);   // no-op while hidden; retracts a healed report
+          setNetWeakLink(false);  // no-op while hidden; retracts a healed strip
           return;
         }
         if (!alive) {
           misses += 1;
-          if (misses >= 3) setNetOppDrop(true);
+          if (misses >= 3) { setNetWeakLink(false); setNetOppDrop(true); }
           return;
         }
         failTicks += 1;
-        if (failTicks >= 8) setNetOppDrop(true);
+        if (failTicks >= 4) setNetWeakLink(true); // ~2s of sustained suspicion
         return;
       }
       if (netPhase === 'postfight') {
@@ -1948,6 +1962,7 @@ function PlayPageInner() {
             setNetRebooting(true);
             setNetRebootMsg('PREPARING THE ENGINE…');
             setNetOppDrop(false);
+            setNetWeakLink(false);
             setNetRematchSent(false);
             setNetOppRematch(false);
             netSyncedModeRef.current = dm;
@@ -2726,6 +2741,33 @@ function PlayPageInner() {
           <GameButton variant="danger" onClick={leaveNetNow}>
             LEAVE MATCH
           </GameButton>
+        </div>
+      )}
+
+      {/* Weak-link strip (the "slow connection pops a window over the fight"
+          fix): the channel is still open, so the fight can recover — the
+          report must NOT wall the play field like the full overlay above.
+          Slim top-center strip, pointer-events none (pure readout), z 47 —
+          under the real-close overlay so an escalation covers it cleanly.
+          Self-retracts when the bridge's pong self-heal / ICE recovery
+          clears the flag and a poll lands on the alive branch. */}
+      {netWeakLink && netPhase === 'fight' && !netOppDrop && (
+        <div
+          style={{
+            position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 10px)', left: '50%', transform: 'translateX(-50%)',
+            zIndex: 47, display: 'flex', alignItems: 'center', gap: '0.45rem',
+            maxWidth: 'min(86vw, 420px)', background: 'var(--paper, #f2ecda)',
+            border: '2px solid var(--crimson, #e8283c)', boxShadow: '3px 3px 0 var(--ink, #101018)',
+            borderRadius: 2, padding: '0.3rem 0.6rem', pointerEvents: 'none',
+          }}
+        >
+          <span
+            aria-hidden="true"
+            style={{ width: 9, height: 9, borderRadius: '50%', display: 'inline-block', background: 'var(--crimson, #e8283c)' }}
+          />
+          <span style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.12em', color: 'var(--ink, #101018)', whiteSpace: 'nowrap' }}>
+            WEAK LINK — STILL FIGHTING…
+          </span>
         </div>
       )}
 
