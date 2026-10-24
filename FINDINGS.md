@@ -1375,3 +1375,94 @@ from GBs-per-hundred-visitors to static fills + oversize stragglers.
 **Lesson**: when a proxy's upstream is a public CDN, the browser can usually
 talk to that CDN directly — keep the proxy for the cases CORS/limits force,
 not as the default path.
+
+## F-044 | Mid-fight freeze was invisible — flow-stall watchdog + stream-integrity probes
+
+**Constraint**: The fight watcher knew only two states: channel alive
+(silence) and channel dead (report overlay). A peer whose tab got
+backgrounded, whose engine wedged, or whose link black-holed WITHOUT tripping
+the bridge's zombie watchdog (its `bufferedAmount` heuristic needs OUR queued
+bytes to grow — a peer that stopped RECEIVING never triggers it) left both
+players staring at a frozen fight with zero feedback. The "mid-fight silence"
+family was closed for real disconnects but blind to live-but-stalled — and
+TODO's desync-detection remainder explicitly asked for a mid-fight report
+beyond the build-hash refusal.
+
+**Fix (site-side, purely additive — no WASM rebuild, no engine change)**:
+- webrtc.js stamps `lastRecvAt`/`lastReadAt` on ENGINE-BOUND bytes only
+  (control frames and handshake pings are filtered before the counter, so
+  the signal is pure "their input stream is alive" / "our engine is
+  consuming") and exposes `flow()` — a pure readout.
+- The fight watcher arms a per-fight baseline (effect re-runs on every phase
+  change; armed only after the first observed arrival, so the engine-boot
+  window and the rematch reboot can never read as a stall). ~10s of silence
+  on a previously-flowing stream raises a royal "FIGHT STALLED — WAITING FOR
+  THE OPPONENT…" strip — same visual family as weak-link, suppressed under
+  stronger reports, self-retracts on the next advancing tick. Detection only:
+  nothing is ever torn down from here.
+- Stream-integrity probes: each side publishes its cumulative byte counters
+  every `watchTransport` tick (`dsprobe` IKWS frames); the receiver
+  cross-checks the peer's "sent" against its own "received". On a reliable
+  ordered channel a persistent excess (>64KB across 3 consecutive ticks —
+  far beyond any in-flight window) means the streams FORKED (peer reset +
+  replay, injected frames, transport weirdness): reported as a diag line
+  with the overlay auto-opened, never fatal. Old peers never send the probe
+  and drop ours silently (unknown IKWS frame types no-op).
+
+**Result**: the silent-freeze gap is closed — a stalled fight now says so
+within ~10s, recovery clears it automatically, and a forked stream is
+diagnosable from the always-visible on-screen counters (screenshot-able).
+Backward compatible in both directions.
+
+**Lesson**: in a per-frame lockstep protocol the transport is its own best
+sensor — once input bytes have flowed, "bytes stopped flowing" is ALWAYS
+abnormal; no engine instrumentation was needed to detect the freeze, only a
+clock on the bytes the site already sees.
+
+## F-045 | Ranked ladder had no server — reportResult posted to an empty base
+
+**Constraint**: webrtc.js `reportResult` POSTed ranked results to
+`IDENTITY_URL + '/leaderboard/report'`, but nothing ever set
+`FG_BRAND.identityUrl` — every ranked match "reported" to the SITE origin
+(bare relative path) and 404'd into a log line. TODO called it: results lived
+only in the session; there was no server-side W/L record at all.
+
+**Fix**: the ladder rides on the signaling relay itself — one deployment, no
+second service:
+- worker.js: `LadderDO` (a single Durable Object, `idFromName('ladder')`;
+  SQLite-backed per free-plan rules; DO storage IS the persistence — no KV
+  namespace needed) plus `/leaderboard/report|player|top` with permissive
+  CORS (no credentials involved). Counting contract (matches the client's):
+  both peers post mirror halves; the match counts ONLY when both agree on
+  the winner. Half key = SORTED PAIR + server pairing time + match seq (both
+  peers derive it without talking). Disputes count nothing and tombstone the
+  key; commits are idempotent via the same tombstone; orphan halves expire
+  via the DO alarm (10 min). Optional `IDENTITY_VERIFY_URL` gates reports
+  exactly like the queue.
+- wrangler.toml: `LADDER` binding + migration `v2` (`new_sqlite_classes`).
+- webrtc.js: `ladderBase()` = `FG_BRAND.identityUrl` or the relay origin
+  derived from the already-resolved lobby URL; `reportResult` posts there
+  (clean skip + a diagnosable log line when the relay predates the routes —
+  no more pointless 404 to the site origin); the queue panel and the
+  postfight panel show the player's W-L best-effort (own DOM node / gated on
+  `queueRole()`, so friend matches show nothing).
+- Compatibility matrix: new client + old relay → 404 → silent skip; old
+  client + new relay → old client never POSTs (empty base) → untouched.
+
+**Local proof before deploy**: `scripts/test-ladder-do.mjs` mocks DO storage
+and drives `LadderDO.fetch` with real Requests — it caught FOUR real bugs
+before any deploy: (1) the winner's display name fell back to the lowercased
+storage key; (2) post-commit replays could DOUBLE-COUNT (a late duplicate
+from either side became a fresh half and re-paired); (3) contradictory halves
+landed on DIFFERENT keys (keyed by claimed winner) so disputes never met; (4)
+empty names were sanitized into a record under the name 'player'. All fixed:
+sorted-pair keys, `done|` tombstones, `whoName` carried in the half, raw-name
+guards. 24/24 green. `scripts/test-fge-lobby.mjs` (recreated — the original
+was lost in a sandbox reset) runs the relay protocol live: 11/11 vs the
+production worker across 3 consecutive runs.
+
+**Lesson**: an agreement protocol's dedup must survive its own commit — a
+half deleted at commit time invites the two sides' own late duplicates to
+re-pair into a second count. Tombstone the resolved key, key halves by the
+sorted pair (contradictions must MEET to be detected), and exercise the logic
+locally against a mock before spending a deploy on it.

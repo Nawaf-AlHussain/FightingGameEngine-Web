@@ -43,6 +43,10 @@
 - ✅ Comic Print System v2 (F-042): full-page motion on every chrome
   screen — staggered entrances, ambient print-shop loops, hover/press
   micro-interactions; transform/opacity only, reduced-motion honored.
+- ✅ Phase 4 hardening batch (Oct 25): mid-fight flow-stall watchdog +
+  stream-integrity probes (F-044) and ranked ladder persistence on the
+  relay (F-045) — both purely additive; the ladder goes live with one
+  `wrangler deploy` and degrades to today's silence until then.
 - ✅ 6 game modes all working (VS CPU, VS Player, Training, Arcade,
   Survival, Time Attack). Watch is disabled for the public showcase
   (F-041) — machinery intact; restore = re-add the MODES catalog entry.
@@ -148,12 +152,24 @@ engine — no site-side overlay is planned.
   royal ≤130 / crimson)
 
 ### Remaining (online)
+- [x] Desync DETECTION beyond prevention (F-044, site-side half): the
+  handshake still refuses mismatched builds up front; mid-fight, a
+  flow-stall watchdog now surfaces a previously-flowing input stream
+  going silent (~10s) as a non-destructive "FIGHT STALLED" strip, and
+  stream-integrity probes cross-check cumulative byte counters between
+  peers (a persistent >64KB excess = forked streams, reported to the
+  diag overlay, never fatal). A true mid-fight engine STATE-hash compare
+  still needs engine-side work — none happened here (no WASM rebuild).
+- [x] Ranked ladder persistence (F-045): the relay worker now serves
+  `LadderDO` + `/leaderboard/report|player|top` — both peers post
+  mirror halves, the match counts only on agreement, disputes and
+  replays are refused, orphan halves expire via the DO alarm. Client
+  wired via `ladderBase()` (relay origin), with ranked-record readouts
+  on the queue and postfight panels. NEEDS `wrangler deploy` (migration
+  v2 registers the class); until then the site behaves exactly as
+  before — silent skip, both compatibility directions graceful.
 - [ ] Full match spectating (IKEMEN rollback supports spectators; today
   only the SELECT screens are spectated live)
-- [ ] Ranked ladder persistence (results live only in the session; no
-  server-side W/L record yet)
-- [ ] Desync DETECTION beyond prevention (hash-mismatch refusal exists;
-  no mid-fight state-hash comparison report yet)
 - [ ] Remove the old-peer compatibility shims once the fleet is current
   (no-id frames degrade gracefully today)
 

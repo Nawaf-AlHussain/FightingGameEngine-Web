@@ -1,5 +1,55 @@
 # PROGRESS — Fighting Game Engine Web
 
+## Session: October 25, 2026 — Phase 4 hardening batch (F-044 + F-045)
+
+### Context
+
+The user asked for "Phase 4 hardening work, without breaking existing
+things." The Phase 4 backlog (TODO.md) had four remainders; two were
+deliberately deferred as breakage risks: full match spectating (needs a
+3-peer input mesh — engine-adjacent) and old-peer shim removal (gated on
+fleet currency). This session shipped the additive pair: mid-fight
+stall/desync detection (site half) and ranked ladder persistence.
+
+### What shipped
+
+- **F-044 — flow-stall watchdog + stream-integrity probes** (webrtc.js +
+  play page): `lastRecvAt`/`lastReadAt` stamps on engine-bound bytes only,
+  `flow()` readout, per-fight baseline armed after first observed arrival;
+  ~10s of silence on a flowing stream raises the royal "FIGHT STALLED"
+  strip (self-retracts, never tears down). `dsprobe` frames every
+  watchTransport tick cross-check cumulative counters between peers — a
+  persistent >64KB excess reports forked streams to the diag overlay.
+- **F-045 — ranked ladder persistence** (worker + webrtc.js + play page):
+  `LadderDO` (single DO, DO-storage persistence, migration v2) +
+  `/leaderboard/report|player|top` with CORS; agreeing-halves counting
+  (sorted-pair keys, tombstoned disputes + replays, alarm-swept orphans);
+  client `ladderBase()` derives the relay origin; ranked-record readouts on
+  the queue panel and the postfight panel (gated on `queueRole()`).
+- **Tests recreated/added**: `scripts/test-fge-lobby.mjs` (lost in a
+  sandbox reset; README referenced it) — 11/11 against the LIVE relay,
+  stable across 3 runs; `scripts/test-ladder-do.mjs` — 24/24 local DO
+  logic with mock storage (caught 4 real bugs pre-deploy; see F-045).
+
+### Verification
+
+- node --check on worker.js and webrtc.js; tsc --noEmit clean; build 16/16.
+- Live relay protocol test: rooms, SDP relay both ways, non-sdp drop
+  allow-list, bye-on-leave, queue pairing (role-agnostic — roles are
+  arrival-order; the first draft hardcoded them and looked flaky).
+- Ladder routes answer 404 on the production relay until `wrangler deploy`
+  (migration v2 applies automatically then) — the site degrades to today's
+  exact behavior in the meantime, both compatibility directions graceful.
+
+### Deliberately not done
+
+- Full match spectating (3-peer mesh), old-peer shim removal (fleet gate).
+- The `wrangler deploy` itself — needs CLOUDFLARE_API_TOKEN; one command,
+  documented in netrelay/cloudflare/README.md.
+
+---
+
+
 ## Session: October 24, 2026 — Comic Print System v2 (full-page motion)
 
 ### Context

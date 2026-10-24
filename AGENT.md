@@ -337,8 +337,10 @@ Character/stage files come from `/api/cdn/<path>` (GitHub-raw proxy with
 
 ### Known gaps (see TODO.md for the authoritative list):
 - [ ] Phase 5 device/browser matrix untested (needs real hardware)
-- [ ] Online remainders: full match spectating, ladder persistence,
-      mid-fight desync detection
+- [ ] Online remainders: full match spectating, old-peer shim removal.
+      (Shipped 2026-10-25: mid-fight stall/desync detection site-half and
+      ranked ladder persistence — the ladder is dormant until a
+      `wrangler deploy` carries migration v2; F-044/F-045.)
 
 ### Key insight (F-026, still true):
 The engine's fight rendering path is optimized but the menu rendering path is NOT. The site renders ALL UI; the engine only ever runs the smooth quick-match/fight path.
