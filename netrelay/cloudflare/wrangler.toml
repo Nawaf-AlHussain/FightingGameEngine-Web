@@ -14,9 +14,17 @@ class_name = "RoomDO"
 name = "QUEUE"
 class_name = "QueueDO"
 
+[[durable_objects.bindings]]
+name = "LADDER"
+class_name = "LadderDO"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["RoomDO", "QueueDO"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["LadderDO"]
 
 # Optional: ranked-queue identity verification (anti-impersonation).
 # POST {name, code} -> {ok:true}. Leave unset to accept any display name.

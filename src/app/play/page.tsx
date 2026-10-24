@@ -519,6 +519,17 @@ function PlayPageInner() {
   // a slow link used to wall the play field with the "opponent lost" report
   // while the fight underneath was still recoverable.
   const [netWeakLink, setNetWeakLink] = useState(false);
+  // Flow-stall strip (the silent-freeze fix, F-044): channel OPEN, failure
+  // flag clean, but the peer's input stream has gone quiet (backgrounded
+  // tab, GC spiral, a black hole the zombie watchdog has not tripped on
+  // yet). Lockstep inputs flow every frame while a fight runs, so a
+  // previously-flowing stream going silent is always abnormal. Slim strip
+  // like weak-link — the fight can recover on its own the moment the peer
+  // wakes up; it must NEVER tear anything down from here.
+  const [netStalled, setNetStalled] = useState(false);
+  // Postfight ranked-record readout (best-effort; blank when the relay has
+  // no ladder yet, the match was a friend match, or the fetch fails).
+  const [netLadderRec, setNetLadderRec] = useState('');
   const [netLeaveAsk, setNetLeaveAsk] = useState(false); // BACK / cancel confirmation
   const [netRematchSent, setNetRematchSent] = useState(false); // guest: request pending
   const [netOppRematch, setNetOppRematch] = useState(false); // host: request received
@@ -897,6 +908,15 @@ function PlayPageInner() {
   useEffect(() => {
     if (!NET_LIVE_PHASES.includes(netPhase)) return;
     let misses = 0;
+    // Flow-stall baseline (F-044): per-fight-entry closure state, reset by
+    // this effect re-running on every netPhase change. flowArmed gates on
+    // the first OBSERVED arrival so the engine-boot window (handshake bytes
+    // are filtered, no engine stream yet) and the rematch reboot can never
+    // read as a stall.
+    let flowLastRecv = -1;
+    let flowArmed = false;
+    let flowStalledAt = 0;
+    let netStalledArmed = false;
     // connected-but-flagged patience: the bridge's failure flag can latch on
     // a false positive (zombie-watchdog sample taken while the opponent is
     // mid-download on a congested phone link, transient dc error). The flag
@@ -938,6 +958,14 @@ function PlayPageInner() {
         //   - !alive (real close): the fight is over — the full report overlay
         //     fires after 3 dead polls. The engine will exit on its own when
         //     its reads return null, and the post-run triage lands 'error'.
+        //   - alive, clean, but the INPUT STREAM went quiet (F-044): the
+        //     strip's blind spot was a peer whose tab got backgrounded or
+        //     whose engine wedged — the channel stays open, the flags stay
+        //     clean, and the fight froze silently. flow().recv counts only
+        //     engine-bound bytes, so a per-phase baseline (armed after the
+        //     first observed arrival, reset by the effect on every fight
+        //     entry) turning still for ~10s raises netStalled. Recovery
+        //     clears it on the next advancing tick. Detection only.
         const alive = typeof net.connected === 'function' && net.connected();
         const flagged = typeof net.failed === 'function' && net.failed();
         if (alive && !flagged) {
@@ -945,11 +973,24 @@ function PlayPageInner() {
           failTicks = 0;
           setNetOppDrop(false);   // no-op while hidden; retracts a healed report
           setNetWeakLink(false);  // no-op while hidden; retracts a healed strip
+          const f = typeof net.flow === 'function' ? net.flow() : null;
+          if (f && f.recv !== flowLastRecv) {
+            flowLastRecv = f.recv;      // stream made progress (or first tick)
+            flowStalledAt = 0;
+            flowArmed = flowArmed || f.recv > 0;
+            if (netStalledArmed) { setNetStalled(false); netStalledArmed = false; }
+          } else if (f && flowArmed && f.lastRecvAgo > 6000) {
+            if (!flowStalledAt) flowStalledAt = Date.now();
+            else if (Date.now() - flowStalledAt > 4000 && !netStalledArmed) {
+              setNetStalled(true); netStalledArmed = true;
+              console.log('[netplay] fight stalled: no input bytes from the peer for ~10s (channel still open)');
+            }
+          }
           return;
         }
         if (!alive) {
           misses += 1;
-          if (misses >= 3) { setNetWeakLink(false); setNetOppDrop(true); }
+          if (misses >= 3) { setNetWeakLink(false); setNetOppDrop(true); setNetStalled(false); netStalledArmed = false; }
           return;
         }
         failTicks += 1;
@@ -980,7 +1021,32 @@ function PlayPageInner() {
         netResolveRef.current?.(null);
       }
     }, 500);
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(timer);
+      setNetStalled(false); // leaving the watched phase retracts the strip
+    };
+  }, [netPhase]);
+
+  // ---- Postfight ranked-record readout (best-effort, F-045) ----
+  // Only ranked (queue) matches have a ladder record: queueRole is the
+  // bridge's proof this session came from matchmaking. Blank when leaving
+  // postfight so a stale record never flashes on the next panel; silent on
+  // any failure (relay without the ladder routes, offline, unknown name).
+  useEffect(() => {
+    if (netPhase !== 'postfight') { setNetLadderRec(''); return; }
+    let dead = false;
+    try {
+      const net = (globalThis as any).ikemenNet;
+      if (!net?.queueRole?.()) return; // friend match: no ladder
+      const id = JSON.parse(localStorage.getItem('fg-identity') || localStorage.getItem('ikemen-identity') || 'null');
+      const base = net?.ladderBase?.();
+      if (!id || !id.name || !base) return;
+      fetch(base + '/leaderboard/player?name=' + encodeURIComponent(id.name))
+        .then(r => r.ok ? r.json() : null)
+        .then(j => { if (!dead && j && j.ok) setNetLadderRec('RANKED RECORD ' + j.w + ' - ' + j.l); })
+        .catch(() => { /* cosmetic only */ });
+    } catch { /* cosmetic only */ }
+    return () => { dead = true; };
   }, [netPhase]);
 
   // ---- BACK-button session guard (the "one accidental press kills the set" bug) ----
@@ -2662,6 +2728,15 @@ function PlayPageInner() {
           <div style={{ fontSize: '0.65rem', letterSpacing: '0.25em', color: 'var(--gray)', marginBottom: '0.6rem' }}>
             {netRole === 'host' ? 'RUN IT BACK — OR FIND NEW FIGHTERS' : 'THE HOST DECIDES THE NEXT ROUND'}
           </div>
+          {netLadderRec && (
+            <div style={{
+              fontSize: '0.62rem', letterSpacing: '0.22em', fontWeight: 700,
+              color: 'var(--royal-deep, #232f9e)', background: 'var(--paper-dim, #e5ddc5)',
+              border: '2px solid var(--ink, #101018)', padding: '0.3rem 0.7rem',
+            }}>
+              {netLadderRec}
+            </div>
+          )}
           {netRole === 'host' && netOppRematch && (
             <div style={{
               fontSize: '0.7rem', letterSpacing: '0.2em', fontWeight: 700,
@@ -2813,6 +2888,33 @@ function PlayPageInner() {
           />
           <span style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.12em', color: 'var(--ink, #101018)', whiteSpace: 'nowrap' }}>
             WEAK LINK — STILL FIGHTING…
+          </span>
+        </div>
+      )}
+
+      {/* Flow-stall strip (F-044, the silent freeze): channel OPEN, failure
+          flags clean, but the peer's input stream went quiet (backgrounded
+          tab, wedged engine, un-tripped black hole). Same visual family as
+          the weak-link strip; royal accent = informational, not danger —
+          the fight recovers on its own the moment the peer wakes up, and
+          the strip retracts on the next advancing tick. Suppressed while a
+          stronger report (weak-link, opponent-lost) is showing. */}
+      {netStalled && netPhase === 'fight' && !netWeakLink && !netOppDrop && (
+        <div
+          style={{
+            position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 10px)', left: '50%', transform: 'translateX(-50%)',
+            zIndex: 47, display: 'flex', alignItems: 'center', gap: '0.45rem',
+            maxWidth: 'min(86vw, 420px)', background: 'var(--paper, #f2ecda)',
+            border: '2px solid var(--royal, #3143d6)', boxShadow: '3px 3px 0 var(--ink, #101018)',
+            borderRadius: 2, padding: '0.3rem 0.6rem', pointerEvents: 'none',
+          }}
+        >
+          <span
+            aria-hidden="true"
+            style={{ width: 9, height: 9, borderRadius: '50%', display: 'inline-block', background: 'var(--royal, #3143d6)' }}
+          />
+          <span style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.12em', color: 'var(--ink, #101018)', whiteSpace: 'nowrap' }}>
+            FIGHT STALLED — WAITING FOR THE OPPONENT…
           </span>
         </div>
       )}

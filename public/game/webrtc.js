@@ -280,6 +280,13 @@
   // = engine wedged; both stuck = peer went silent.
   let bytesRecv = 0, bytesReadByEngine = 0, bytesSent = 0;
   let pingMs = -1; // rollback round-trip, fed by the engine via setPing
+  // Last time ENGINE-BOUND bytes arrived from the peer / were consumed by
+  // the engine. Control frames and the handshake pings are filtered before
+  // the recv counter, so these are pure "their input stream is alive" (and
+  // "our engine is consuming") clocks - the page's fight watcher reads them
+  // through flow() to surface a silent mid-fight stall instead of leaving
+  // both players staring at a frozen canvas.
+  let lastRecvAt = 0, lastReadAt = 0;
 
   // Always-visible on-screen diagnostic log - the game canvas can freeze
   // with F12 unavailable, but this DOM overlay keeps updating and can be
@@ -375,6 +382,7 @@
     gdc = null; gQueue = []; pingMs = -1;
     if (rttTimer) { clearInterval(rttTimer); rttTimer = null; }
     probeId = 0; probeSentAt = 0; bridgeRttMs = -1; rttLogged = false;
+    dsBad = 0; lastRecvAt = 0; lastReadAt = 0;
     queueRole = ''; queueP1 = ''; queueP2 = ''; queueStartedAt = 0; queueMatchSeq = 0;
     if (hshakeStallTimer) { clearTimeout(hshakeStallTimer); hshakeStallTimer = null; }
     if (!localHash) computeBuildHash();
@@ -484,7 +492,39 @@
       markDiag();
       return;
     }
+    if (m && m.t === 'dsprobe') { handleDsProbe(m); return; }
     if (controlHandler) controlHandler(m); else controlBacklog.push(m);
+  }
+
+  // ---------- stream-integrity telemetry (desync DETECTION, site half) ----------
+  // The handshake already REFUSES mismatched builds/rosters; this covers the
+  // other failure family: a live channel whose input streams have FORKED (a
+  // peer engine reset and replayed, an injected frame source, transport
+  // weirdness). Every watchTransport tick each side publishes its cumulative
+  // engine-stream counters on the reliable ordered channel; the receiver
+  // cross-checks the peer's "sent" against its own "received": a persistent
+  // excess beyond the in-flight window means bytes exist on one side that
+  // never existed on the other. DETECTION ONLY - the report is a diag line
+  // (auto-opened) and the fight is never torn down from here: a wrongly
+  // suspicious reading must not become the thing that kills a good match.
+  // Old peers never send the probe and drop ours silently (unknown IKWS
+  // frame types no-op in the site handler).
+  let dsBad = 0;
+  function handleDsProbe(m) {
+    const peerSent = Number(m.s);
+    if (!Number.isFinite(peerSent)) return;
+    const excess = peerSent - bytesRecv;
+    if (excess > 65536) { // 64KB >> any legitimate in-flight window
+      dsBad++;
+      if (dsBad === 3) { // 3 consecutive ticks (~9s) - not a reboot blip
+        netLog('STREAM INTEGRITY: peer reports ' + peerSent + 'B sent but we received ' + bytesRecv +
+          'B - the input streams have diverged. The fight may desync or freeze; if it does, screenshot the counters below.');
+        openDiag();
+      }
+    } else if (dsBad) {
+      dsBad = 0;
+      netLog('stream integrity re-verified (byte counters agree again)');
+    }
   }
 
   // Deterministic content hash (cyrb64), 8 bytes. Deliberately NOT
@@ -626,6 +666,7 @@
         return; // website-level message, never for the engine
       }
       bytesRecv += u.length; chunks.push(u); markDiag();
+      lastRecvAt = Date.now();
     };
     dc.onclose = () => { isClosed = true; isConnected = false; netLog('data channel CLOSED by peer'); };
     dc.onerror = (e) => { isFailed = true; netLog('data channel ERROR: ' + (e && e.error && e.error.message || 'unknown')); };
@@ -676,6 +717,9 @@
         stallSamples = 0;
       }
       lastBuf = buf;
+      // Stream-integrity probe (see handleDsProbe), piggybacked on this tick
+      // so it shares the channel-open lifecycle and adds no timer of its own.
+      sendCtrlRaw({ t: 'dsprobe', s: bytesSent, r: bytesReadByEngine });
       const line = 'path ' + path + ', send-buffer ' + dc.bufferedAmount + 'B' + (pingSeen ? '' : ', NO peer ping yet');
       if (line !== lastLine) { lastLine = line; netLog(line); }
       // Deferred counter repaint: the per-packet/read/send hot sites only
@@ -1248,6 +1292,48 @@
   // module uses, so a build with identity disabled reports nowhere.
   const IDENTITY_URL = ((globalThis.FG_BRAND && globalThis.FG_BRAND.identityUrl) || '').replace(/\/+$/, '');
 
+  // Where the ranked ladder lives. A dedicated identity service wins
+  // (FG_BRAND.identityUrl); otherwise the ladder rides on the SIGNALING
+  // RELAY's own origin - the worker serves /leaderboard/* beside the WS
+  // upgrade, so no second deployment exists. Derived from the same lobby
+  // URL every other flow already resolved (sync + cheap: reportResult and
+  // the queue panel can call it on demand). Empty = no ladder anywhere:
+  // reporting stays a no-op exactly as it was before this feature shipped.
+  function ladderBase() {
+    if (IDENTITY_URL) return IDENTITY_URL;
+    const u = signalUrl();
+    if (!u) return '';
+    try {
+      const o = new URL(u);
+      if (o.protocol === 'ws:') return 'http://' + o.host;
+      if (o.protocol === 'wss:') return 'https://' + o.host;
+      return o.origin;
+    } catch (e) { return ''; }
+  }
+
+  // Best-effort ranked-record readout under the queue status line. Owns its
+  // own DOM node so setStatus() churn never clobbers it. Any failure (no
+  // ladder on the relay yet, offline, unknown name) leaves nothing behind -
+  // the queue experience is byte-identical when the ladder is absent.
+  function fetchLadderRecord(name) {
+    const base = ladderBase();
+    if (!base || !panel || !panel.__status) return;
+    fetch(base + '/leaderboard/player?name=' + encodeURIComponent(name))
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (!j || !j.ok || !panel || !panel.__status) return;
+        const old = panel.querySelector('.fge-ladder-rec');
+        if (old) old.remove();
+        const line = el('div',
+          'font-size:10px;letter-spacing:0.18em;text-transform:uppercase;font-weight:700;' +
+          'color:var(--gray-dark,#2c2c3a);margin:-4px 0 8px',
+          'RANKED RECORD ' + j.w + ' - ' + j.l);
+        line.className = 'fge-ladder-rec';
+        panel.__status.insertAdjacentElement('afterend', line);
+      })
+      .catch(() => { /* cosmetic only */ });
+  }
+
   async function startQueue() {
     const ui = showPanel('queue');
     const url = await signalUrlWhenReady();
@@ -1270,6 +1356,9 @@
       return;
     }
     setStatus('Joining the queue as ' + identity.name + '...');
+    // Best-effort ranked-record readout (see fetchLadderRecord). Fire and
+    // forget - queueing proceeds identically when the ladder is absent.
+    fetchLadderRecord(identity.name);
     const ws = new WebSocket(url + (url.includes('?') ? '&' : '?') +
       'queue=1&build=' + encodeURIComponent(globalThis.engineBuildHex) +
       '&nc=' + localNetcode() +
@@ -1422,6 +1511,22 @@
     // rollback ping takes over once the fight is running). -1 = not measured
     // yet (channel still negotiating, or the peer predates the probe).
     rtt() { return bridgeRttMs; },
+    // Input-stream flow counters for the page's fight watcher: recv /
+    // engineRead advancing = the peer's inputs are arriving (and being
+    // consumed). The agos are ms since the last engine-bound arrival /
+    // consumption (-1 = never). Pure readout - the watchdog logic that
+    // decides what "too quiet" means lives in the page.
+    flow() {
+      return {
+        recv: bytesRecv, engineRead: bytesReadByEngine, sent: bytesSent,
+        lastRecvAgo: lastRecvAt ? Date.now() - lastRecvAt : -1,
+        lastReadAgo: lastReadAt ? Date.now() - lastReadAt : -1,
+      };
+    },
+    // Ladder origin for the page's own best-effort record readouts (the
+    // postfight panel). Same resolution reportResult uses - '' when the
+    // build has no lobby configured at all.
+    ladderBase() { return ladderBase(); },
     // Ranked-queue state for the engine (netplay_js.go): which side the
     // server assigned us ('' until matched), and the verified display
     // names as "p1\np2" for the in-match plates.
@@ -1461,6 +1566,11 @@
         if (!id || !id.name || !id.code) return;
         if (!queueStartedAt) { netLog('no pairing time - result not reported'); return; }
         var iAmP1 = queueRole === 'host';                    // host is always side 1
+        // The ladder lives somewhere concrete or nowhere; POSTing to a bare
+        // relative path (the old empty-IDENTITY_URL behavior) just 404'd the
+        // site origin every match. No base = clean skip, same net effect.
+        var ladderUrl = ladderBase();
+        if (!ladderUrl) { netLog('no ladder service configured - result not reported'); return; }
         // Advance only AFTER every guard: a peer that bails out early must not
         // leave its counter one ahead of the other side's for the rest of the
         // session. Both peers report every match, so both counters step together.
@@ -1482,12 +1592,17 @@
           buildId: globalThis.engineBuildHex || ''
         };
         netLog('reporting result: ' + (body.won ? 'WIN' : 'LOSS') + ' vs ' + body.opponent);
-        fetch(IDENTITY_URL + '/leaderboard/report', {
+        fetch(ladderUrl + '/leaderboard/report', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
           keepalive: true   // survive the page being closed right after
-        }).then(function (r) { return r.json(); })
+        }).then(function (r) {
+          // The deployed relay may predate the ladder routes: turn the plain
+          // -text 404 into a diagnosable state instead of a json() throw.
+          if (!r.ok) return { state: r.status === 404 ? 'relay has no ladder yet (update the worker)' : 'http ' + r.status };
+          return r.json();
+        })
           .then(function (r) { netLog('leaderboard: ' + (r && r.state || 'no reply')); })
           .catch(function (e) { netLog('leaderboard report failed: ' + e.message); });
       } catch (e) {
@@ -1517,6 +1632,7 @@
       if (n === avail) { chunks.shift(); chunkOff = 0; }
       else chunkOff += n;
       bytesReadByEngine += n; markDiag();
+      lastReadAt = Date.now();
       return out;
     },
     send(u8) {

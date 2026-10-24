@@ -13,6 +13,31 @@ Workers + Durable Objects has no wall-clock billing for idle sockets
 - Protocol: identical to `netrelay/relay.ts` (rooms) plus the ranked queue
   (`?queue=1`) that `webrtc.js` already speaks.
 
+## Ranked ladder (F-045)
+
+The worker also serves the ranked ladder beside the WS handshake:
+
+- `POST /leaderboard/report` — both peers post their mirror result
+  independently (`name, opponent, won, character, startedAt, seq`); the
+  match counts ONLY when the two halves agree on the winner. Disputed
+  keys count nothing (and are tombstoned against retries); reports are
+  idempotent after the commit; orphan halves expire in 10 minutes via
+  the DO alarm.
+- `GET /leaderboard/player?name=X` — `{ok, name, w, l}` (404 = unknown).
+- `GET /leaderboard/top?n=10` — rows sorted by net wins (max 50).
+
+Storage is a single `LadderDO` Durable Object (`idFromName('ladder')`) —
+DO storage IS the persistence, so no KV namespace or extra namespace
+binding is needed. Free-plan constraint: the class is registered in
+wrangler.toml migration `v2` (`new_sqlite_classes`). The routes answer
+503 until a deploy carries the binding, and the site skips the ladder
+silently in that state — old relay with new client AND new relay with
+old client are both graceful.
+
+Local logic proof: `/home/z/my-project/scripts/test-ladder-do.mjs`
+(mock DO storage, 24 assertions — agreement, disputes, replay
+idempotency, sweep, route guard).
+
 ## Redeploy / update
 
 ```bash
@@ -20,6 +45,11 @@ cd netrelay/cloudflare
 npm install
 CLOUDFLARE_API_TOKEN=<token> npx wrangler deploy
 ```
+
+The migration (v2: registers `LadderDO`) applies automatically on deploy.
+After deploying, re-run the protocol test:
+`node /home/z/my-project/scripts/test-fge-lobby.mjs` — the ladder section
+flips from SKIP to a full agree/dispute/replay pass.
 
 The account needs one-time setup (already done): a workers.dev subdomain
 (`nawaf-alhussain.workers.dev`).

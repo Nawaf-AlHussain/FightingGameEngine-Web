@@ -82,6 +82,44 @@ function denyResponse(reason) {
   return new Response(null, { status: 101, webSocket: pair[0] });
 }
 
+// JSON response with permissive CORS for the leaderboard routes: the site
+// (open-fighter.vercel.app and friends) is a DIFFERENT origin from the
+// workers.dev relay. No credentials are involved (the body carries the
+// player's own identity), so '*' is safe and keeps third-party frontends
+// (itch embed) working.
+function json(data, status) {
+  return new Response(JSON.stringify(data), {
+    status: status || 200,
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'access-control-allow-origin': '*',
+      'access-control-allow-methods': 'GET, POST, OPTIONS',
+      'access-control-allow-headers': 'content-type',
+      'cache-control': 'no-store',
+    },
+  });
+}
+
+// Shared identity gate (optional): IDENTITY_VERIFY_URL set in wrangler vars
+// turns every name claim (queue AND ladder report) into a verified call.
+// Unset, any display name is accepted - the same trade-off the queue made
+// on day one.
+async function verifyIdentity(env, name, code) {
+  try {
+    const u = env.IDENTITY_VERIFY_URL;
+    const endpoint = /^https?:\/\//i.test(u) ? u : 'https://' + u;
+    const r = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name, code }),
+    });
+    const j = await r.json();
+    return !!(j && (j.ok === true || j.success === true));
+  } catch (e) {
+    return false; // fail CLOSED for ranked: unverifiable -> cannot queue/report
+  }
+}
+
 function closeAll(state, tags, closeInfo) {
   for (const tag of tags) {
     for (const ws of state.getWebSockets(tag)) {
@@ -243,19 +281,7 @@ export class QueueDO {
   }
 
   async verifyIdentity(name, code) {
-    try {
-      const u = this.env.IDENTITY_VERIFY_URL;
-      const endpoint = /^https?:\/\//i.test(u) ? u : 'https://' + u;
-      const r = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name, code }),
-      });
-      const j = await r.json();
-      return !!(j && (j.ok === true || j.success === true));
-    } catch (e) {
-      return false; // fail CLOSED for ranked: unverifiable -> cannot queue
-    }
+    return verifyIdentity(this.env, name, code);
   }
 
   onMessage(entry, ev) {
@@ -311,12 +337,214 @@ export class QueueDO {
 }
 
 // ---------------------------------------------------------------------------
+// LadderDO — ranked ladder persistence, ONE instance for the whole worker
+// (idFromName('ladder')). DO storage IS the persistence: it survives
+// eviction and deploy, so no KV namespace or extra binding is needed.
+//
+// Counting rule (matches the client's contract in webrtc.js): both peers
+// post the mirror image of their result independently; the match is COUNTED
+// only when the two halves AGREE on the winner. A half is keyed
+// deterministically from (sorted winner/loser, server pairing time, match
+// seq) so both peers land on the same key without talking to each other.
+// Contradictory halves are a dispute: nothing is counted and both halves
+// are dropped. Unmatched halves expire via the DO alarm (10 min).
+//
+// Free-plan constraint: Durable Objects must be SQLite-backed — the class
+// is registered in wrangler.toml migrations (v2, new_sqlite_classes).
+// ---------------------------------------------------------------------------
+
+const LADDER_HALF_TTL_MS = 10 * 60 * 1000;
+const LADDER_MAX_TOP = 50;
+
+export class LadderDO {
+  constructor(state, env) {
+    this.state = state;
+    this.env = env;
+  }
+
+  async fetch(request) {
+    const url = new URL(request.url);
+    if (request.method === 'OPTIONS') return json({ ok: true });
+
+    if (request.method === 'POST' && url.pathname === '/leaderboard/report') {
+      let b;
+      try {
+        const raw = await request.text();
+        if (raw.length > 4096) return json({ ok: false, state: 'payload too large' }, 413);
+        b = JSON.parse(raw);
+      } catch (e) { return json({ ok: false, state: 'bad json' }, 400); }
+      // Reject empty claims BEFORE sanitizeName: its empty->'player' fallback
+      // is meant for queue display names, not for filing ladder results — an
+      // empty name must be a 400, never a record under the name 'player'.
+      const rawName = String((b && b.name) || '').trim();
+      const rawOpp = String((b && b.opponent) || '').trim();
+      if (!rawName || !rawOpp) return json({ ok: false, state: 'bad name' }, 400);
+      const name = sanitizeName(rawName);
+      const code = String((b && b.code) || '');
+      const opponent = sanitizeName(rawOpp);
+      const won = (b && b.won) === true;
+      const character = sanitizeCharacter(b && b.character);
+      const startedAt = Math.floor(Number(b && b.startedAt));
+      const seq = Math.floor(Number(b && b.seq));
+      if (name.toLowerCase() === opponent.toLowerCase()) return json({ ok: false, state: 'self match' }, 400);
+      if (!Number.isFinite(startedAt) || startedAt <= 0) return json({ ok: false, state: 'bad pairing time' }, 400);
+      if (!Number.isFinite(seq) || seq < 1) return json({ ok: false, state: 'bad seq' }, 400);
+      // Same optional anti-impersonation gate the queue uses: when set, a
+      // report from an unverified name can't file results under it.
+      if (this.env && this.env.IDENTITY_VERIFY_URL) {
+        const ok = await verifyIdentity(this.env, name, code);
+        if (!ok) return json({ ok: false, state: 'badident' }, 403);
+      }
+      return json(await this.report(name, opponent, won, character, startedAt, seq));
+    }
+
+    if (request.method === 'GET' && url.pathname === '/leaderboard/player') {
+      const raw = String(url.searchParams.get('name') || '').trim();
+      if (!raw) return json({ ok: false, state: 'bad name' }, 400);
+      const name = sanitizeName(raw);
+      const rec = await this.state.storage.get('p|' + name.toLowerCase());
+      if (!rec) return json({ ok: false, state: 'unknown' }, 404);
+      return json({ ok: true, name: rec.name, w: rec.w, l: rec.l, updated: rec.updated || 0 });
+    }
+
+    if (request.method === 'GET' && url.pathname === '/leaderboard/top') {
+      let n = Math.floor(Number(url.searchParams.get('n')) || 10);
+      n = Math.max(1, Math.min(n, LADDER_MAX_TOP));
+      const rows = [];
+      const map = await this.state.storage.list({ prefix: 'p|' });
+      for (const [, rec] of map) rows.push({ name: rec.name, w: rec.w, l: rec.l });
+      rows.sort((a, b) => (b.w - b.l) - (a.w - a.l) || b.w - a.w || a.name.localeCompare(b.name));
+      return json({ ok: true, rows: rows.slice(0, n) });
+    }
+
+    return json({ ok: false, state: 'not found' }, 404);
+  }
+
+  async report(name, opponent, won, character, startedAt, seq) {
+    const meKey = name.toLowerCase();
+    const oppKey = opponent.toLowerCase();
+    const winnerKey = won ? meKey : oppKey;
+    const loserKey = won ? oppKey : meKey;
+    // The half key is keyed by the SORTED PAIR (not the claimed winner):
+    // contradictory claims must land on the SAME key to meet as a dispute.
+    // Keying by claimed winner would file them apart and they would never
+    // compare — both halves would silently age out instead of conflicting.
+    const pairKey = [meKey, oppKey].sort().join('|');
+    const halfKey = 'half|' + pairKey + '|' + startedAt + '|' + seq;
+    const doneKey = 'done|' + pairKey + '|' + startedAt + '|' + seq;
+
+    // Already-resolved match (counted or disputed): any further report for
+    // the same key is a replay. The tombstone makes the commit idempotent —
+    // without it, a late duplicate from side A arriving AFTER the commit
+    // would be treated as a fresh half and could pair with side B's own
+    // late duplicate, counting the same match twice.
+    if (await this.state.storage.get(doneKey)) {
+      return { ok: true, state: 'duplicate' };
+    }
+
+    const existing = await this.state.storage.get(halfKey);
+    if (!existing) {
+      // First half on the table. The alarm sweeps it away if the mirror
+      // never arrives (opponent DC'd mid-report, wrong clock, abuse probe).
+      await this.state.storage.put(halfKey, {
+        who: meKey, whoName: name, winnerKey, character, ts: Date.now(),
+      });
+      await this.state.storage.setAlarm(Date.now() + LADDER_HALF_TTL_MS);
+      return { ok: true, state: 'awaiting_peer' };
+    }
+    if (existing.who === meKey) {
+      return { ok: true, state: 'duplicate' }; // same reporter twice: no count
+    }
+    if (existing.winnerKey !== winnerKey) {
+      // Dispute: the two peers disagree on the winner. Count nothing and
+      // tombstone the key — a contested match must never mutate the ladder,
+      // and retries of either half must not resurrect it.
+      await this.state.storage.delete(halfKey);
+      await this.state.storage.put(doneKey, { ts: Date.now(), disputed: true });
+      return { ok: true, state: 'conflict' };
+    }
+
+    // Agreement: commit the match. DO input gates serialize fetch handlers
+    // per instance, so the get-then-put sequence below cannot interleave
+    // with a concurrent report landing on the same half.
+    const wrec = (await this.state.storage.get('p|' + winnerKey)) ||
+      { name: winnerKey, w: 0, l: 0, chars: {}, updated: 0 };
+    const lrec = (await this.state.storage.get('p|' + loserKey)) ||
+      { name: loserKey, w: 0, l: 0, chars: {}, updated: 0 };
+    // Display names: whichever report is the WINNER'S OWN carries the
+    // winner's name; the mirror (or the stored half) carries the loser's.
+    // The commit must not fall back to the lowercased storage key.
+    if (won) {
+      wrec.name = name;
+      lrec.name = existing.whoName || lrec.name;
+    } else {
+      lrec.name = name;
+      wrec.name = existing.whoName || wrec.name;
+    }
+    wrec.w += 1;
+    lrec.l += 1;
+    if (character) {
+      const wChar = won ? character : existing.character;
+      const lChar = won ? existing.character : character;
+      if (wChar) wrec.chars[wChar] = (wrec.chars[wChar] || 0) + 1;
+      if (lChar) lrec.chars[lChar] = (lrec.chars[lChar] || 0) + 1;
+    }
+    wrec.updated = startedAt;
+    lrec.updated = startedAt;
+    await this.state.storage.put('p|' + winnerKey, wrec);
+    await this.state.storage.put('p|' + loserKey, lrec);
+    await this.state.storage.delete(halfKey);
+    await this.state.storage.put(doneKey, { ts: Date.now() });
+    return { ok: true, state: 'counted' };
+  }
+
+  // Sweep: halves whose mirror never came, and tombstones past their TTL
+  // (the replay window). Re-arms only while entries remain, so a quiet
+  // ladder costs no alarms.
+  async alarm() {
+    const cutoff = Date.now() - LADDER_HALF_TTL_MS;
+    const stale = [];
+    for (const prefix of ['half|', 'done|']) {
+      const items = await this.state.storage.list({ prefix });
+      for (const [key, v] of items) {
+        if (!v || (v.ts || 0) < cutoff) stale.push(key);
+      }
+    }
+    if (stale.length) await this.state.storage.delete(stale);
+    const left = (await this.state.storage.list({ prefix: 'half|', limit: 1 })).size +
+      (await this.state.storage.list({ prefix: 'done|', limit: 1 })).size;
+    if (left) await this.state.storage.setAlarm(Date.now() + LADDER_HALF_TTL_MS);
+  }
+}
+
+// Display-name-grade sanitization for character ids (they end up in JSON
+// responses and tally keys; never trust client bytes).
+function sanitizeCharacter(raw) {
+  const s = String(raw || '').replace(/[^\w\-. ]/g, '').trim();
+  return s.slice(0, 64);
+}
+
+// ---------------------------------------------------------------------------
 // Worker entrypoint — routes an upgrade to the right Durable Object
 // ---------------------------------------------------------------------------
 
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+
+    // Ranked ladder (CORS JSON, no WebSocket). Guarded on the binding so an
+    // un-migrated deployment answers 503 instead of throwing: the client
+    // treats any non-OK as "no ladder" and stays exactly as silent as it
+    // was before this feature existed.
+    if (url.pathname === '/leaderboard/report' || url.pathname === '/leaderboard/player' || url.pathname === '/leaderboard/top') {
+      if (!env.LADDER) {
+        if (request.method === 'OPTIONS') return json({ ok: true });
+        return json({ ok: false, state: 'ladder not configured (LADDER binding missing)' }, 503);
+      }
+      const stub = env.LADDER.get(env.LADDER.idFromName('ladder'));
+      return stub.fetch(request);
+    }
+
     if (url.pathname !== '/' && url.pathname !== '/ws') {
       return new Response('not found', { status: 404 });
     }
