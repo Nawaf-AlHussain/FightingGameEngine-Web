@@ -27,17 +27,19 @@
   unique ISSUE numbers per screen (05 NETWORK on the netplay overlays),
   transparent character portraits.
 - ✅ Demo asset mirror: the demo deployment reads
-  `FightingGameEngine/DemoAssets` via the
-  `ASSETS_GH_REPO` env switch — now a **Marvel-only roster**
-  (87 charsMARVEL characters + portraits + Masjid stage; the 71-char
-  DBZ `chars/` was removed, manifest bumped to v3 with `sources`
-  and portrait fields). `scripts/sync-demo-assets.py` must NOT be run
-  against it anymore without an include-list update — it would
-  re-add the removed DBZ `chars/`.
+  `FightingGameEngine/DemoAssets` via the `ASSETS_GH_REPO` env pin in
+  `vercel.json` — now a **Marvel-only roster with the full production
+  stage set** (87 charsMARVEL characters + portraits; the 71-char DBZ
+  `chars/` was removed; all 9 Assets stages + thumbs copied in and
+  Masjid_Al_Mustafa removed; manifest at **v5** — `sources`, portrait
+  fields, and the per-character `source` field the UI groups by).
+  `scripts/sync-demo-assets.py` must NOT be run against it anymore
+  without an include-list update — it would re-add the removed DBZ
+  `chars/`.
 - ✅ Frontend 2.1 complete (spec §56 DoD); 100% 60fps for ALL characters
   incl. heavy DBZ with specials (F-038 spatial grid broad-phase); no
   mid-round GC pauses (F-033); IndexedDB caching (F-037); .pak fast load
-  (F-029); 87 characters + 5 stages on the production CDN.
+  (F-029); 87 characters + 9 stages on the production CDN.
 - ✅ Comic Print System v2 (F-042): full-page motion on every chrome
   screen — staggered entrances, ambient print-shop loops, hover/press
   micro-interactions; transform/opacity only, reduced-motion honored.
@@ -45,9 +47,11 @@
   Survival, Time Attack). Watch is disabled for the public showcase
   (F-041) — machinery intact; restore = re-add the MODES catalog entry.
 - ✅ **This repo (`FightingGameEngine-Demo`) and
-  `FightingGameEngine-Web` are byte-identical mirrors** — same commit
-  history, pushed in lockstep. The Vercel deployments differ only in env
-  (`ASSETS_GH_REPO`).
+  `FightingGameEngine-Web` mirror each other's code byte-for-byte**, with
+  ONE deliberate exception: `vercel.json` `env.ASSETS_GH_REPO` — Demo
+  pins `FightingGameEngine/DemoAssets`, Web pins `FightingGameEngine/
+  Assets` (production). Histories diverge at those commits; never mirror
+  that env line between the repos (see AGENT.md).
 
 ---
 
