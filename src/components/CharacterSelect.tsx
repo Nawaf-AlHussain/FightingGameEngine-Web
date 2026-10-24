@@ -16,6 +16,7 @@ import {
   charRef,
   splitCharRef,
   portraitUrl,
+  assetImgFallbackUrl,
   loadSavedRosterSource,
   clearSavedRosterSource,
   rosterGroupDisplayName,
@@ -1397,17 +1398,21 @@ const CharacterCard = memo(function CharacterCard({
 function PortraitImg({ src, className }: { src: string; className?: string }) {
   const [loaded, setLoaded] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  // Retry chain: 0/1 = the given (direct jsDelivr) URL, then one attempt on
+  // the /api/cdn proxy equivalent before the letter tile wins — covers
+  // jsDelivr's 403 on '!' filenames and transient CDN failures.
+  const url = attempt >= 2 ? assetImgFallbackUrl(src) : src;
   return (
     <img
       key={attempt}
-      src={src}
+      src={url}
       alt=""
       loading="lazy"
       decoding="async"
       className={`${className ?? ''}${loaded ? ' loaded' : ''}`}
       onLoad={() => setLoaded(true)}
       onError={() => {
-        if (attempt < 1) {
+        if (attempt < 2) {
           setTimeout(() => setAttempt(a => a + 1), 1500);
         }
       }}

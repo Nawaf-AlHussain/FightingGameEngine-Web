@@ -1326,3 +1326,52 @@ element oversized -68px left/right so no gap is exposed).
 
 **Lesson**: CSS choreography is markup-coupled — probe the live DOM
 (getComputedStyle) on every screen before trusting a delay map.
+
+## F-043 | Vercel Fast Origin Transfer — assets moved to direct jsDelivr, proxy demoted to fallback
+
+**Constraint**: Vercel bills Fast Origin Transfer for every byte served on an
+edge-cache miss (Hobby plan: 10 GB/month). Every roster byte — character packs
+(16–84 MB per entry), stages, portraits — flowed through the `/api/cdn`
+serverless proxy. Even with `s-maxage=86400` edge caching, each unique asset
+URL re-fills per region per day: a burst of visitors browsing the 362-character
+roster could burn the quota in days. Static engine files were already fine
+(`engine.wasm.gz` 5.3 MB + `game.pak.gz` 2 MB, immutable headers, `?v=`-stamped
+fetches — one ~7 MB fill per region per deploy).
+
+**Fix (transport-only)**: the manifest already carried each entry's direct
+jsDelivr base (`cdnBase`) — the same upstream the proxy itself prefers — so
+`character-downloader.ts` now derives the repo root from it and fetches DIRECT
+from `cdn.jsdelivr.net` (CORS `*`, tolerates the `?v=` query). The proxy stays
+as the automatic second tier for every byte path (`fetchAssetResponse`), and
+`PortraitImg`/`StageImg` swap to `assetImgFallbackUrl(src)` on their third
+attempt. IndexedDB persistence, verified-download integrity checks, the
+netplay roster fingerprint (still a pure function of manifest bytes), and all
+cache keys are untouched — direct and proxied fetches resolve the same
+jsDelivr object, so netplay byte-consistency holds.
+
+**Hard limits discovered (curl-verified)**:
+- jsDelivr refuses files > 20 MB via `/gh`: `"File size exceeded the
+  configured limit of 20 MB"` (Onslaught 34 MB → 403; Thor 11 MB → 200).
+  Oversize packs fall back to the proxy — unavoidable today, and rare.
+- The earlier "Package size exceeded … 50 MB" 403 on
+  `chars/Abomination/Abomination.sff` was a STALE PRODUCTION MANIFEST PATH
+  (that char now lives under `charsMARVEL/`); the real file serves fine.
+  Production `Assets` manifest (v3) has drifted paths; DemoAssets (v5) is
+  correct — the demo deployment reads DemoAssets.
+- jsDelivr serves `.def`/text with `content-encoding: br` — `fetchFileVerified`
+  already skips the content-length check when that header is present.
+
+**Gotcha hit while verifying locally**: `pkill -f 'next start'` does not match
+the real process name (`next-server (v16.3.1)`) — the stale server kept port
+3000 and served the pre-fix bundle (EADDRINUSE hid the failed restart; the
+browser then replayed old immutable-cached chunks whose names no longer existed
+on disk, killing hydration). Kill by PID or `pkill -f next-server`.
+
+**Result**: the vast majority of asset bytes (files ≤ 20 MB — defs, cns, cmd,
+air, most sff/snd, all portraits/thumbs) leave Vercel entirely; only oversize
+packs still transit the proxy, absorbed by its edge cache. Estimated FOT drop:
+from GBs-per-hundred-visitors to static fills + oversize stragglers.
+
+**Lesson**: when a proxy's upstream is a public CDN, the browser can usually
+talk to that CDN directly — keep the proxy for the cases CORS/limits force,
+not as the default path.

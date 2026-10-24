@@ -12,15 +12,79 @@
 // Combined (play-page cache-miss fallback): downloadCharacterToCache ->
 // inject from the in-hand record — see downloadAndInjectCharacter below.
 //
-// We use a Vercel serverless proxy (/api/cdn/) instead of jsDelivr directly
-// because jsDelivr returns 403 for some files (especially with '!' in names),
-// and raw.githubusercontent.com doesn't set CORS headers for browser fetch.
+// ── TRANSPORT: direct jsDelivr first, /api/cdn proxy as fallback ──────────
+// Vercel bills Fast Origin Transfer for every byte /api/cdn serves on an
+// edge-cache miss (Hobby plan: 10 GB/month). Character packs run 16–50 MB
+// and the ?v= namespaces re-fill per region per day, so a burst of visitors
+// browsing the 362-character roster could burn the whole quota through the
+// proxy alone. The manifest already carries each entry's direct jsDelivr
+// base (cdnBase) — the SAME upstream the proxy itself prefers — so the
+// browser now fetches directly from cdn.jsdelivr.net (CORS *, ignores the
+// ?v= query) and only falls back to the proxy when jsDelivr fails: it 403s
+// on some '!' filenames, and raw.githubusercontent.com has no CORS headers
+// (the reason the proxy exists). Netplay byte-consistency is unaffected:
+// direct and proxied fetches resolve the same jsDelivr object for the same
+// path+query, and the verified-download / IndexedDB layers sit above
+// transport. Static engine files (wasm/pak) never went through the proxy.
 
 // Fetch manifest through our own API proxy to avoid CORS issues with
 // raw.githubusercontent.com and jsDelivr CDN caching delays.
 // The proxy fetches from GitHub raw (always up-to-date) and serves with CORS.
 const ASSETS_MANIFEST_URL = '/api/assets-manifest';
 const CDN_PROXY_BASE = '/api/cdn/';
+
+// ── Direct-transport state + helpers ──────────────────────────────────────
+
+// Root jsDelivr base for direct browser fetches, derived once from the
+// manifest (every entry's cdnBase shares the repo root:
+// "https://cdn.jsdelivr.net/gh/<repo>@main/<folder>/<id>/"). Null until the
+// manifest arrives and for manifests that don't carry the base (then
+// everything routes through the proxy exactly as before this change).
+let directCdnRoot: string | null = null;
+
+function noteDirectCdnRoot(manifest: AssetsManifest): void {
+  const sample = manifest.characters[0]?.cdnBase || manifest.stages[0]?.cdnBase || '';
+  const m = sample.match(/^https:\/\/cdn\.jsdelivr\.net\/gh\/[^/]+\/[^/]+@main\//);
+  directCdnRoot = m ? m[0] : null;
+}
+
+/** Repo-root-relative asset path → browser URL: direct jsDelivr when the
+ *  manifest gave us the root (the common case), proxy otherwise. */
+function assetPublicUrl(repoPath: string): string {
+  return directCdnRoot ? directCdnRoot + repoPath : CDN_PROXY_BASE + repoPath;
+}
+
+/**
+ * <img> retry fallback: a direct jsDelivr URL converted to its /api/cdn/
+ * proxy equivalent (used by PortraitImg / stage thumbs when jsDelivr 403s
+ * on '!' filenames). Unrecognized URLs come back unchanged so the caller's
+ * last attempt is a no-op retry.
+ */
+export function assetImgFallbackUrl(src: string): string {
+  const m = src.match(/^https:\/\/cdn\.jsdelivr\.net\/gh\/[^/]+\/[^/]+@main\/(.+)$/);
+  return m ? CDN_PROXY_BASE + m[1] : src;
+}
+
+/**
+ * Fetch one asset file: direct jsDelivr first, /api/cdn proxy on any
+ * non-OK status or network error. Resolves with the first OK response, or
+ * with the proxy's response (caller decides what !ok means there), or
+ * rejects when BOTH tiers threw. cache:'force-cache' mirrors the old
+ * same-origin fetches — the browser HTTP cache pins per-URL copies and
+ * jsDelivr's own max-age=604800 keeps warm entries local.
+ */
+async function fetchAssetResponse(relPath: string, query: string): Promise<Response> {
+  if (directCdnRoot) {
+    try {
+      const res = await fetch(directCdnRoot + relPath + query, { cache: 'force-cache' });
+      if (res.ok) return res;
+      try { await res.body?.cancel(); } catch { /* already consumed */ }
+    } catch {
+      // network error / CORS / timeout — fall through to the proxy
+    }
+  }
+  return fetch(CDN_PROXY_BASE + relPath + query, { cache: 'force-cache' });
+}
 
 // The classic roster folder. Characters in any other chars* folder
 // (charsMARVEL, charsDC, ...) get a source-qualified selection reference
@@ -129,18 +193,20 @@ export function splitCharRef(ref: string): { source: string; id: string } {
 }
 
 /**
- * Browser URL for a character's big-portrait PNG, served through the same
- * CDN proxy as game files (the manifest stores an Assets-repo-relative
- * path). Undefined when the character has no extracted portrait.
+ * Browser URL for a character's big-portrait PNG. Direct jsDelivr when the
+ * manifest provided the base (Fast Origin Transfer budget), /api/cdn proxy
+ * otherwise and as the <img> onError fallback (see assetImgFallbackUrl).
+ * Undefined when the character has no extracted portrait.
  */
 export function portraitUrl(char: { portrait?: string } | undefined | null): string | undefined {
   if (!char?.portrait) return undefined;
-  return `${CDN_PROXY_BASE}${char.portrait}`;
+  return assetPublicUrl(char.portrait);
 }
 
 /**
- * Browser URL for a stage's thumbnail, served through the same CDN proxy
- * as game files. Convention: the thumbnail is a 512x288 JPEG at
+ * Browser URL for a stage's thumbnail. Direct jsDelivr when the manifest
+ * provided the base, /api/cdn proxy otherwise (and as the img onError
+ * fallback). Convention: the thumbnail is a 512x288 JPEG at
  * "stages/thumbs/<stage>.jpg" in the Assets repo (regeneratable from the
  * full-res renders via scripts/gen-stage-thumbs.py). The full-res
  * "<stage>.png" renders that used to sit next to the .def are 2-3 MB each
@@ -150,13 +216,13 @@ export function portraitUrl(char: { portrait?: string } | undefined | null): str
  */
 export function stageThumbUrl(stage: StageInfo | undefined | null): string | undefined {
   if (!stage) return undefined;
-  if (stage.thumb) return `${CDN_PROXY_BASE}${stage.thumb}`;
+  if (stage.thumb) return assetPublicUrl(stage.thumb);
   const def = stage.files.find(f => f.toLowerCase().endsWith('.def'));
   if (!def) return undefined;
   const base = def.slice(def.lastIndexOf('/') + 1).replace(/\.def$/i, '');
   const m = stage.cdnBase.match(/Assets@main\/(.+)$/);
   const dir = m ? m[1] : 'stages/';
-  return `${CDN_PROXY_BASE}${dir}thumbs/${base}.jpg`;
+  return assetPublicUrl(`${dir}thumbs/${base}.jpg`);
 }
 
 export interface StageInfo {
@@ -190,14 +256,20 @@ export interface StageInfo {
 export async function isStageAvailable(info: StageInfo): Promise<boolean> {
   const def = info.files.find(f => f.toLowerCase().endsWith('.def')) || info.files[0];
   if (!def) return true;
-  try {
-    const res = await fetch(`${CDN_PROXY_BASE}stages/${encodeURIComponent(def)}`);
-    try { await res.body?.cancel(); } catch { /* already consumed/closed */ }
-    if (res.status === 404) return false;
-    return true;
-  } catch {
-    return true; // network error ≠ missing file — fail open
+  const rel = 'stages/' + encodeURIComponent(def);
+  const candidates = [assetPublicUrl(rel), CDN_PROXY_BASE + rel];
+  for (const url of candidates) {
+    try {
+      const res = await fetch(url);
+      try { await res.body?.cancel(); } catch { /* already consumed/closed */ }
+      if (res.status === 404) return false;
+      if (res.ok) return true;
+      // Throttled / transient status on this tier — try the next one.
+    } catch {
+      // network error on this tier — try the next one
+    }
   }
+  return true; // every tier errored ≠ missing file — fail open
 }
 
 interface AssetsManifest {
@@ -282,6 +354,9 @@ export async function fetchAssetsManifest(): Promise<AssetsManifest> {
   // byte-identical manifests must hash identically across peers.
   const text = await res.text();
   const manifest: AssetsManifest = JSON.parse(text);
+  // Learn the direct jsDelivr root from this manifest (transport only — the
+  // netplay fingerprint below stays a pure function of the manifest bytes).
+  noteDirectCdnRoot(manifest);
   // Stamp the manifest version onto every entry: the download paths turn it
   // into a ?v= cache-buster and the IndexedDB meta records store it, so a
   // future roster/content update re-downloads instead of serving stale bytes.
@@ -416,7 +491,7 @@ export async function downloadCharacter(
     const batch = files.slice(i, i + BATCH_SIZE);
 
     await Promise.all(batch.map(async (filename) => {
-      const url = CDN_PROXY_BASE + source + '/' + char.id + '/' + filename + assetVersionQuery(char);
+      const relPath = source + '/' + char.id + '/' + filename;
       // Character files go into chars/<id>/ in the VFS
       const vpath = `chars/${char.id}/${filename}`;
 
@@ -427,7 +502,7 @@ export async function downloadCharacter(
       }
 
       try {
-        const res = await fetch(url, { cache: 'force-cache' });
+        const res = await fetchAssetResponse(relPath, assetVersionQuery(char));
         if (!res.ok) {
           console.warn(`Failed to download ${filename}: ${res.status}`);
           failed.push(filename);
@@ -483,7 +558,7 @@ export async function downloadStage(
   onProgress?.(0, `Downloading ${stage.displayName}...`);
 
   await Promise.all(files.map(async (filename) => {
-    const url = CDN_PROXY_BASE + 'stages/' + filename;
+    const relPath = 'stages/' + filename;
     // Stage files go into stages/ in the VFS
     const vpath = `stages/${filename}`;
 
@@ -493,7 +568,7 @@ export async function downloadStage(
     }
 
     try {
-      const res = await fetch(url, { cache: 'force-cache' });
+      const res = await fetchAssetResponse(relPath, '');
       if (!res.ok) {
         console.warn(`Failed to download ${filename}: ${res.status}`);
         failed.push(filename);
@@ -632,9 +707,9 @@ function emitProgress(inflight: InflightDownload, pct: number, msg: string): voi
 //      sniff (an exotic magic this build does not know), it is injected
 //      anyway and the engine decides — never a purge loop.
 
-async function fetchFileVerified(url: string, filename: string): Promise<Blob> {
+async function fetchFileVerified(relPath: string, query: string, filename: string): Promise<Blob> {
   for (let attempt = 1; attempt <= 2; attempt++) {
-    const res = await fetch(url, { cache: 'force-cache' });
+    const res = await fetchAssetResponse(relPath, query);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const blob = await res.blob();
     // Skip the check when the payload was transfer-compressed: content-length
@@ -742,9 +817,9 @@ export async function downloadCharacterToCache(
     for (let i = 0; i < files.length; i += BATCH_SIZE) {
       const batch = files.slice(i, i + BATCH_SIZE);
       await Promise.all(batch.map(async (filename) => {
-        const url = CDN_PROXY_BASE + source + '/' + char.id + '/' + filename + assetVersionQuery(char);
+        const relPath = source + '/' + char.id + '/' + filename;
         try {
-          downloadedFiles[filename] = await fetchFileVerified(url, filename);
+          downloadedFiles[filename] = await fetchFileVerified(relPath, assetVersionQuery(char), filename);
           completed++;
           emitProgress(entry, Math.round((completed / total) * 100), `Downloaded ${filename}`);
         } catch (e) {
@@ -827,9 +902,9 @@ export async function downloadStageToCache(
     emitProgress(entry, 0, `Downloading ${stage.displayName}...`);
 
     await Promise.all(files.map(async (filename) => {
-      const url = CDN_PROXY_BASE + 'stages/' + filename + assetVersionQuery(stage);
+      const relPath = 'stages/' + filename;
       try {
-        downloadedFiles[filename] = await fetchFileVerified(url, filename);
+        downloadedFiles[filename] = await fetchFileVerified(relPath, assetVersionQuery(stage), filename);
         completed++;
         emitProgress(entry, Math.round((completed / total) * 100), `Downloaded ${filename}`);
       } catch (e) {

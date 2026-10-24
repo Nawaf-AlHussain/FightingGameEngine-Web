@@ -1076,3 +1076,40 @@ Implemented the FRONTEND_2.1_REDESIGN_SPEC across 9 phases, preserving all exist
   the pre-rewrite SHA `89c073c`. Both mirrors verified identical at the new tip.
 - No source code, config, or build changes — UI/engine trees are byte-identical; only
   commit metadata changed (commit SHAs from `43abea5` upward are superseded).
+
+## Session: October 24, 2026 (Late PM) — FOT budget: assets off Vercel, direct jsDelivr transport (F-043)
+
+### Problem
+- User flagged Vercel's 10 GB/month Fast Origin Transfer limit. Every roster
+  byte flowed through the `/api/cdn` serverless proxy: 362 characters at
+  16–84 MB a pack + portraits + stages. Edge caching (s-maxage=86400) only
+  amortizes per region per day — a burst of browsing visitors burns the quota.
+
+### Fix — transport change in `character-downloader.ts` (zero cache/format changes)
+- Manifest entries already carry the direct jsDelivr base (`cdnBase`); the
+  downloader now derives the repo root once (`noteDirectCdnRoot`) and fetches
+  assets DIRECT from cdn.jsdelivr.net: new `fetchAssetResponse` (direct →
+  proxy) under all four download paths, and `portraitUrl`/`stageThumbUrl`
+  emit direct URLs. `PortraitImg`/`StageImg` gained a third retry attempt that
+  swaps to `assetImgFallbackUrl(src)` (proxy equivalent) before the letter tile.
+- `/api/cdn` remains the automatic fallback: jsDelivr 403s on files > 20 MB
+  ("File size exceeded the configured limit of 20 MB", curl-verified:
+  Onslaught 34 MB → 403, Thor 11 MB → 200) and on rare '!' filename quirks.
+- Netplay safety preserved: same upstream object for direct and proxied
+  fetches, `?v=` buster unchanged, roster fingerprint still manifest-bytes-only,
+  IndexedDB keys/records unchanged (no re-download wave, no CACHE_BUSTER bump).
+- Static engine files untouched (already immutable + stamped in vercel.json).
+
+### Verification
+- tsc clean; build 16/16.
+- Headless browser, fresh session: /local roster grid rendered **86 imgs from
+  cdn.jsdelivr.net vs 3 proxy fallbacks** (fallbacks exercised the new
+  third-attempt swap); direct `!Nightwing-o.png` portrait loaded at full size.
+- Cross-origin body read through CORS verified from the page context
+  (.def via fetch → arrayBuffer OK; jsDelivr serves .def with br —
+  fetchFileVerified's content-encoding skip already covers it).
+- Local-verification gotcha logged in F-043: stale `next-server` process
+  survived `pkill -f 'next start'` and served a dead-hydration mix of old
+  chunks + new build; kill by PID.
+- Noted: production Assets manifest (v3) has stale cdnBase paths (chars moved
+  to source folders); DemoAssets (v5) — what the demo reads — is correct.

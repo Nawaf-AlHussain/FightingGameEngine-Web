@@ -14,6 +14,7 @@ import {
   isStageAvailable,
   isStageCached,
   stageThumbUrl,
+  assetImgFallbackUrl,
   type StageInfo,
 } from '@/lib/character-downloader';
 
@@ -827,27 +828,29 @@ export default function StageSelect({
 /** Stage thumbnail with fade-in on load (CSS shows it once .loaded is set;
  *  the letter tile underneath stays visible until then — and forever when
  *  no thumbs/<stage>.jpg exists in the Assets repo yet).
- *  ONE silent retry on error: opening the grid fires one /api/cdn request
- *  per stage at once, and while the edge cache is still cold a few could
- *  come back 429/503 (upstream throttling). A single delayed re-request
- *  heals those; remounting via key forces the re-fetch since an <img> with
- *  an unchanged src will not retry on its own. A genuinely missing
+ *  ONE silent retry on error: opening the grid fires one thumbnail request
+ *  per stage at once, and while the upstream cache is still cold a few could
+ *  come back 429/503 (throttling). A single delayed re-request heals those;
+ *  a third attempt swaps to the /api/cdn proxy equivalent (jsDelivr 403s on
+ *  '!' filenames); remounting via key forces each re-fetch since an <img>
+ *  with an unchanged src will not retry on its own. A genuinely missing
  *  thumbnail (404) just keeps the letter tile. Same contract as the
  *  character roster's PortraitImg. */
 function StageImg({ src, className }: { src: string; className?: string }) {
   const [loaded, setLoaded] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const url = attempt >= 2 ? assetImgFallbackUrl(src) : src;
   return (
     <img
       key={attempt}
-      src={src}
+      src={url}
       alt=""
       loading="lazy"
       decoding="async"
       className={`${className ?? ''}${loaded ? ' loaded' : ''}`}
       onLoad={() => setLoaded(true)}
       onError={() => {
-        if (attempt < 1) {
+        if (attempt < 2) {
           setTimeout(() => setAttempt(a => a + 1), 1500);
         }
       }}

@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 // CDN proxy: fetches character/stage files and serves them to the browser
-// with CORS headers. jsDelivr returns 403 for some files (especially those
-// with special characters like '!' in the name), and raw.githubusercontent.com
-// doesn't set CORS headers, so the browser can't fetch directly. This
-// server-side proxy solves both problems.
+// with CORS headers. Since Oct 2026 this route is the FALLBACK transport —
+// the browser fetches assets directly from jsDelivr (manifest cdnBase) to
+// keep bytes off Vercel's Fast Origin Transfer quota (10 GB/mo Hobby), and
+// lands here only when jsDelivr 403s (files with '!' in the name) or errors.
+// jsDelivr returns 403 for some files (especially those with special
+// characters like '!' in the name), and raw.githubusercontent.com doesn't
+// set CORS headers, so the browser can't fetch directly — this server-side
+// proxy solves both problems.
 //
 // URL format: /api/cdn/chars/Bardock/Bardock.sff
 //

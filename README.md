@@ -57,7 +57,7 @@ This is the **successor** to [FightingGameEngine](https://github.com/Nawaf-AlHus
 | **FightingGameEngine-Demo** (this repo) | Active development — engine + frontend, deployed to Vercel |
 | [FightingGameEngine-Web](https://github.com/Nawaf-AlHussain/FightingGameEngine-Web) | Byte-identical mirror of this repo (kept in lockstep) |
 | [FightingGameEngine/Assets](https://github.com/FightingGameEngine/Assets) | Production roster: 87 characters + stages (default CDN source) |
-| [FightingGameEngine/DemoAssets](https://github.com/FightingGameEngine/DemoAssets) | Curated demo roster mirror (`ASSETS_GH_REPO` switch; sync via `scripts/sync-demo-assets.py`) |
+| [FightingGameEngine/DemoAssets](https://github.com/FightingGameEngine/DemoAssets) | Curated demo roster mirror (`ASSETS_GH_REPO` switch; sync via `scripts/sync-demo-assets.py`). Assets fetch directly from jsDelivr (manifest `cdnBase`); `/api/cdn` is the fallback for >20 MB files (F-043) |
 | [FightingGameEngine](https://github.com/Nawaf-AlHussain/FightingGameEngine) | Old engine (Dolmexica), archived reference |
 
 ## Project Goals

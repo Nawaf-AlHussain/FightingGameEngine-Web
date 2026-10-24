@@ -232,7 +232,7 @@ go.env = { GOGC: '100', GOMEMLIMIT: '800MiB' };
 | `src/lib/game-modes.ts` | Progression state machine + MODE_LABELS / MODE_RULES |
 | `vercel.json` | WASM MIME type + cache headers |
 | `netrelay/cloudflare/worker.js` | Signaling relay + ranked queue (Cloudflare Workers); `netrelay/relay.ts` is the Deno dev version |
-| `src/app/api/cdn/[...path]/route.ts` | GitHub-raw CDN proxy — `ASSETS_GH_REPO` env switch (default `FightingGameEngine/Assets`) |
+| `src/app/api/cdn/[...path]/route.ts` | CDN fallback proxy — `ASSETS_GH_REPO` env switch (default `FightingGameEngine/Assets`); browser fetches assets direct from jsDelivr first (manifest `cdnBase`), proxy covers >20 MB files + jsDelivr failures (F-043) |
 | `src/app/api/assets-manifest/route.ts` | Assets roster manifest proxy — same repo switch |
 | `scripts/sync-demo-assets.py` | Mirrors production Assets content into DemoAssets |
 | `TODO.md` | Phased task list (Phase 0-5). Authoritative task list |
