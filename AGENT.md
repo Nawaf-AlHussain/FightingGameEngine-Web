@@ -74,7 +74,7 @@ Do:
 **Goal**: Build a browser-based MUGEN fighting game platform using IKEMEN GO v2 compiled to WebAssembly, deployed on Vercel, with characters/stages served from a separate GitHub repo via CDN proxies, and online play over WebRTC P2P.
 
 **Active dev repo** (`Nawaf-AlHussain/FightingGameEngine-Demo`, THIS repo): engine + frontend.
-**Mirror repo** (`Nawaf-AlHussain/FightingGameEngine-Web`): byte-identical mirror — same commit history, pushed in lockstep (same HEAD sha at all times).
+**Mirror repo** (`Nawaf-AlHussain/FightingGameEngine-Web`): code mirror kept in lockstep, with ONE deliberate exception — `vercel.json` `env.ASSETS_GH_REPO`. Web pins `FightingGameEngine/Assets` (production roster); Demo pins `FightingGameEngine/DemoAssets` (marvel-only mirror). NEVER copy that env line between the repos: after any Demo→Web mirror push, check Web's vercel.json still pins Assets and restore it if not — a verbatim mirror silently repoints PRODUCTION at the demo roster. Histories therefore diverge at the vercel.json commits; everything else mirrors.
 **Production assets** (`FightingGameEngine/Assets` on GitHub): 87 characters, 5+ stages — the DEFAULT roster source (`DEFAULT_ASSETS_REPO` in both API routes).
 **Demo assets mirror** (`FightingGameEngine/DemoAssets`): curated roster the DEMO Vercel deployment reads via the `ASSETS_GH_REPO` env switch; synced from production by `scripts/sync-demo-assets.py`.
 
@@ -447,6 +447,6 @@ Current UI (lobby, local) uses a simpler dark theme with red accents. Upgrade to
 
 - **User**: `Nawaf-AlHussain`
 - **Active dev repo**: `Nawaf-AlHussain/FightingGameEngine-Demo` (THIS repo — push here first)
-- **Mirror repo**: `Nawaf-AlHussain/FightingGameEngine-Web` (byte-identical; keep in lockstep — after pushing Demo, push the same commit(s) to Web)
+- **Mirror repo**: `Nawaf-AlHussain/FightingGameEngine-Web` (code lockstep; EXCEPTION: `vercel.json` env — Web must pin `FightingGameEngine/Assets`, Demo pins `FightingGameEngine/DemoAssets`; never mirror that line)
 - **Production assets org**: `FightingGameEngine` (`Assets` = production roster, `DemoAssets` = demo mirror)
 - **PAT**: Stored securely by the user. Request it when needed.

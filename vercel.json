@@ -1,7 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "env": {
-    "ASSETS_GH_REPO": "FightingGameEngine/DemoAssets"
+    "ASSETS_GH_REPO": "FightingGameEngine/Assets"
   },
   "headers": [
     {
