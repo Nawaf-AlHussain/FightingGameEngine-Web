@@ -2219,7 +2219,7 @@ function PlayPageInner() {
         const runtime = await runtimePromise;
         const go = runtime.go;
         if (!netMenu && WASM_HEAP_LIMIT_MIB < 800) {
-          log('Engine GC: GOGC=off, GOMEMLIMIT=' + WASM_HEAP_LIMIT_MIB + 'MiB (mobile memory guard — prevents phone tab kills)');
+          log('Engine GC: off, heap cap ' + WASM_HEAP_LIMIT_MIB + 'MiB (mobile memory guard — prevents phone tab kills)');
         }
 
         const wasmPromise = runtime.wasmPromise;

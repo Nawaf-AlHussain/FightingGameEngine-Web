@@ -51,8 +51,8 @@ export default function AboutPage() {
             <span className="about__section-num">02</span> Powered by
           </div>
           <div className="about__section-body">
-            <div>• Custom WASM engine — Go-based fighting-game engine</div>
-            <div>• WebAssembly — compiled via GOOS=js GOARCH=wasm</div>
+            <div>• Custom WASM engine — purpose-built fighting-game engine</div>
+            <div>• WebRTC — peer-to-peer online play with rollback</div>
             <div>• Next.js 16 — React frontend</div>
             <div>• IndexedDB — character/stage caching</div>
           </div>
@@ -64,9 +64,9 @@ export default function AboutPage() {
             <span className="about__section-num">03</span> Credits
           </div>
           <div className="about__section-body">
-            <div>Engine: open-source Go fighting-game engine (WebAssembly port)</div>
+            <div>Engine: custom WebAssembly fighting-game engine</div>
             <div>Browser layer: custom VFS + WebRTC netplay</div>
-            <div>Characters: the MUGEN community — 85+ community-made fighters</div>
+            <div>Characters: the fighting-game community — 85+ community-made fighters</div>
             <div>Built by: Nawaf Al Hussain</div>
           </div>
         </div>

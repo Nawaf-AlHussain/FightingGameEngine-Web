@@ -2751,3 +2751,13 @@ overlay.col = 0, 0, 0
 overlay.alpha = 0, 128
 done.snd = 100, 0
 cancel.snd = 100, 2
+
+;-----------------------------------------------------------
+[Warning Info]
+; Site override of the engine's embedded status-text defaults:
+; the upstream strings name the engine and its issue-tracker URL,
+; so they are reworded here to stay neutral on screen.
+text.reload.text = Some selected options require a restart.\nPress any key to exit the program.
+text.noreload.text = Some selected options require a restart.\nPress any key to continue.
+text.shaders.text = No external shaders detected.\nShaders are loaded from the './external/shaders' directory.
+text.desync.text = Desync error.\nIf the problem persists, please reconnect and try again.\nThank you for your patience.

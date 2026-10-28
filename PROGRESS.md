@@ -1,5 +1,35 @@
 # PROGRESS — Fighting Game Engine Web
 
+## Session: October 28, 2026 — Brand scrub (MUGEN / Ikemen / Go off user-visible surfaces)
+
+### Context
+
+User asked whether mugen/ikemen/go references appear "in the frontend or in
+console or something", and asked to remove them without breaking anything.
+
+### Work Done
+
+- About page: engine lines reworded ("purpose-built fighting-game engine",
+  WebRTC P2P bullet replaces the GOOS/GOARCH build detail, Credits name a
+  "custom WebAssembly fighting-game engine" and "the fighting-game
+  community")
+- Meta description (layout.tsx) + PWA manifest: "MUGEN-style" dropped
+- Boot log: `GOGC=off, GOMEMLIMIT=` → `off, heap cap` (go.env values kept —
+  functional)
+- game.pak: engine status texts (reload/noreload/shaders/desync) overridden
+  via `[Warning Info]` + prefixed `text.*.text` keys in the motif —
+  `[Text]` + bare keys does NOT assign (empirically proven; see F-047);
+  pak+gz regenerated, stamp content-derived
+- Verified: tsc clean, build 16/16, live Playwright boot capture (215
+  console lines over a real download + engine boot + AI fight) — zero
+  ikemen/mugen/golang matches; pak-gz roundtrip PASS; no new assign
+  warnings
+- Documented as F-047, including the structural residuals that need an
+  engine recompile (wasm binary strings, engine JS↔wasm contract names)
+  and the cache-continuity storage keys deliberately left alone
+
+---
+
 ## Session: October 28, 2026 — Asset traceability audit → "open by design"
 
 ### Context

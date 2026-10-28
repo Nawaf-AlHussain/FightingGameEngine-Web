@@ -41,7 +41,7 @@ const anton = Anton({
 
 export const metadata: Metadata = {
   title: 'OpenFighter',
-  description: 'A comic-book fighting game platform — MUGEN-style community rosters in your browser. Zero install, 60 FPS, WASM.',
+  description: 'A comic-book fighting game platform — community rosters in your browser. Zero install, 60 FPS, WASM.',
 };
 
 // Viewport: prevent pinch-zoom (annoying during gameplay), support

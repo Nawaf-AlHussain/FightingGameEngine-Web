@@ -1520,3 +1520,63 @@ alive while the 60s-manifest edge cache and one redeploy roll the rest over.)
 
 **Lesson**: when openness is structural (public CDN ⇒ public repo), don't
 spend effort hiding it — spend it making the open source look intentional.
+
+## F-047 | Brand scrub — removing MUGEN / Ikemen / Go from user-visible surfaces
+
+**Question (user)**: are there references to mugen / ikemen / go in the
+frontend, console, "or something"? Remove without breaking anything.
+
+**Scrubbed (shipped 2026-10-28)**:
+- About page: "Go-based fighting-game engine" → "purpose-built"; the
+  GOOS=js GOARCH=wasm bullet → WebRTC P2P; Credits "open-source Go
+  fighting-game engine" → "custom WebAssembly fighting-game engine";
+  "the MUGEN community" → "the fighting-game community".
+- Meta description (layout.tsx + PWA manifest.json): dropped "MUGEN-style".
+- Boot log line `Engine GC: GOGC=off, GOMEMLIMIT=…` → `Engine GC: off,
+  heap cap …` (env-var names were a Go-runtime giveaway in console; the
+  `go.env` VALUES stay — they are functional wasm_exec.js inputs).
+- game.pak: the engine's embedded status texts name the engine and its
+  issue-tracker URL. They ARE motif-overridable — but the syntax is
+  non-obvious (see below). Overrode 4 keys in `data/ikemen1/system.def`
+  under `[Warning Info]`: `text.reload.text`, `text.noreload.text`,
+  `text.shaders.text`, `text.desync.text`. Pak regenerated (content-derived
+  stamp auto-busts caches; netplay build check converges after deploy, and
+  cross-version pairs get the designed hard-refresh message).
+
+**[Warning Info] override discovery (empirically verified)**: a `[Text]`
+section with `reload.text` keys FAILS — the parser logs `Failed to assign
+key [text.reload.text]: field 'text' not found as struct or map field`.
+The engine's embedded default template spells the same values under
+`[Warning Info]` with FULLY-PREFIXED keys (`text.reload.text = …`); using
+that exact spelling assigns silently (failure logging is proven live by
+the pre-existing `[Netplay.PlayerName]` warning). So motif status-text
+overrides must mirror the template's section + prefixed-key spelling.
+
+**Verified clean by live capture** (Playwright, real quick-match boot +
+AI fight, 215 console lines): zero matches for ikemen/mugen/golang in
+console; engine boots silently (no version banner); About/meta/pak text
+checked over HTTP.
+
+**Structural residuals (cannot scrub without recompiling the engine)**:
+- engine.wasm binary strings: Go package paths
+  (`github.com/ikemen-engine/ggpo/...` — panic stack traces only), the
+  ggpo UDP handshake magic ("IKEMENGO" — dead code on the WebRTC
+  transport), and embedded motif-template comments.
+- Engine JS↔wasm CONTRACTS that the precompiled binary expects — renaming
+  breaks boot: `canvas#ikemen-canvas` (engine creates it),
+  `globalThis.ikemenNet` (called from Go netconn_js.go), `__IKEMEN_RESULT`
+  stdout marker, `data/ikemen1/` motif paths, `'ikemen'` argv[0] +
+  WebRTC datachannel label, `mugenVersion()` script builtin.
+- Storage keys kept for user-cache continuity (rename would force
+  re-downloading every character): IndexedDB `ikemen-cache`, legacy
+  localStorage keys (`ikemen-vfs12:*`, `ikemen-identity`, …), `ikemen-mods`
+  DB. Visible only in DevTools → Application tab.
+- These identifiers surface only in DevTools internals (DOM inspector,
+  Application tab, wasm strings), not in UI, console, or rendered text.
+- Docs (README/AGENT/FINDINGS/TODO) intentionally keep the engine names —
+  they are the engineering record; the build runbook and compatibility
+  history depend on them.
+
+**Lesson**: the engine's embedded defaults are motif-overridable, but the
+override syntax must be copied verbatim from the embedded template (section
+name + prefixed keys) — the intuitive `[Text]` grouping does not resolve.
