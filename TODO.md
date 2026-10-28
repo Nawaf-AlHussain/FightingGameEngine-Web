@@ -4,7 +4,7 @@
 
 **Browser-based fighting game platform: IKEMEN GO v2 WASM engine + React UI that handles ALL menus, with the roster streamed from a CDN assets repo and online play over WebRTC P2P.**
 
-## CURRENT STATE (October 24, 2026) — ONLINE PLAY SHIPPED, DOCS REALIGNED
+## CURRENT STATE (October 28, 2026) — ONLINE PLAY SHIPPED, DOCS REALIGNED
 
 - ✅ Esc is reserved for the site's fight-exit flow (shipped
   `EscOpensMenu=0`; Settings toggle restores the native menu) and the
@@ -56,6 +56,18 @@
   pins `FightingGameEngine/DemoAssets`, Web pins `FightingGameEngine/
   Assets` (production). Histories diverge at those commits; never mirror
   that env line between the repos (see AGENT.md).
+- ✅ Asset origin is public and now presented as a feature (F-046): the
+  manifest `cdnBase`, portrait/stage `<img>` srcs and the network tab all
+  carry `cdn.jsdelivr.net/gh/FightingGameEngine/DemoAssets@main/…`, and
+  both asset repos are public — audited live; user chose "stay public".
+  About gained section 04 "Open by design" linking the repo; Credits
+  credit the MUGEN community; `stageThumbUrl` regex made
+  repo-name-agnostic.
+- [ ] Optional brand polish: rename `FightingGameEngine/DemoAssets` →
+  `openfighter-assets`. Steps 1–2 of the runbook (FINDINGS F-046) need
+  the FightingGameEngine account; the demo-side follow-ups (vercel.json
+  env, sync script default, About/README/AGENT names) are one commit
+  here.
 
 ---
 

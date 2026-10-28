@@ -1466,3 +1466,57 @@ half deleted at commit time invites the two sides' own late duplicates to
 re-pair into a second count. Tombstone the resolved key, key halves by the
 sorted pair (contradictions must MEET to be detected), and exercise the logic
 locally against a mock before spending a deploy on it.
+## F-046 | Asset origin traceability — audited, then embraced (public by design)
+
+**Question (user)**: all images/assets are traceable back to the GitHub repo —
+can that be prevented?
+
+**Audit (2026-10-28, live-verified)**:
+- The browser-visible manifest carries `cdnBase` with the full repo slug on
+  every entry (`https://cdn.jsdelivr.net/gh/FightingGameEngine/DemoAssets@main/…`).
+- Portrait/stage-thumb `<img>` srcs and pack downloads hit that same jsDelivr
+  URL directly (F-043 made direct the primary transport) — visible in the
+  network tab AND the plain DOM.
+- `github.com/FightingGameEngine/DemoAssets` AND `…/Assets` (the 362-char
+  production library) both return HTTP 200 — public, browsable, clonable.
+  jsDelivr serves public repos only, so this is structural, not incidental.
+- `engine.wasm`/`game.pak` are clean (served by the deployment itself).
+- Ownership note: `FightingGameEngine` is a SEPARATE USER ACCOUNT; the working
+  PAT (`Nawaf-AlHussain`) has pull-only on those repos — no rename, no
+  manifest/README commits from this side.
+
+**Fundamental limit**: anything a browser downloads can be saved and
+re-shared, and public-repo content is searchable by distinctive filenames.
+The only real "prevention" is not serving from a discoverable public source —
+which directly conflicts with F-043 (private repo ⇒ jsDelivr refuses ⇒ every
+byte returns through `/api/cdn` ⇒ the 10 GB Fast Origin Transfer regression).
+
+**Decision (user)**: stay public and present it as a feature — the official
+open asset pack.
+
+**Shipped**:
+- About page section 04 "Open by design" linking the public repo;
+  Credits reworded to credit the MUGEN community; `.about__link` style
+  (comic-print underline, crimson hover). F-042's section stagger is a
+  generic sibling chain (`~`), so the 4th section staggers automatically.
+- `character-downloader.ts`: `stageThumbUrl`'s cdnBase directory regex
+  changed from `/Assets@main\/(.+)$/` to repo-name-agnostic `/@main\/(.+)$/`
+  — it only matched by luck while the repo name ends in "Assets"; a rename
+  would have silently dropped stage thumbs that lack an explicit `thumb`.
+
+**Rename runbook (optional brand polish — steps 1–2 need the
+FightingGameEngine account)**:
+1. GitHub UI → repo Settings → rename `DemoAssets` → `openfighter-assets`.
+   GitHub 301s old URLs; jsDelivr follows redirects, but update references
+   anyway.
+2. In the renamed repo: `update-manifest.py` `REPO_NAME = "DemoAssets"` →
+   `"openfighter-assets"`, re-run it (or sed the manifest `cdnBase`), push,
+   then purge `purge.jsdelivr.net/gh/FightingGameEngine/openfighter-assets@main/manifest.json`.
+3. Demo repo: `vercel.json` `ASSETS_GH_REPO` → `FightingGameEngine/openfighter-assets`.
+4. Demo repo: `sync-demo-assets.py` default `DST_REPO` + docstrings.
+5. Demo repo: About page link, README, AGENT names.
+(The transition window is safe: GitHub redirects keep old raw/jsDelivr URLs
+alive while the 60s-manifest edge cache and one redeploy roll the rest over.)
+
+**Lesson**: when openness is structural (public CDN ⇒ public repo), don't
+spend effort hiding it — spend it making the open source look intentional.

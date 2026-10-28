@@ -220,7 +220,11 @@ export function stageThumbUrl(stage: StageInfo | undefined | null): string | und
   const def = stage.files.find(f => f.toLowerCase().endsWith('.def'));
   if (!def) return undefined;
   const base = def.slice(def.lastIndexOf('/') + 1).replace(/\.def$/i, '');
-  const m = stage.cdnBase.match(/Assets@main\/(.+)$/);
+  // Extract the repo-relative directory from cdnBase by matching AFTER the
+  // @main/ branch delimiter — repo-name-agnostic, so a rename of the asset
+  // repo can't silently break stage thumbs (the old /Assets@main/ pattern
+  // only matched because the name happened to end in "Assets").
+  const m = stage.cdnBase.match(/@main\/(.+)$/);
   const dir = m ? m[1] : 'stages/';
   return assetPublicUrl(`${dir}thumbs/${base}.jpg`);
 }

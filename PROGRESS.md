@@ -1,5 +1,51 @@
 # PROGRESS — Fighting Game Engine Web
 
+## Session: October 28, 2026 — Asset traceability audit → "open by design"
+
+### Context
+
+After F-043 moved asset bytes off Vercel, the user asked whether visitors
+can trace assets back to GitHub and whether that can be prevented. Live
+audit: yes — the manifest `cdnBase`, every portrait/stage `<img>` src and
+the network tab all carry
+`cdn.jsdelivr.net/gh/FightingGameEngine/DemoAssets@main/…`, and both asset
+repos (`DemoAssets` + the 362-char production `Assets`) are public on the
+separate `FightingGameEngine` user account, which the working PAT cannot
+write to (pull-only).
+
+### Decision
+
+Private-repo routing was ruled out: jsDelivr serves public repos only, so
+privatizing would push every byte back through `/api/cdn` and re-burn the
+10 GB Fast Origin Transfer quota the last session just fixed. The user
+chose to embrace it — stay public, present the library as the official
+open asset pack.
+
+### Work Done
+
+- About page: new section 04 "Open by design" linking the public repo;
+  Credits reworded to credit the MUGEN community (85+ community-made
+  fighters) instead of a bare repo name
+- game.css: `.about__link` (comic-print underline, crimson hover) — the
+  F-042 sibling-chain stagger picks up the 4th section automatically
+- character-downloader.ts: `stageThumbUrl` cdnBase regex made
+  repo-name-agnostic (`/Assets@main/` → `/@main/`) so a future asset-repo
+  rename can't silently break stage thumbs
+- Docs: README + AGENT reframe DemoAssets as the open asset pack;
+  TODO gains the optional rename item; FINDINGS F-046 records the audit
+  and the full rename runbook (steps 1–2 need the FightingGameEngine
+  account)
+
+### Verification
+
+tsc clean; next build 16/16; About page renders four sections with the
+stagger intact and the link styled; no transport changes — roster fetch
+paths and netplay fingerprints are byte-identical.
+
+---
+
+---
+
 ## Session: October 25, 2026 — Phase 4 hardening batch (F-044 + F-045)
 
 ### Context
@@ -48,7 +94,6 @@ stall/desync detection (site half) and ranked ladder persistence.
   documented in netrelay/cloudflare/README.md.
 
 ---
-
 
 ## Session: October 24, 2026 — Comic Print System v2 (full-page motion)
 

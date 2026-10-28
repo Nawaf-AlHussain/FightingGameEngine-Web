@@ -4076,6 +4076,23 @@ body.fighting {
 .about__section-body div {
   margin-top: 0.2rem;
 }
+/* Open-by-design link (about section 04) — comic-print underline,
+   royal ink turning crimson on hover. Block level: sits on its own
+   line under the copy. */
+.about__link {
+  display: block;
+  width: fit-content;
+  margin-top: 0.45rem;
+  color: var(--royal);
+  font-weight: 700;
+  text-decoration: underline;
+  text-decoration-color: var(--crimson);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+.about__link:hover {
+  color: var(--crimson);
+}
 .about__buttons {
   display: flex;
   justify-content: center;
