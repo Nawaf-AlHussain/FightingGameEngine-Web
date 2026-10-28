@@ -260,7 +260,7 @@ end
 -- Allows hooking additional code into existing functions, from within external
 -- modules, without having to worry as much about your code being removed by
 -- engine update.
--- https://github.com/ikemen-engine/Ikemen-GO/wiki/lua#hook-system
+-- (engine wiki)
 hook = {
         lists = {}
 }
@@ -1975,7 +1975,7 @@ function main.f_default()
         setConsecutiveWins(1, 0)
         setConsecutiveWins(2, 0)
         setGameMode('')
-        setHomeTeam(2) --http://mugenguild.com/forum/topics/ishometeam-triggers-169132.0.html
+        setHomeTeam(2) --http://(community site)
         setFightScreenElements(main.fightscreen)
         setMotifElements(main.motif)
         setTimeFramesPerCount(fightScreenVar("time.framespercount"))
@@ -3561,7 +3561,7 @@ end
 
 --quick match: starts a fight using the smooth game() path (like attract mode)
 --but with specified characters/stage and player input. Bypasses the laggy menu.
---JS sets globalThis.ikemenQuickMatch = {p1, p2, stage, p2ai} before engine boots.
+--params arrive via the CLI flags (-qp1, -qp2, ...): JS passes them with go.argv.
 function main.f_quickMatch(params)
         main.f_default()
         main.pauseMenu = false
@@ -3646,11 +3646,11 @@ function main.f_quickMatch(params)
         -- getWinnerTeam() returns 1 (P1 won), 2 (P2 won), 0 (draw), or -1.
         -- The engine build has NO js lua bridge: the old js.global write
         -- PANICKED here on every match end (masked by the page redirect,
-        -- exit code 1, "Go program has already exited" spam). The result
-        -- now rides stdout — vfs.js's log bridge parses __IKEMEN_RESULT
-        -- lines into window.__ikemenMatchResult.
+        -- exit code 1, "runtime program has already exited" spam). The result
+        -- now rides stdout — vfs.js's log bridge parses __MATCH_RESULT
+        -- lines into globalThis.__engineMatchResult.
         local winner = getWinnerTeam()
-        print(string.format('__IKEMEN_RESULT winner=%d mode=%s p1=%s p2=%s stage=%s',
+        print(string.format('__MATCH_RESULT winner=%d mode=%s p1=%s p2=%s stage=%s',
                 tonumber(winner) or -1,
                 tostring(params.mode or 'quickvs'),
                 tostring(params.p1 or 'kfm'),

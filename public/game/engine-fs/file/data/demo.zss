@@ -18,7 +18,7 @@ ignoreHitPause if gameMode = "demo" && !isHelper {
 		text{
 			removetime: 1;									# Refresh every frame
 			layerno: 2;										# Draw on top of everything
-			text: "https://ikemen-engine.github.io";		# Message to print
+			text: "(demo)";		# Message to print
 			font: -1;										# Use the debug font since it exists everywhere
 			align: 0;										# Center alignment
 			pos: screenWidth * 0.5, screenHeight * 0.95;	# Centered horizontally. Near bottom of screen

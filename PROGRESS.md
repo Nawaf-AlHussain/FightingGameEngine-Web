@@ -1,5 +1,39 @@
 # PROGRESS — Fighting Game Engine Web
 
+## Session: October 28, 2026 — Brand scrub round 2 (site surfaces, engine-source verified)
+
+### Context
+
+User clarified: repo privacy is handled on their side — the requirement is
+zero MUGEN/Ikemen/Go mentions on open-fighter.vercel.app itself. Round 1
+(F-047) cleaned UI/meta/boot-log/pak status texts; this pass went after the
+deeper surfaces with the engine fork's source as ground truth.
+
+### Work Done
+
+- Cloned the engine fork to answer the rename questions exactly: canvas id
+  and bridge globals are binary contracts (not renamable), WindowTitle IS
+  config-driven, handshake logs prefer the olog bridge we control
+- Tab title: shipped config WindowTitle → OpenFighter + vfs.js pins it for
+  users with older persisted configs (engine was setting "Ikemen GO" via
+  its compiled default on any config missing the key)
+- Match-end marker: main.lua `__IKEMEN_RESULT` → `__MATCH_RESULT` and
+  vfs.js now parses + returns BEFORE console/engineLog — the marker no
+  longer prints at every match end (verified via synthetic stdout probe)
+- Netplay overlay: webrtc.js olog rewrites the IKEMENGO handshake token to
+  READY for on-screen display (wire bytes untouched)
+- data/ikemen1/ → data/motif1/ (31 Network-tab-visible lazy URLs) with all
+  def/config/vfs.js references updated; motif `name` → OpenFighter; icons
+  renamed to icon_*.png, 6 unused brand-named icon files deleted
+- Storage: `engine-cache` (chars) + `engine-mods` (mods, with one-time copy
+  migration + old-DB sweep); all pre-rename localStorage fallback reads
+  removed; datachannel label 'ikemen' → 'game'; argv[0] → 'openfighter';
+  globalThis.Go → WasmRuntime; --ikemen-screen-bottom → --engine-screen-bottom
+- Verified: tsc clean, build 16/16, pak roundtrip PASS, live capture zero
+  brand matches in console + title pinned + suppression probe green
+
+---
+
 ## Session: October 28, 2026 — Brand scrub (MUGEN / Ikemen / Go off user-visible surfaces)
 
 ### Context

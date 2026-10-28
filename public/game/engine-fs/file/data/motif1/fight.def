@@ -1,56 +1,56 @@
 ; Definition of fight screen
 
-; Motif: IKEMEN1
+; Motif: OpenFighter
 ; Optimal resolution: 1280x720
-; Requires: IKEMEN GO 1.0 (Ikemen nightly)
+; Requires: engine GO 1.0 (engine nightly)
 
 ; Notes about fonts:
 ;   - fonts can be specified in the [Files] section (no limit to how many),
 ;   - fonts indexed here do not refer to the ones in system.def
 ;   - fonts are search in directories in the following order:
 ;     1. system directory
-;     2. mugen program directory (not recommended to keep custom fonts here)
+;     2. classic format program directory (not recommended to keep custom fonts here)
 ;     3. data/ (not recommended to keep custom fonts here)
 ;     4. font/
 ;
 ; See the section "How to Customize" at the end of this file.
 
 ;-----------------------------------------------------------
-; Ikemen feature
+; engine feature
 [Info]
-name = IKEMEN1              ;Name of motif
+name = OpenFighter              ;Name of motif
 author = Ohmga Shironeko    ;Motif author name
 versiondate = 03,14,2026    ;Version date of motif (MM-DD-YYYY) 
-ikemenversion = 1.0         ;Version of I.K.E.M.E.N motif is compatible with (Ikemen nightly)
+ikemenversion = 1.0         ;Version of I.K.E.M.E.N motif is compatible with (engine nightly)
 localcoord = 1280,720 	;Local coordinate space width and height
 
 ;-----------------------------------------------------------
 ;Directories are checked in this order:
 ;1. current directory fight.def is in
 ;2. data/
-;3. your MUGEN directory
+;3. your classic format directory
 ;eg. If you write "spr = system.sff", and this system.def file
-;    is in ~/ikemen/data/mymotif/, then Ikemen will first look
-;    for ~/ikemen/data/mymotif/system.sff. If it does not find
-;    it there, it looks for ~/ikemen/data/system.sff (the default).
+;    is in ~/data/mymotif/, then the engine will first look
+;    for ~/data/mymotif/system.sff. If it does not find
+;    it there, it looks for ~/data/system.sff (the default).
 ;    Finally, if that is not found, it will look for
-;    ~/ikemen/system.sff.
+;    ~/system.sff.
 
 [Files]
 sff = fight.sff
 snd = fight.snd
-font1 = ikemen1/fonts/Menu2.def
-font2 = ikemen1/fonts/Timer.def
-font3 = ikemen1/fonts/Menu2Small.def
-font4 = ikemen1/fonts/PowerbarNum.def
-font5 = ikemen1/fonts/Action.def
-font6 = ikemen1/fonts/ComboCounter.def
-font7 = ikemen1/fonts/HitNum.def
-font8 = ikemen1/fonts/Menu1.def
-font9 = ikemen1/fonts/Round.def
-fightfx.sff = fightfx.sff ;Legacy Mugen common effects
-fightfx.air = fightfx.air ;Legacy Mugen common effects
-common.snd = common.snd   ;Legacy Mugen common effects
+font1 = motif1/fonts/Menu2.def
+font2 = motif1/fonts/Timer.def
+font3 = motif1/fonts/Menu2Small.def
+font4 = motif1/fonts/PowerbarNum.def
+font5 = motif1/fonts/Action.def
+font6 = motif1/fonts/ComboCounter.def
+font7 = motif1/fonts/HitNum.def
+font8 = motif1/fonts/Menu1.def
+font9 = motif1/fonts/Round.def
+fightfx.sff = fightfx.sff ;Legacy common effects
+fightfx.air = fightfx.air ;Legacy common effects
+common.snd = common.snd   ;Legacy common effects
 ;fx1 =                    ;Extra common effects .def file
 
 ;-----------------------------------------------------------

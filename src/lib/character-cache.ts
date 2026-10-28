@@ -12,7 +12,7 @@
 // migration (migrateAfterRead) converts them to Blobs after their first read.
 //
 // Database structure:
-//   DB: "ikemen-cache" (version 2)
+//   DB: "engine-cache" (version 2)
 //   Store: "chars"     — key: cacheKey ("Wolverine" | "charsDC/Batman"),
 //                        value: { files: Record<filename, Blob|Uint8Array>, timestamp }
 //   Store: "stages"    — key: stageId, value: same shape
@@ -33,7 +33,7 @@
 // versionchange/onclose handlers drop it so another tab's upgrade or an
 // eviction can never wedge the module (the next call reopens).
 
-const DB_NAME = 'ikemen-cache';
+const DB_NAME = 'engine-cache';
 const DB_VERSION = 2;
 const CHAR_STORE = 'chars';
 const STAGE_STORE = 'stages';

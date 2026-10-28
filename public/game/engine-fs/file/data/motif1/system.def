@@ -1,6 +1,6 @@
 ; Definitions of system screens
 
-; Motif: IKEMEN1 with 24 Slots
+; Motif: OpenFighter with 24 Slots
 ; Optimal resolution: 1280x720
 ; Supported languages: en, ja
 
@@ -11,29 +11,29 @@
 ;   - fonts indexed here do not refer to the ones in fight.def
 ;   - fonts are search in directories in the following order:
 ;     1. system directory
-;     2. ikemen program directory (not recommended to keep custom fonts here)
+;     2. program directory (not recommended to keep custom fonts here)
 ;     3. data/ (not recommended to keep custom fonts here)
 ;     4. font/
 
 ;----------------------------
 [Info]
-name = IKEMEN1              ;Name of motif
+name = OpenFighter              ;Name of motif
 author = Ohmga Shironeko    ;Motif author name
-versiondate = 03,06,2026    ;Version date of motif (MM-DD-YYYY) (new in MUGEN 1.0)
-ikemenversion = 1.0         ;Version of I.K.E.M.E.N motif is compatible with (Ikemen nightly)
-localcoord = 1280,720       ;Local coordinate space width and height (new in MUGEN 1.0)
+versiondate = 03,06,2026    ;Version date of motif (MM-DD-YYYY) (new in classic format 1.0)
+ikemenversion = 1.0         ;Version of I.K.E.M.E.N motif is compatible with (engine nightly)
+localcoord = 1280,720       ;Local coordinate space width and height (new in classic format 1.0)
 
 ;----------------------------
 ;Directories are checked in this order:
 ;1. current directory system.def is in
 ;2. data/
-;3. your Ikemen directory
+;3. your engine directory
 ;eg. If you write "spr = system.sff", and this system.def file
-;    is in ~/ikemen/data/mymotif/, then Ikemen will first look
-;    for ~/ikemen/data/mymotif/system.sff. If it does not find
-;    it there, it looks for ~/ikemen/data/system.sff (the default).
+;    is in ~/data/mymotif/, then the engine will first look
+;    for ~/data/mymotif/system.sff. If it does not find
+;    it there, it looks for ~/data/system.sff (the default).
 ;    Finally, if that is not found, it will look for
-;    ~/ikemen/system.sff.
+;    ~/system.sff.
 
 [Files]
 spr = system.sff            ;Filename of sprite data
@@ -43,15 +43,15 @@ logo.storyboard = logo.def  ;Logo storyboard definition (optional)
 select = select.def         ;Character and stage selection list
 fight = fight.def           ;Fight definition filename
 font1 = f-4x6.def
-font2 = ikemen1/fonts/Menu2.def
-font3 = ikemen1/fonts/Menu2.def
-font4 = ikemen1/fonts/Menu1.def
+font2 = motif1/fonts/Menu2.def
+font3 = motif1/fonts/Menu2.def
+font4 = motif1/fonts/Menu1.def
 font5 = Open_Sans.def
 ;font5.height = 36          ;Uncomment to override the size of the font (Truetype fonts only)
 font6 = infofont.def
 font7 = Open_Sans.def
-font8 = ikemen1/fonts/Timer.def
-font9 = ikemen1/fonts/PixelFlat.def
+font8 = motif1/fonts/Timer.def
+font9 = motif1/fonts/PixelFlat.def
 module =                    ;External Lua code
 
 ;----------------------------
@@ -185,7 +185,7 @@ cursor.done.snd = 100,1
 cancel.snd = 100,2
 
 ; Flexible submenu grouping.
-;Full documentation of this feature is available on Ikemen GO features wiki
+;Full documentation of this feature is available on engine GO features wiki
 
 ; Submenu: Arcade
 menu.itemname.menuarcade = ARCADE
@@ -340,7 +340,7 @@ mask = 1
 sin.y = 15, 264, 32
 
 ;----------------------------
-[Infobox] ;(new in MUGEN 1.0)
+[Infobox] ;(new in classic format 1.0)
 title.offset = 640,38
 title.font = 4,0,0
 title.scale = 1.0, 1.0
@@ -359,9 +359,9 @@ Welcome to I.K.E.M.E.N GO engine! (%s - %s)
 * This is a public development release, for testing purposes.
 * This build may contain bugs and incomplete features.
 * Your help and cooperation are appreciated!
-* Source code: https://github.com/ikemen-engine/Ikemen-GO
-* Bug reports: https://github.com/ikemen-engine/Ikemen-GO/issues
-* Docs: https://github.com/ikemen-engine/Ikemen-GO/wiki
+* Source code: (engine repository)
+* Bug reports: (engine repository)/issues
+* Docs: (engine wiki)
 
 ;-------------------------------------------------------------------
 ;Character select definition
@@ -430,7 +430,7 @@ title.offset = 640,48              ;Position of title (Arcade Mode, etc)
 title.font = 4,0,0                 ;Font of title (-1 for none)
 title.layerno = 2
 
-; Text rendered using title element (hardcoded in Mugen)
+; Text rendered using title element (hardcoded in classic format)
 ;title.<gamemode>.text = 
 title.arcade.text = ARCADE
 title.teamarcade.text = TEAM ARCADE
@@ -2363,7 +2363,7 @@ credits.font = 2,0,1
 credits.scale = 1.0, 1.0
 
 ; Flexible submenu grouping.
-;Full documentation of this feature is available on Ikemen GO features wiki
+;Full documentation of this feature is available on engine GO features wiki
 
 menu.itemname.arcade = ARCADE
 

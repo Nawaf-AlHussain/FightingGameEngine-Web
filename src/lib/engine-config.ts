@@ -143,8 +143,6 @@ export function serializeConfigIni(data: ConfigData): string {
 
 /** localStorage key the engine's vfs.js uses for persisted save/config.ini. */
 export const CONFIG_STORAGE_KEY = 'engine-vfs12:save/config.ini';
-/** Pre-rename key; still read once (and migrated) for returning players. */
-export const CONFIG_STORAGE_KEY_LEGACY = 'ikemen-vfs12:save/config.ini';
 
 /** URL of the shipped config.ini (used to fetch defaults if nothing is persisted). */
 export const SHIPPED_CONFIG_URL = '/game/engine-fs/file/save/config.ini';
@@ -158,7 +156,7 @@ export const SHIPPED_CONFIG_URL = '/game/engine-fs/file/save/config.ini';
 export async function loadConfig(): Promise<ConfigData | null> {
   // Try persisted first
   try {
-    const raw = localStorage.getItem(CONFIG_STORAGE_KEY) ?? localStorage.getItem(CONFIG_STORAGE_KEY_LEGACY);
+    const raw = localStorage.getItem(CONFIG_STORAGE_KEY);
     if (raw) {
       const text = atob(raw);
       return parseConfigIni(text);
@@ -189,7 +187,6 @@ export function saveConfig(data: ConfigData): void {
   const text = serializeConfigIni(data);
   try {
     localStorage.setItem(CONFIG_STORAGE_KEY, btoa(text));
-    try { localStorage.removeItem(CONFIG_STORAGE_KEY_LEGACY); } catch { /* best-effort */ }
   } catch {
     // Quota exceeded / private mode — settings just won't persist
   }
@@ -224,13 +221,11 @@ export async function setConfigValue(
 export function clearPersistedConfig(): void {
   try {
     localStorage.removeItem(CONFIG_STORAGE_KEY);
-    localStorage.removeItem(CONFIG_STORAGE_KEY_LEGACY);
   } catch {
     // ignore
   }
   try {
     localStorage.removeItem(DISPLAY_MODE_STORAGE_KEY);
-    localStorage.removeItem(DISPLAY_MODE_STORAGE_KEY_LEGACY);
     localStorage.removeItem(DISPLAY_MODE_STORAGE_KEY_LEGACY_V1);
   } catch {
     // ignore
@@ -475,7 +470,6 @@ export const DISPLAY_MODE_STORAGE_KEY = 'engine-display-mode-v2';
  * first /local visit, so those markers do not represent user choices — and
  * 4:3 is a broken mode pending a redo. The default (no marker) is 16:9.
  * Listed only so reset flows can wipe them. */
-export const DISPLAY_MODE_STORAGE_KEY_LEGACY = 'ikemen-display-mode';
 export const DISPLAY_MODE_STORAGE_KEY_LEGACY_V1 = 'engine-display-mode';
 
 export type DisplayModeMarker = '4:3' | '16:9' | 'tall' | '3:2' | '14:9' | '5:3';
@@ -495,7 +489,6 @@ function setDisplayModeMarker(mode: DisplayModeMarker): void {
   try {
     localStorage.setItem(DISPLAY_MODE_STORAGE_KEY, mode);
     try {
-      localStorage.removeItem(DISPLAY_MODE_STORAGE_KEY_LEGACY);
       localStorage.removeItem(DISPLAY_MODE_STORAGE_KEY_LEGACY_V1);
     } catch { /* best-effort */ }
   } catch {

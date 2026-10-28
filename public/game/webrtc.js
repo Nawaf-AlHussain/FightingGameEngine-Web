@@ -7,7 +7,7 @@
 // their friend over any chat, the friend pastes it, sends back an answer
 // code, done. STUN by Google's free public server.
 //
-// Go side: src/netconn_js.go calls globalThis.ikemenNet.
+// Engine side (netconn bridge) calls globalThis.ikemenNet.
 (function () {
   'use strict';
 
@@ -1029,7 +1029,7 @@
       } catch (e) { setStatus('Bad answer code: ' + e.message); }
     });
     await makePeer();
-    wireChannel(pc.createDataChannel('ikemen', { ordered: true }));
+    wireChannel(pc.createDataChannel('game', { ordered: true }));
     wireGGPO(pc.createDataChannel('ggpo', { ordered: false, maxRetransmits: 0 }));
     await pc.setLocalDescription(await pc.createOffer());
     await gatherComplete();
@@ -1149,7 +1149,7 @@
             setStatus('Friend joined! Connecting...');
             netLog('guest joined the room - sending offer');
             await makePeer();
-            wireChannel(pc.createDataChannel('ikemen', { ordered: true }));
+            wireChannel(pc.createDataChannel('game', { ordered: true }));
             wireGGPO(pc.createDataChannel('ggpo', { ordered: false, maxRetransmits: 0 }));
             await pc.setLocalDescription(await pc.createOffer());
             await gatherComplete();
@@ -1343,7 +1343,7 @@
       return;
     }
     let identity = null;
-    try { identity = JSON.parse(localStorage.getItem('fg-identity') || localStorage.getItem('ikemen-identity')) || null; } catch (e) { /* fall through */ }
+    try { identity = JSON.parse(localStorage.getItem('fg-identity')) || null; } catch (e) { /* fall through */ }
     if (!identity || !identity.name || !identity.code) {
       setStatus('Ranked match needs a claimed online name. Set NETWORK > PLAYER NAME first, save the recovery code, then try again.');
       return;
@@ -1410,7 +1410,7 @@
           setStatus('Matched against ' + opp + '! Connecting...');
           if (queueRole === 'host') {
             await makePeer();
-            wireChannel(pc.createDataChannel('ikemen', { ordered: true }));
+            wireChannel(pc.createDataChannel('game', { ordered: true }));
             wireGGPO(pc.createDataChannel('ggpo', { ordered: false, maxRetransmits: 0 }));
             await pc.setLocalDescription(await pc.createOffer());
             await gatherComplete();
@@ -1562,7 +1562,7 @@
         if (!queueRole || !queueP1 || !queueP2) return;      // not a queue match
         if (winSide !== 1 && winSide !== 2) return;          // draw: nothing to record
         var id = null;
-        try { id = JSON.parse(localStorage.getItem('fg-identity') || localStorage.getItem('ikemen-identity')); } catch (e) { return; }
+        try { id = JSON.parse(localStorage.getItem('fg-identity')); } catch (e) { return; }
         if (!id || !id.name || !id.code) return;
         if (!queueStartedAt) { netLog('no pairing time - result not reported'); return; }
         var iAmP1 = queueRole === 'host';                    // host is always side 1
@@ -1657,9 +1657,11 @@
       markDiag();
     },
     // Engine-side diagnostic line onto the on-screen overlay (so handshake
-    // progress is visible without opening the browser console).
+    // progress is visible without opening the browser console). The engine's
+    // handshake token is rewritten to a neutral word before display — the
+    // wire token itself is untouched (protocol bytes must stay identical).
     olog(msg) {
-      netLog(msg);
+      netLog(typeof msg === 'string' ? msg.replace(/IKEMENGO/g, 'READY') : msg);
     },
     close() {
       try { if (dc) dc.close(); } catch {}

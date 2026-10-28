@@ -199,12 +199,12 @@ function ensureAssetManifest(): Promise<{ stamp?: string }> {
 function ensureEngineRuntime(): Promise<EngineRuntime> {
   if (engineRuntimePromise) return engineRuntimePromise;
   engineRuntimePromise = (async (): Promise<EngineRuntime> => {
-    // wasm_exec.js defines the Go class — required before instantiation.
+    // wasm_exec.js defines the WasmRuntime class — required before instantiation.
     // Preloaded at module scope below, so this is usually instant.
     await loadScript('/game/wasm_exec.js');
     const g = globalThis as any;
     const manifestData = await ensureAssetManifest();
-    const go = new g.Go();
+    const go = new g.WasmRuntime();
     go.env = {
       GOGC: 'off',
       GOMEMLIMIT: WASM_HEAP_LIMIT_MIB + 'MiB',
@@ -1038,7 +1038,7 @@ function PlayPageInner() {
     try {
       const net = (globalThis as any).ikemenNet;
       if (!net?.queueRole?.()) return; // friend match: no ladder
-      const id = JSON.parse(localStorage.getItem('fg-identity') || localStorage.getItem('ikemen-identity') || 'null');
+      const id = JSON.parse(localStorage.getItem('fg-identity') || 'null');
       const base = net?.ladderBase?.();
       if (!id || !id.name || !base) return;
       fetch(base + '/leaderboard/player?name=' + encodeURIComponent(id.name))
@@ -1451,7 +1451,7 @@ function PlayPageInner() {
         // held in portrait the canvas is pinned to the TOP of the screen at
         // full width instead of centering, leaving the lower half for the
         // touch controls — a Game Boy style layout (screen up, buttons
-        // down). --ikemen-screen-bottom on <html> marks where the game
+        // down). --engine-screen-bottom on <html> marks where the game
         // screen ends so touch.js pills and the fight exit button can dock
         // below it. Landscape and non-touch portrait keep the exact
         // centered presentation that has always shipped (var = 0px →
@@ -1484,7 +1484,7 @@ function PlayPageInner() {
             viewportHeight > viewportWidth &&
             window.matchMedia('(pointer: coarse)').matches;
           // Gap between the screen top edge and the viewport top (below the
-          // notch). Kept in sync with the --ikemen-screen-bottom calc below.
+          // notch). Kept in sync with the --engine-screen-bottom calc below.
           const gbGap = 'calc(env(safe-area-inset-top, 0px) + 10px)';
 
           canvas.style.setProperty('width', displayWidth + 'px', 'important');
@@ -1496,13 +1496,13 @@ function PlayPageInner() {
             canvas.style.setProperty('top', gbGap, 'important');
             canvas.style.setProperty('transform', 'translate(-50%, 0)', 'important');
             document.documentElement.style.setProperty(
-              '--ikemen-screen-bottom',
+              '--engine-screen-bottom',
               `calc(${gbGap} + ${displayHeight}px)`,
             );
           } else {
             canvas.style.setProperty('top', '50%', 'important');
             canvas.style.setProperty('transform', 'translate(-50%, -50%)', 'important');
-            document.documentElement.style.setProperty('--ikemen-screen-bottom', '0px');
+            document.documentElement.style.setProperty('--engine-screen-bottom', '0px');
           }
           canvas.style.setProperty('position', 'fixed', 'important');
           canvas.style.setProperty('max-width', 'none', 'important');
@@ -1559,7 +1559,7 @@ function PlayPageInner() {
             window.visualViewport?.removeEventListener('scroll', onResize);
             document.getElementById('engine-canvas-fit')?.remove();
             document.body.classList.remove('fighting');
-            document.documentElement.style.removeProperty('--ikemen-screen-bottom');
+            document.documentElement.style.removeProperty('--engine-screen-bottom');
           };
         };
 
@@ -2080,7 +2080,7 @@ function PlayPageInner() {
             netSyncedModeRef.current = dm;
             const runtime2 = await runtimePromise;
             const compiled = await runtime2.wasmPromise;
-            const go2 = new g.Go();
+            const go2 = new g.WasmRuntime();
             // Same GC envelope as the module-scope runtime (the phone
             // tab-kill guard) — a rematch boot is a FULL engine process.
             go2.env = { GOGC: 'off', GOMEMLIMIT: WASM_HEAP_LIMIT_MIB + 'MiB' };
@@ -2104,7 +2104,7 @@ function PlayPageInner() {
             log(`Rematch boot: P1=${cfg.p1} vs P2=${cfg.p2} (stage ${cfg.stage})`);
             const instance2 = new WebAssembly.Instance(compiled.module, go2.importObject as any);
             const argv2 = [
-              'ikemen',
+              'openfighter',
               '-p1', paths.p1Path,
               '-p2', paths.p2Path,
               '-s', paths.stagePath,
@@ -2387,7 +2387,7 @@ function PlayPageInner() {
 
         const engineArgv = (netMenu || netDirect)
           ? [
-              'ikemen',
+              'openfighter',
               '-p1', p1Path,
               '-p2', p2Path,
               '-s', stagePath,
@@ -2398,7 +2398,7 @@ function PlayPageInner() {
               '-ip', (netMenu ? netRoleRef.current : netDirectRole) === 'join' ? 'webrtc' : '',
             ]
           : [
-              'ikemen',
+              'openfighter',
               '-qp1', p1Path,
               '-qp2', p2Path,
               '-qstage', stagePath,

@@ -419,7 +419,6 @@ export async function getRosterSources(): Promise<RosterSource[]> {
 // ---------------------------------------------------------------------------
 
 const ROSTER_SOURCE_KEY = 'fg-roster-source';
-const ROSTER_SOURCE_KEY_LEGACY = 'ikemen-roster-source';
 
 export function saveRosterSourceChoice(source: string): void {
   try {
@@ -433,7 +432,7 @@ export function saveRosterSourceChoice(source: string): void {
  *  Validation against the live manifest is the caller's job. */
 export function loadSavedRosterSource(): string | null {
   try {
-    return localStorage.getItem(ROSTER_SOURCE_KEY) ?? localStorage.getItem(ROSTER_SOURCE_KEY_LEGACY);
+    return localStorage.getItem(ROSTER_SOURCE_KEY);
   } catch {
     return null;
   }
@@ -443,7 +442,6 @@ export function loadSavedRosterSource(): string | null {
 export function clearSavedRosterSource(): void {
   try {
     localStorage.removeItem(ROSTER_SOURCE_KEY);
-    localStorage.removeItem(ROSTER_SOURCE_KEY_LEGACY);
   } catch {
     /* ignore */
   }

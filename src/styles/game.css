@@ -2535,13 +2535,13 @@ body.fighting {
 /* ========================================
    FIGHT EXIT BUTTON (touch only)
    ======================================== */
-/* Portrait Game Boy mode: --ikemen-screen-bottom (set by the canvas fitter
+/* Portrait Game Boy mode: --engine-screen-bottom (set by the canvas fitter
    in play/page.tsx) marks where the game screen ends. Landscape = 0px →
    top: 12px exactly as always; portrait → the button docks just below the
    game screen instead of covering the fight HUD. */
 .fight__exit-touch {
   position: fixed;
-  top: max(12px, var(--ikemen-screen-bottom, 0px));
+  top: max(12px, var(--engine-screen-bottom, 0px));
   right: 12px;
   width: 40px;
   height: 40px;
@@ -2890,7 +2890,7 @@ body.fighting {
 /* touch.js handles its own safe-area insets via CSS env() variables. */
 @supports (padding: env(safe-area-inset-bottom)) {
   .fight__exit-touch {
-    top: max(calc(12px + env(safe-area-inset-top)), var(--ikemen-screen-bottom, 0px));
+    top: max(calc(12px + env(safe-area-inset-top)), var(--engine-screen-bottom, 0px));
     right: calc(12px + env(safe-area-inset-right));
   }
 }

@@ -3,9 +3,9 @@
 localcoord = 1280,720
 
 [SceneDef]
-spr = ikemen1/system.sff
-font0 = ikemen1/fonts/Menu1.def
-font1 = ikemen1/fonts/Menu2.def
+spr = motif1/system.sff
+font0 = motif1/fonts/Menu1.def
+font1 = motif1/fonts/Menu2.def
 
 [Scene 0]
 end.time = 100
@@ -20,7 +20,7 @@ end.time = 300
 layerall.pos = 640,720
  
 
-layer1.text = "IKEMEN Go 1.0\nDevelopment Team"
+layer1.text = "engine Go 1.0\nDevelopment Team"
 layer1.font = 1
 layer1.offset = 0,-400
 layer1.textdelay = 2
@@ -32,7 +32,7 @@ layerall.pos = 640,720
 bg.name = BG0
 fadeout.time = 60
 
-layer0.text = "IKEMEN Go 1.0\nDevelopment Team"
+layer0.text = "engine Go 1.0\nDevelopment Team"
 layer0.font = 1
 layer0.offset = 0,-400
 layer0.velocity = 0,-2
@@ -277,7 +277,7 @@ layer34.offset = 0,20
 layer34.velocity = 0,-2
 layer34.textdelay = 2
 
-layer35.text = "Among many other Ikemen GO engine contributors"
+layer35.text = "Among many other engine GO engine contributors"
 layer35.starttime = 1150
 layer35.font = 1
 layer35.offset = 0,20

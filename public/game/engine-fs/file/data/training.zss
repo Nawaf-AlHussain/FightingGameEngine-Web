@@ -1,4 +1,4 @@
-# Mugen style Training Mode global code
+# Classic fighting-game style Training Mode global code
 # maps set via Pause Menu (menu.lua)
 # _iksys_trainingDummyControl: 0 - cooperative, 1 - ai, 2 - manual
 # _iksys_trainingGuardMode: 0 - none, 1 - auto, 2 - all, 3 - random
@@ -110,7 +110,7 @@ ignoreHitPause if gameMode = "training" {
 								let rcv = 1;
 							}
 							if $rcv {
-								# WinMugen characters assert inputs because asserting commands directly may trigger their AI activation codes
+								# Legacy-format characters assert inputs because asserting commands directly may trigger their AI activation codes
 								if mugenVersion(major) = 0 {
 									if gametime % 2 {
 										assertInput{flag: x; flag2: y; flag3: z}

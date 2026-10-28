@@ -1,5 +1,5 @@
 # Zantei State Script
-# Syntax highlighter for Notepad++: https://github.com/ikemen-engine/zss_npp
+# Syntax highlighter for Notepad++: (engine repository)
 #-------------------------------------------------------------------------------
 # ZSS code needs to use UTF-8 character encoding system.
 # && and || are short-circuit evaluations.
@@ -215,7 +215,7 @@ if time = 0 {
 }
 
 #-------------------------------------------------------------------------------
-# Run up (Deprecated in DosMugen)
+# Run up (Deprecated in legacy formats)
 # TODO: Make this work now that Z-Axis is back.
 [StateDef 110; type: S; physics: N;]
 
@@ -233,7 +233,7 @@ if animTime = -8 {
 }
 
 #-------------------------------------------------------------------------------
-# Run down (Deprecated in DosMugen)
+# Run down (Deprecated in legacy formats)
 # TODO: Make this work now that Z-Axis is back.
 [StateDef 115; type: S; physics: N;]
 

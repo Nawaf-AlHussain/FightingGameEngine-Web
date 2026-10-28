@@ -531,7 +531,7 @@ function start.f_selectPal(ref, palno)
 	if palno ~= nil and palno > 0 then
 		local mappedPal = start.f_keyPalMap(ref, palno)
 
-		-- Check if the mapped palette is defined and not already used. (MUGEN doesn't do this)
+		-- Check if the mapped palette is defined and not already used. (the classic format doesn't do this)
 		-- This leads to issues with certain characters who don't have the entire group 1's indices
 		-- filled out, so it's been commented out for compatibility.
 

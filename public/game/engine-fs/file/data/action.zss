@@ -61,7 +61,7 @@ ignoreHitPause if !const(Default.Enable.Action) || isHelper || teamSide = 0 {
 		# Combo Count
 		let ret = call IkSys_ComboCount();
 		if $ret {
-			# gdlk combo (mugen)
+			# gdlk combo
 			if $ret >= 25 {
 				lifebarAction{spr: const(MsgCombo25), 0; top: 1}
 			# amazing combo (marvelous)

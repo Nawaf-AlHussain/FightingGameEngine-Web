@@ -54,11 +54,7 @@
   // returning player's saved copy would pin them to the old screenpack. Bump
   // this whenever the shipped theme changes, or nobody who has played before
   // will see it - at the cost of resetting their key bindings).
-  // Renamed from 'ikemen-vfs12:' — restorePersisted() still reads the old
-  // prefix once and copies it over, so existing players' saves migrate
-  // in place (config.ini, key bindings, logs).
   const PERSIST_PREFIX = 'engine-vfs12:';
-  const PERSIST_PREFIX_LEGACY = 'ikemen-vfs12:';
   const PERSIST_MAX = 512 * 1024;
   const persistTimers = new Map();
 
@@ -94,23 +90,14 @@
     try {
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
-        if (!key) continue;
-        const isNew = key.startsWith(PERSIST_PREFIX);
-        // Accept BOTH prefixes on the read path: the legacy prefix migrates
-        // forward (copied to the new key) so a player's saves survive the
-        // rename even if they never re-save.
-        const isLegacy = !isNew && key.startsWith(PERSIST_PREFIX_LEGACY);
-        if (!isNew && !isLegacy) continue;
-        const vpath = key.slice((isNew ? PERSIST_PREFIX : PERSIST_PREFIX_LEGACY).length);
+        if (!key || !key.startsWith(PERSIST_PREFIX)) continue;
+        const vpath = key.slice(PERSIST_PREFIX.length);
         const bin = atob(localStorage.getItem(key));
         const buf = new Uint8Array(bin.length);
         for (let j = 0; j < bin.length; j++) buf[j] = bin.charCodeAt(j);
         contents.set(vpath, buf);
         manifest.delete(vpath);
         registerDirsFor(vpath);
-        if (isLegacy) {
-          try { if (!localStorage.getItem(PERSIST_PREFIX + vpath)) localStorage.setItem(PERSIST_PREFIX + vpath, localStorage.getItem(key)); } catch (e2) { /* quota — legacy copy stays authoritative */ }
-        }
       }
     } catch (e) { /* private browsing etc. */ }
   }
@@ -141,9 +128,9 @@
   }
 
   // Some engine paths arrive WITHOUT the data/ root: the lifebar [Files]
-  // font paths are spelled "ikemen1/fonts/Timer.def" and the WASM build hands
+  // font paths are spelled "motif1/fonts/Timer.def" and the WASM build hands
   // them to the VFS verbatim, while the files actually live at
-  // "data/ikemen1/fonts/..." (the sff/snd in the same section resolve against
+  // "data/motif1/fonts/..." (the sff/snd in the same section resolve against
   // the motif's own directory and never hit this). Unknown vpath + known
   // data/<vpath> => serve the aliased file instead of failing ENOENT, which
   // blanked every lifebar/menu font on the engine's own screens.
@@ -157,8 +144,8 @@
     // alias any bare data/system.snd request to the motif copy that IS
     // shipped, so even a legacy/hypothetical open keeps working.
     if (vpath === 'data/system.snd' &&
-        (manifest.has('data/ikemen1/system.snd') || contents.has('data/ikemen1/system.snd'))) {
-      return 'data/ikemen1/system.snd';
+        (manifest.has('data/motif1/system.snd') || contents.has('data/motif1/system.snd'))) {
+      return 'data/motif1/system.snd';
     }
     if (vpath.startsWith('data/')) return vpath;
     const aliased = 'data/' + vpath;
@@ -235,15 +222,14 @@
   globalThis.__engineLog = engineLog; // string[], oldest first
   function emitEngineLine(line, isErr) {
     if (line.length) {
-      engineLog.push(line);
-      if (engineLog.length > 80) engineLog.splice(0, engineLog.length - 80);
       // Match-result marker from main.lua (f_quickMatch): this engine build
-      // has no js lua bridge, so the result rides stdout instead of the old
-      // js.global write (which panicked the engine at every match end).
-      if (line.indexOf('__IKEMEN_RESULT ') === 0) {
+      // has no js lua bridge, so the result rides stdout. Protocol-only:
+      // parse it and keep it OUT of the console and the crash-report ring
+      // buffer — it is machine output, never diagnostics.
+      if (line.indexOf('__MATCH_RESULT ') === 0) {
         try {
           const kv = {};
-          for (const p of line.slice('__IKEMEN_RESULT '.length).trim().split(/\s+/)) {
+          for (const p of line.slice('__MATCH_RESULT '.length).trim().split(/\s+/)) {
             const eq = p.indexOf('=');
             if (eq > 0) kv[p.slice(0, eq)] = p.slice(eq + 1);
           }
@@ -256,7 +242,10 @@
             stage: kv.stage || 'stages/stage0-720.def',
           };
         } catch (e) { /* diagnostics must never break the bridge */ }
+        return;
       }
+      engineLog.push(line);
+      if (engineLog.length > 80) engineLog.splice(0, engineLog.length - 80);
     }
     (isErr ? console.warn : console.log)(line);
   }
@@ -912,13 +901,57 @@
   // load, so a browser-only build (e.g. on itch.io, no server) can gain
   // characters/stages/music/select.def edits with nothing but browser storage.
   // An empty overlay is a no-op - the shipped game boots identically.
-  const MODS_DB = 'ikemen-mods', MODS_STORE = 'files';
+  const MODS_DB = 'engine-mods', MODS_DB_LEGACY = 'ikemen-mods', MODS_STORE = 'files';
+  let modsMigrated = false;
   function openModsDB() {
     return new Promise((resolve, reject) => {
       let req;
       try { req = indexedDB.open(MODS_DB, 1); } catch (e) { return reject(e); }
       req.onupgradeneeded = () => { req.result.createObjectStore(MODS_STORE); };
-      req.onsuccess = () => resolve(req.result);
+      req.onsuccess = async () => {
+        const db = req.result;
+        // One-time carry-over from the pre-rename database so returning
+        // players keep their Mod Studio files. Never blocks the boot path.
+        if (!modsMigrated) {
+          modsMigrated = true;
+          try {
+            const old = await new Promise((res) => {
+              let r;
+              try { r = indexedDB.open(MODS_DB_LEGACY, 1); } catch (e2) { return res(null); }
+              r.onupgradeneeded = () => { r.result.createObjectStore(MODS_STORE); };
+              r.onsuccess = () => res(r.result);
+              r.onerror = () => res(null);
+            });
+            if (old) {
+              const rows = await new Promise((res) => {
+                const out = [];
+                let cur;
+                try { cur = old.transaction(MODS_STORE, 'readonly').objectStore(MODS_STORE).openCursor(); }
+                catch (e2) { return res(out); }
+                cur.onsuccess = () => {
+                  const c = cur.result;
+                  if (!c) return res(out);
+                  out.push([c.key, c.value]);
+                  c.continue();
+                };
+                cur.onerror = () => res(out);
+              });
+              if (rows.length) {
+                await new Promise((res) => {
+                  const tx = db.transaction(MODS_STORE, 'readwrite');
+                  const st = tx.objectStore(MODS_STORE);
+                  for (const [k, v] of rows) st.put(v instanceof Uint8Array ? v : new Uint8Array(v), k);
+                  tx.oncomplete = res;
+                  tx.onerror = res;
+                });
+                console.log('[vfs] carried over ' + rows.length + ' mod file(s) from previous storage');
+              }
+              try { old.close(); indexedDB.deleteDatabase(MODS_DB_LEGACY); } catch (e2) { /* sweep next boot */ }
+            }
+          } catch (e) { /* storage best-effort */ }
+        }
+        resolve(db);
+      };
       req.onerror = () => reject(req.error);
     });
   }
@@ -1208,6 +1241,25 @@
     //        bumped back to 1280x720 so the 16:9 fight fills the canvas
     //        edge-to-edge; other resolutions are kept
     //   always -> Config.ZoomActive = 1, Debug.ForceStageAutoZoom = 1
+    // WindowTitle: the engine sets document.title from this config value at
+    // boot. Pin it to the site brand for EVERY user (the engine's compiled
+    // default is a third-party engine name, and configs persisted before the
+    // rename carry the old site title) — the engine re-persists the
+    // normalized value on its next save.
+    try {
+      const cfgT = contents.get('save/config.ini');
+      if (cfgT) {
+        const textT = new TextDecoder().decode(cfgT);
+        if (!/^\s*WindowTitle\s*=\s*OpenFighter\s*$/mi.test(textT)) {
+          const patchedT = /^\s*WindowTitle\s*=/mi.test(textT)
+            ? textT.replace(/^(\s*WindowTitle\s*=\s*).*$/mi, '$1OpenFighter')
+            : '[Config]\nWindowTitle = OpenFighter\n' + textT;
+          contents.set('save/config.ini', new TextEncoder().encode(patchedT));
+          console.log('[vfs] window title pinned to site brand');
+        }
+      }
+    } catch (e) { /* cosmetic only — leave config as restored */ }
+
     // The engine re-persists its (normalized) config on its next save, so
     // localStorage heals itself after the first boot.
     try {
@@ -1219,7 +1271,7 @@
         const gh = /^\s*GameHeight\s*=\s*(\d+)\s*$/mi.exec(text);
         let marker = null;
         // v2 key ONLY: pre-v2 markers ('engine-display-mode',
-        // 'ikemen-display-mode') are invalidated — an earlier build
+        // 'engine-display-mode') are invalidated — an earlier build
         // auto-wrote '4:3' on the first /local visit, so they do not
         // represent user choices. No marker = the 16:9 default.
         try { marker = localStorage.getItem('engine-display-mode-v2'); } catch (e) { /* best-effort */ }
@@ -1367,7 +1419,7 @@
         // shadowed duplicate keys whose first-match values are the stale
         // layout.
         let keymapMarker = null;
-        try { keymapMarker = localStorage.getItem('engine-keymap-v3') || localStorage.getItem('ikemen-keymap-v3'); } catch (e) { /* best-effort */ }
+        try { keymapMarker = localStorage.getItem('engine-keymap-v3'); } catch (e) { /* best-effort */ }
         if (!keymapMarker) {
           const CANON = {
             Keys_P1: [
@@ -1458,7 +1510,7 @@
     // failure, not a cosmetic problem.
     let effectiveMotif = shippedMotif;
     try {
-      const pick = localStorage.getItem('engine-lite:motif') || localStorage.getItem('ikemen-lite:motif');
+      const pick = localStorage.getItem('engine-lite:motif');
       const cfg = contents.get('save/config.ini');
       if (pick && cfg && exists(pick)) {
         effectiveMotif = pick;
@@ -1483,10 +1535,10 @@
     // a UTF-8 decode/encode would corrupt); [Music] keys are standardized
     // (title.bgm / select.bgm), so this works on any screenpack.
     try {
-      const tPick = localStorage.getItem('engine-lite:title-bgm') || localStorage.getItem('ikemen-lite:title-bgm');
-      const sPick = localStorage.getItem('engine-lite:select-bgm') || localStorage.getItem('ikemen-lite:select-bgm');
+      const tPick = localStorage.getItem('engine-lite:title-bgm');
+      const sPick = localStorage.getItem('engine-lite:select-bgm');
       if (tPick || sPick) {
-        const litePick = localStorage.getItem('engine-lite:motif') || localStorage.getItem('ikemen-lite:motif');
+        const litePick = localStorage.getItem('engine-lite:motif');
         const motif = (litePick && exists(litePick)) ? litePick : shippedMotif;
         if (motif && exists(motif)) {
           if (!contents.get(motif)) await fetchFile(motif);

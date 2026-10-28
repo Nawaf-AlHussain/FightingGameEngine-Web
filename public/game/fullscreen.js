@@ -6,7 +6,7 @@
 // PORTRAIT IS SUPPORTED on purpose: touch devices get a Game Boy style
 // presentation in portrait (game screen pinned to the top, touch controls
 // docked below — see fitCanvasToViewport in src/app/play/page.tsx and the
-// --ikemen-screen-bottom consumers in touch.js / game.css). Do NOT add
+// --engine-screen-bottom consumers in touch.js / game.css). Do NOT add
 // screen.orientation.lock("landscape") back — that was removed 2026-10-22
 // along with the old RotateOverlay wall.
 "use strict";

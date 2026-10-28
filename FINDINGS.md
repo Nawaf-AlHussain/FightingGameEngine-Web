@@ -1580,3 +1580,71 @@ checked over HTTP.
 **Lesson**: the engine's embedded defaults are motif-overridable, but the
 override syntax must be copied verbatim from the embedded template (section
 name + prefixed keys) — the intuitive `[Text]` grouping does not resolve.
+
+## F-048 | Brand scrub round 2 — site surfaces only, with engine-source ground truth
+
+**Context (user)**: the repo going private/private is "not the issue" — the
+goal is zero MUGEN / Ikemen / Go mentions on open-fighter.vercel.app itself.
+
+**Ground truth obtained by cloning the engine fork** (energyjp/ikemen-go-web,
+shallow — raw file probing works where api.github.com rate-limits):
+- `#ikemen-canvas` is a hard binary contract: `system_js.go newWindow()` and
+  `render_webgl.go Init()` both `getElementById("ikemen-canvas")` at boot and
+  REUSE a page-provided canvas with that id (else create). Only 2 query sites
+  in the whole engine, both at init — but the id string must exist at boot.
+  NOT renamable without recompiling. Frontend queries/CSS keep matching it.
+- The engine sets `document.title = Config.WindowTitle` at boot; the
+  compiled default config template is `WindowTitle = Ikemen GO` (the shipped
+  `save/config.ini` overrode it with "Fighting Game Engine"). Fixed at both
+  layers: shipped config now `OpenFighter`, plus a vfs.js normalization that
+  pins WindowTitle for users with older persisted configs.
+- Netplay handshake lines ("host: sending IKEMENGO", "guest: waiting for
+  IKEMENGO", …) go through `hlog`, which PREFERS `bridge.olog` — our
+  webrtc.js `olog` now rewrites the token to READY for display; the wire
+  bytes are untouched (protocol must stay byte-identical).
+- `__IKEMEN_RESULT` is NOT in the binary — it is printed by the patched
+  `external/script/main.lua` (ours, inside game.pak) at every match end and
+  was console-logged verbatim by vfs.js's stdout bridge. Renamed the marker
+  to `__MATCH_RESULT` on both sides AND made it protocol-only: parse +
+  return BEFORE the console.log/engineLog push (crash-report ring buffer no
+  longer shows it either). Verified end-to-end by pushing a synthetic marker
+  through the real `globalThis.fs.writeSync` stdout path: parsed into
+  `globalThis.__engineMatchResult`, zero console leakage.
+
+**Scrubbed this round**:
+- data/motif1/ — the motif folder `data/ikemen1/` renamed (31 lazy-file
+  fetch URLs were Network-tab visible); all internal def font/sff/snd paths
+  updated (incl. the second copy at `data/fight.def`); `name = IKEMEN1` →
+  `OpenFighter`; wiki URLs and Ikemen/MUGEN comment text scrubbed across
+  defs/zss/lua (parser keys `ikemenversion`/`mugenversion`/`mugenVersion()`
+  builtin untouched — engine-contract)
+- Icons: 3 referenced PNGs renamed to icon_{256,96,48}.png, 4 unreferenced
+  Ikemen*.ico + icon-src/ sources deleted from the pak (45 → 37 packed files)
+- `globalThis.Go` (wasm_exec glue) → `globalThis.WasmRuntime` + error
+  strings ("Go program has already exited" → neutral); BSD copyright header
+  retained (legal attribution requirement)
+- argv[0] `'ikemen'` → `'openfighter'` (engine scans flags, argv[0] unused)
+- WebRTC datachannel label `'ikemen'` → `'game'` (both ends same build:
+  glue JS is served no-cache, so no cross-version pairing window)
+- Storage: IndexedDB `ikemen-cache` → `engine-cache` (existing users'
+  character caches rebuild on demand); `ikemen-mods` → `engine-mods` with a
+  one-time cursor copy + delete of the old DB (mods are user content —
+  never dropped); removed ALL pre-rename localStorage fallback reads
+  (`ikemen-vfs12:*`, `ikemen-identity`, `ikemen-roster-source`,
+  `ikemen-keymap-v3`, `ikemen-lite:*`, `ikemen-display-mode`) — returning
+  players keep `engine-*` keys; ancient keys become inert junk
+- `--ikemen-screen-bottom` CSS var → `--engine-screen-bottom` (ours
+  end-to-end: play page, touch.js, fullscreen.js, game.css)
+
+**Verified**: tsc clean, build 16/16, pak-gz roundtrip PASS, live boot
+capture (Playwright, real download + engine boot + AI fight, 215 console
+lines): zero brand matches, tab title "OpenFighter", marker suppression
+probe green, no new engine assign-warnings.
+
+**Remaining floor (all DevTools-internals, all binary-bound)**: wasm binary
+strings (ggpo Go package paths in panic traces, IKEMENGO handshake magic on
+the wire, embedded config/motif template with `data/ikemen1` fallback +
+"Configuration file for Ikemen GO" comment), `#ikemen-canvas` DOM id,
+`globalThis.ikemenNet` / `ikemenVfsInit` bridge names the binary calls by
+string, and the `Ikemen_%s.log` filename (desktop-only path). Zero of these
+require an engine recompile to keep working — only a recompile removes them.

@@ -108,7 +108,7 @@ if parent, stateNo = const(StateDizzy) {
 # StateDizzyLyingDown
 #===============================================================================
 
-# These states are deprecated in Ikemen 1.0. They are currently only kept to prevent older characters from entering invalid states
+# These states are deprecated in engine 1.0. They are currently only kept to prevent older characters from entering invalid states
 
 [StateDef const(StateDizzyFallDown_standCrouch); type: U; movetype: H; physics: N; velset: 0, 0; ctrl: 0;]
 

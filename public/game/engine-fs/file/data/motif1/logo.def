@@ -9,6 +9,6 @@ fadein.time = 30
 fadeout.time = 60
 end.time = 200
 
-[BG0 Ikemen Logo]
+[BG0 Logo]
 type = video
 path = ik_logo.webm
