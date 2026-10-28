@@ -71,26 +71,6 @@ export default function AboutPage() {
           </div>
         </div>
 
-        <div className="about__section">
-          <div className="about__section-title">
-            <span className="about__section-caret" aria-hidden="true" />
-            <span className="about__section-num">04</span> Open by design
-          </div>
-          <div className="about__section-body">
-            Nothing here is walled off. Every character pack, stage and sprite
-            in the roster lives in a public repository — browse it, fork it,
-            download it straight from the source.
-            <a
-              className="about__link"
-              href="https://github.com/FightingGameEngine/DemoAssets"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Browse the open asset pack →
-            </a>
-          </div>
-        </div>
-
         <div className="about__buttons">
           <GameButton variant="secondary" onClick={() => navigate('/lobby')}>
             ← BACK

@@ -25,9 +25,11 @@ open asset pack.
 
 - About page: new section 04 "Open by design" linking the public repo;
   Credits reworded to credit the MUGEN community (85+ community-made
-  fighters) instead of a bare repo name
-- game.css: `.about__link` (comic-print underline, crimson hover) — the
-  F-042 sibling-chain stagger picks up the 4th section automatically
+  fighters) instead of a bare repo name — **section 04 removed same day
+  at the user's request** (repo URL stays discoverable via the manifest
+  and jsDelivr regardless; presenting it on-page was opt-in)
+- game.css: `.about__link` (comic-print underline, crimson hover) — added
+  for section 04, removed with it (no other consumers)
 - character-downloader.ts: `stageThumbUrl` cdnBase regex made
   repo-name-agnostic (`/Assets@main/` → `/@main/`) so a future asset-repo
   rename can't silently break stage thumbs
@@ -38,8 +40,9 @@ open asset pack.
 
 ### Verification
 
-tsc clean; next build 16/16; About page renders four sections with the
-stagger intact and the link styled; no transport changes — roster fetch
+tsc clean; next build 16/16; About page re-verified at three sections
+(01 What is this? / 02 Powered by / 03 Credits) with the repo link and
+"Open by design" copy fully gone; no transport changes — roster fetch
 paths and netplay fingerprints are byte-identical.
 
 ---
