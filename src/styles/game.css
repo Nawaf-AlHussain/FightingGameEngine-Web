@@ -46,6 +46,11 @@
   --p1-glow:    rgba(232,40,60,0.3);
   --p2-color:   #3143d6;
   --p2-glow:    rgba(49,67,214,0.35);
+  /* Motion tokens (F-049) — the v2 press/pop easings, named so new motion
+     rules stop copy-pasting literals. Resolves identically to the old
+     bezier strings; legacy call sites were migrated 1:1. */
+  --ease-press: cubic-bezier(0.2, 0.9, 0.3, 1.1);
+  --ease-pop:   cubic-bezier(0.2, 1.4, 0.4, 1);
 }
 
 /* --- Shared UI Components --- */
@@ -63,7 +68,13 @@
   border: none;
   cursor: pointer;
   font-family: var(--font-display);
-  transition: all 0.15s;
+  transition:
+    transform 0.15s ease-out,
+    box-shadow 0.15s ease-out,
+    background-color 0.15s ease-out,
+    border-color 0.15s ease-out,
+    color 0.15s ease-out,
+    opacity 0.15s ease-out;
   clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
@@ -73,11 +84,6 @@
   background: var(--royal);
   color: var(--paper);
   box-shadow: 4px 4px 0 var(--crimson);
-}
-.game-btn--primary:hover:not(:disabled) {
-  background: var(--royal-deep);
-  transform: translate(-2px, -2px);
-  box-shadow: 6px 6px 0 var(--crimson);
 }
 .game-btn--primary:active:not(:disabled) {
   transform: translate(0, 0);
@@ -89,11 +95,6 @@
   border: 2px solid var(--ink);
   box-shadow: 3px 3px 0 var(--ink);
 }
-.game-btn--secondary:hover:not(:disabled) {
-  background: #fffbea;
-  transform: translate(-2px, -2px);
-  box-shadow: 5px 5px 0 var(--ink);
-}
 .game-btn--secondary:active:not(:disabled) {
   transform: translate(0, 0);
   box-shadow: 1px 1px 0 var(--ink);
@@ -103,10 +104,25 @@
   color: var(--paper);
   box-shadow: 3px 3px 0 var(--ink);
 }
-.game-btn--danger:hover:not(:disabled) {
-  background: var(--red-dark);
-  transform: translate(-2px, -2px);
-  box-shadow: 5px 5px 0 var(--ink);
+/* Hover lifts live behind (hover: hover) — on touch devices a sticky
+   :hover freezes the button in its lifted state until the next tap
+   elsewhere (F-049). :active press feedback stays universal. */
+@media (hover: hover) {
+  .game-btn--primary:hover:not(:disabled) {
+    background: var(--royal-deep);
+    transform: translate(-2px, -2px);
+    box-shadow: 6px 6px 0 var(--crimson);
+  }
+  .game-btn--secondary:hover:not(:disabled) {
+    background: #fffbea;
+    transform: translate(-2px, -2px);
+    box-shadow: 5px 5px 0 var(--ink);
+  }
+  .game-btn--danger:hover:not(:disabled) {
+    background: var(--red-dark);
+    transform: translate(-2px, -2px);
+    box-shadow: 5px 5px 0 var(--ink);
+  }
 }
 .game-btn--disabled,
 .game-btn:disabled {
@@ -118,6 +134,10 @@
 .game-btn--loading {
   opacity: 0.6;
   cursor: wait;
+  /* waitPulse opacity band (keyframe reads these vars) */
+  --pulse-hi: 0.6;
+  --pulse-lo: 0.35;
+  animation: waitPulse 0.9s ease-in-out infinite alternate;
 }
 .game-btn:focus-visible {
   outline: 2px solid var(--cyan);
@@ -200,6 +220,13 @@ input:focus-visible,
   animation: spin 0.8s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+/* Shared "work happening" pulse — var-driven so each caller sets its own
+   opacity band (loading button: 0.6→0.35, spinner under reduced motion:
+   1→0.45 as the non-rotating stand-in for spin). Opacity only. */
+@keyframes waitPulse {
+  from { opacity: var(--pulse-hi, 1); }
+  to   { opacity: var(--pulse-lo, 0.45); }
+}
 .loading-state__message {
   font-size: 0.85rem;
   letter-spacing: 0.2em;
@@ -224,6 +251,7 @@ input:focus-visible,
   border: 3px solid var(--ink);
   box-shadow: 8px 8px 0 rgba(0,0,0,0.6);
   clip-path: polygon(0 0, calc(100% - 22px) 0, 100% 22px, 100% 100%, 22px 100%, 0 calc(100% - 22px));
+  animation: pressIn 0.3s var(--ease-press) backwards;
 }
 .error-state__icon {
   font-size: 2.6rem;
@@ -734,14 +762,24 @@ html.phone-landscape body.fighting {
     linear-gradient(var(--ink), var(--ink)) bottom / 9px 2px no-repeat;
   opacity: 0.45;
 }
-.lobby__menu-item--selected,
-.lobby__menu-item:hover { transform: translateX(var(--bar-x)); }
+.lobby__menu-item--selected { transform: translateX(var(--bar-x)); }
+/* (F-049) hover-only movement sits behind (hover: hover) — on touch,
+   Chrome keeps the :hover state after a tap and would freeze the item
+   mid-slide / caret out. Color-only hover feedback stays universal. */
+@media (hover: hover) {
+  .lobby__menu-item:hover { transform: translateX(var(--bar-x)); }
+}
 .lobby__menu-item--selected::before,
 .lobby__menu-item:hover::before { background: #ffffff; }
-.lobby__menu-item--selected .lobby__menu-item-caret,
-.lobby__menu-item:hover .lobby__menu-item-caret {
+.lobby__menu-item--selected .lobby__menu-item-caret {
   opacity: 1;
   transform: translateX(0);
+}
+@media (hover: hover) {
+  .lobby__menu-item:hover .lobby__menu-item-caret {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 .lobby__menu-item--selected .lobby__menu-item-caret {
   animation: caretNudge 0.9s ease-in-out infinite alternate;
@@ -1092,7 +1130,7 @@ html.phone-landscape body.fighting {
   border: 2px solid var(--crimson);
   padding: 0 6px;
   line-height: 1.4;
-  animation: stampIn 0.35s cubic-bezier(0.2, 1.4, 0.4, 1) backwards;
+  animation: stampIn 0.35s var(--ease-pop) backwards;
 }
 .cs__plate-meta {
   padding: 0.24rem 0.5rem 0.3rem;
@@ -1275,10 +1313,16 @@ html.phone-landscape body.fighting {
   transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;
   position: relative;
 }
-.cs__card:hover {
-  border-color: var(--ink);
-  transform: translateY(-2px);
-  box-shadow: 4px 4px 0 var(--crimson);
+@media (hover: hover) {
+  .cs__card:hover {
+    border-color: var(--ink);
+    transform: translateY(-2px);
+    box-shadow: 4px 4px 0 var(--crimson);
+  }
+}
+/* press-in feedback (F-049): cards dip into the paper while touched */
+.cs__card:not(.cs__card--locked):active {
+  transform: translate(1px, 1px);
 }
 .cs__card--p1 { border-color: var(--p1-color); box-shadow: 3px 3px 0 var(--p1-color); }
 .cs__card--p2 { border-color: var(--p2-color); box-shadow: 3px 3px 0 var(--p2-color); }
@@ -1362,7 +1406,7 @@ html.phone-landscape body.fighting {
   padding: 0 7px;
   line-height: 1.6;
   pointer-events: none;
-  animation: stampInCard 0.3s cubic-bezier(0.2, 1.4, 0.4, 1) backwards;
+  animation: stampInCard 0.3s var(--ease-pop) backwards;
 }
 .cs__card-stamp--p2 { color: var(--royal); border-color: var(--royal); }
 
@@ -1476,9 +1520,11 @@ html.phone-landscape body.fighting {
   filter: drop-shadow(4px 4px 0 var(--royal));
   transition: transform 0.15s, filter 0.15s, background 0.15s;
 }
-.cs__btn-fight:hover:not(:disabled) {
-  transform: translate(-2px, -2px);
-  filter: drop-shadow(6px 6px 0 var(--royal));
+@media (hover: hover) {
+  .cs__btn-fight:hover:not(:disabled) {
+    transform: translate(-2px, -2px);
+    filter: drop-shadow(6px 6px 0 var(--royal));
+  }
 }
 .cs__btn-fight:disabled {
   background: var(--gray-dark);
@@ -1613,10 +1659,12 @@ html.phone-landscape body.fighting {
   cursor: pointer;
   transition: background 0.15s, color 0.15s, transform 0.15s, box-shadow 0.15s, filter 0.15s;
 }
-.ms__card:hover {
-  background: #fffbea;
-  transform: translate(-1px, -1px);
-  box-shadow: 4px 4px 0 var(--ink);
+@media (hover: hover) {
+  .ms__card:hover {
+    background: #fffbea;
+    transform: translate(-1px, -1px);
+    box-shadow: 4px 4px 0 var(--ink);
+  }
 }
 .ms__card--active {
   background: var(--crimson);
@@ -1835,10 +1883,12 @@ html.phone-landscape body.fighting {
   cursor: pointer;
   transition: background 0.15s, color 0.15s, transform 0.15s, box-shadow 0.15s, filter 0.15s, opacity 0.15s;
 }
-.gs__card:hover {
-  background: #fffbea;
-  transform: translate(-1px, -1px);
-  box-shadow: 4px 4px 0 var(--ink);
+@media (hover: hover) {
+  .gs__card:hover {
+    background: #fffbea;
+    transform: translate(-1px, -1px);
+    box-shadow: 4px 4px 0 var(--ink);
+  }
 }
 .gs__card--active {
   background: var(--crimson);
@@ -2226,10 +2276,12 @@ html.phone-landscape body.fighting {
   transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s, background 0.15s;
   animation: barIn 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.15) backwards;
 }
-.ss__card:hover {
-  transform: translate(-1px, -2px);
-  box-shadow: 6px 6px 0 var(--ink);
-  background: #fffdf4;
+@media (hover: hover) {
+  .ss__card:hover {
+    transform: translate(-1px, -2px);
+    box-shadow: 6px 6px 0 var(--ink);
+    background: #fffdf4;
+  }
 }
 .ss__card--selected {
   border-color: var(--royal);
@@ -3542,12 +3594,14 @@ body.fighting {
   box-shadow: 3px 3px 0 var(--ink);
   font-weight: 700;
 }
-.settings__btn--save:hover:not(:disabled) {
-  background: var(--red-dark);
-  color: var(--paper);
-  border-color: var(--red-dark);
-  transform: translate(-2px, -2px);
-  box-shadow: 5px 5px 0 var(--ink);
+@media (hover: hover) {
+  .settings__btn--save:hover:not(:disabled) {
+    background: var(--red-dark);
+    color: var(--paper);
+    border-color: var(--red-dark);
+    transform: translate(-2px, -2px);
+    box-shadow: 5px 5px 0 var(--ink);
+  }
 }
 .settings__btn--save:disabled {
   background: var(--paper-dim);
@@ -3792,18 +3846,22 @@ body.fighting {
   border: 2px solid var(--ink);
   box-shadow: 3px 3px 0 rgba(16,16,24,0.8);
 }
-.progress__btn--quit:hover {
-  transform: translate(-2px, -2px);
-  box-shadow: 5px 5px 0 rgba(16,16,24,0.8);
+@media (hover: hover) {
+  .progress__btn--quit:hover {
+    transform: translate(-2px, -2px);
+    box-shadow: 5px 5px 0 rgba(16,16,24,0.8);
+  }
 }
 .progress__btn--next {
   background: var(--crimson);
   color: var(--paper);
   box-shadow: 4px 4px 0 var(--ink);
 }
-.progress__btn--next:hover {
-  transform: translate(-2px, -2px);
-  box-shadow: 6px 6px 0 var(--ink);
+@media (hover: hover) {
+  .progress__btn--next:hover {
+    transform: translate(-2px, -2px);
+    box-shadow: 6px 6px 0 var(--ink);
+  }
 }
 
 /* ========================================
@@ -3926,18 +3984,22 @@ body.fighting {
   color: var(--paper);
   box-shadow: 4px 4px 0 var(--ink);
 }
-.results__btn--again:hover {
-  transform: translate(-2px, -2px);
-  box-shadow: 6px 6px 0 var(--ink);
+@media (hover: hover) {
+  .results__btn--again:hover {
+    transform: translate(-2px, -2px);
+    box-shadow: 6px 6px 0 var(--ink);
+  }
 }
 .results__btn--lobby {
   background: var(--ink);
   color: var(--paper);
   box-shadow: 4px 4px 0 rgba(16,16,24,0.35);
 }
-.results__btn--lobby:hover {
-  transform: translate(-2px, -2px);
-  box-shadow: 6px 6px 0 rgba(16,16,24,0.35);
+@media (hover: hover) {
+  .results__btn--lobby:hover {
+    transform: translate(-2px, -2px);
+    box-shadow: 6px 6px 0 rgba(16,16,24,0.35);
+  }
 }
 
 /* Mobile responsive for progress + results */
@@ -4592,12 +4654,17 @@ body.fighting {
 }
 
 /* -- Shared micro-interactions ------------------------------------------
-   Cards press INTO the paper (offset shadow shrinks), buttons too. */
+   Cards press INTO the paper (offset shadow shrinks), buttons too.
+   Hover lifts are gated behind (hover: hover) so touch taps don't
+   leave sticky lifts; :active press feedback stays universal (F-049). */
 
-.ms__card:not(.ms__card--active):hover,
-.gs__grid:not(.gs__grid--spectate) .gs__card:hover {
-  transform: translate(-2px, -2px);
-  box-shadow: 6px 6px 0 var(--ink);
+@media (hover: hover) {
+  .ms__card:not(.ms__card--active):hover,
+  .gs__grid:not(.gs__grid--spectate) .gs__card:hover {
+    transform: translate(-2px, -2px);
+    box-shadow: 6px 6px 0 var(--ink);
+  }
+  .ss__chip:hover { transform: translate(-1px, -1px); }
 }
 .ms__card:not(.ms__card--active):active,
 .gs__grid:not(.gs__grid--spectate) .gs__card:active {
@@ -4608,7 +4675,6 @@ body.fighting {
   transform: translate(2px, 2px);
   box-shadow: 1px 1px 0 var(--ink);
 }
-.ss__chip:hover { transform: translate(-1px, -1px); }
 .ss__chip:active { transform: translate(1px, 1px); }
 
 /* FIGHT / CONTINUE button: ink shine sweeps across on hover */
@@ -4627,8 +4693,10 @@ body.fighting {
   background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent);
   transform: translateX(-130%) skewX(-18deg);
 }
-.cs__btn-fight:hover:not(:disabled)::after {
-  animation: shineSweep 0.7s ease-out;
+@media (hover: hover) {
+  .cs__btn-fight:hover:not(:disabled)::after {
+    animation: shineSweep 0.7s ease-out;
+  }
 }
 .cs__btn-back:active,
 .cs__btn-fight:active:not(:disabled) {
@@ -4639,7 +4707,7 @@ body.fighting {
 
 .ms__title,
 .gs__title {
-  animation: pressIn 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.1) backwards;
+  animation: pressIn 0.45s var(--ease-press) backwards;
 }
 .ms__title-main,
 .gs__title-main {
@@ -4664,36 +4732,36 @@ body.fighting {
 .gs__grid .gs__card:nth-child(4) { animation-delay: 0.34s; }
 .gs__grid .gs__card:nth-child(n + 5) { animation-delay: 0.42s; }
 .ms__difficulty .cs__diff-btn {
-  animation: popIn 0.3s cubic-bezier(0.2, 1.4, 0.4, 1) backwards;
+  animation: popIn 0.3s var(--ease-pop) backwards;
 }
 .ms__difficulty .cs__diff-btn:nth-child(2) { animation-delay: 0.5s; }
 .ms__difficulty .cs__diff-btn:nth-child(3) { animation-delay: 0.57s; }
 .ms__difficulty .cs__diff-btn:nth-child(4) { animation-delay: 0.64s; }
 .ms__footer .cs__btn-back,
 .gs__footer .cs__btn-back {
-  animation: pressIn 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.1) 0.55s backwards;
+  animation: pressIn 0.4s var(--ease-press) 0.55s backwards;
 }
 .ms__footer .cs__btn-fight,
 .gs__footer .cs__btn-fight {
-  animation: pressIn 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.1) 0.63s backwards;
+  animation: pressIn 0.4s var(--ease-press) 0.63s backwards;
 }
 
 /* -- STAGE SELECT -------------------------------------------------------- */
 
 .ss__title {
-  animation: pressIn 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.1) backwards;
+  animation: pressIn 0.45s var(--ease-press) backwards;
 }
 .ss__title-main {
   animation: titleJitter 7s steps(1, end) 1.2s infinite;
 }
 .ss__preview {
-  animation: pressIn 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.1) 0.15s backwards;
+  animation: pressIn 0.45s var(--ease-press) 0.15s backwards;
 }
 .ss__preview-img {
   animation: floatY 5s ease-in-out infinite alternate;
 }
 .ss__chips .ss__chip {
-  animation: popIn 0.28s cubic-bezier(0.2, 1.4, 0.4, 1) backwards;
+  animation: popIn 0.28s var(--ease-pop) backwards;
 }
 .ss__chips .ss__chip:nth-child(1) { animation-delay: 0.4s; }
 .ss__chips .ss__chip:nth-child(2) { animation-delay: 0.47s; }
@@ -4703,25 +4771,25 @@ body.fighting {
 /* -- ROSTER (additions; cards already enter via csCardEnter) ------------- */
 
 .cs__search {
-  animation: pressIn 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.1) 0.2s backwards;
+  animation: pressIn 0.4s var(--ease-press) 0.2s backwards;
 }
 .cs__plate--p1 {
-  animation: flyInLeft 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.1) backwards;
+  animation: flyInLeft 0.5s var(--ease-press) backwards;
 }
 .cs__plate--p2 {
-  animation: flyInRight 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.1) 0.1s backwards;
+  animation: flyInRight 0.5s var(--ease-press) 0.1s backwards;
 }
 
 /* -- MATCH PREP (the VS splash — showpiece screen) ----------------------- */
 
 .match-prep__mode {
-  animation: pressIn 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.1) backwards;
+  animation: pressIn 0.4s var(--ease-press) backwards;
 }
 .match-prep__player--p1 {
-  animation: flyInLeft 0.55s cubic-bezier(0.2, 0.9, 0.3, 1.1) 0.1s backwards;
+  animation: flyInLeft 0.55s var(--ease-press) 0.1s backwards;
 }
 .match-prep__player--p2 {
-  animation: flyInRight 0.55s cubic-bezier(0.2, 0.9, 0.3, 1.1) 0.18s backwards;
+  animation: flyInRight 0.55s var(--ease-press) 0.18s backwards;
 }
 .match-prep__vs-text {
   animation: vsSlam 0.5s cubic-bezier(0.2, 0.9, 0.3, 1) 0.35s backwards;
@@ -4730,19 +4798,19 @@ body.fighting {
   animation: floatY 4.5s ease-in-out 1.2s infinite alternate;
 }
 .match-prep__stage {
-  animation: pressIn 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.1) 0.45s backwards;
+  animation: pressIn 0.45s var(--ease-press) 0.45s backwards;
 }
 .match-prep__rules {
-  animation: pressIn 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.1) 0.55s backwards;
+  animation: pressIn 0.4s var(--ease-press) 0.55s backwards;
 }
 .match-prep__buttons .cs__btn-fight {
-  animation: popIn 0.32s cubic-bezier(0.2, 1.4, 0.4, 1) 0.65s backwards;
+  animation: popIn 0.32s var(--ease-pop) 0.65s backwards;
 }
 
 /* -- RESULTS -------------------------------------------------------------- */
 
 .results__content {
-  animation: pressIn 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.1) backwards;
+  animation: pressIn 0.5s var(--ease-press) backwards;
 }
 .results__mode {
   animation: barIn 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.15) backwards;
@@ -4750,29 +4818,29 @@ body.fighting {
 /* .results__title keeps its own resultsTitleIn entrance — no jitter here:
    two transform animations on one element don't compose */
 .results__stat {
-  animation: pressIn 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.1) backwards;
+  animation: pressIn 0.4s var(--ease-press) backwards;
 }
 .results__stat:nth-of-type(1) { animation-delay: 0.35s; }
 .results__stat:nth-of-type(2) { animation-delay: 0.45s; }
 .results__stat:nth-of-type(3) { animation-delay: 0.55s; }
 .results__buttons .cs__btn-back,
 .results__buttons .cs__btn-fight {
-  animation: popIn 0.3s cubic-bezier(0.2, 1.4, 0.4, 1) 0.7s backwards;
+  animation: popIn 0.3s var(--ease-pop) 0.7s backwards;
 }
 
 /* -- ABOUT ---------------------------------------------------------------- */
 
 .about__masthead {
-  animation: pressIn 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.1) backwards;
+  animation: pressIn 0.45s var(--ease-press) backwards;
 }
 .about__title {
-  animation: pressInCard 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.1) 0.1s backwards;
+  animation: pressInCard 0.5s var(--ease-press) 0.1s backwards;
 }
 .about__subtitle {
-  animation: popIn 0.35s cubic-bezier(0.2, 1.4, 0.4, 1) 0.35s backwards;
+  animation: popIn 0.35s var(--ease-pop) 0.35s backwards;
 }
 .about__section {
-  animation: pressIn 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.1) 0.3s backwards;
+  animation: pressIn 0.45s var(--ease-press) 0.3s backwards;
 }
 /* sibling-chain stagger — robust to non-section siblings (ribbon, subtitle) */
 .about__section ~ .about__section { animation-delay: 0.42s; }
@@ -4810,6 +4878,16 @@ body.fighting {
   animation-delay: -4.5s; /* desync the pair so they don't blink in unison */
 }
 
+/* -- SETTINGS (entrance — the one chrome screen v2 missed) ----------------
+   Same press-roller grammar as every other screen; body and footer
+   arrive after the masthead. Rows are NOT staggered (dynamic per-tab
+   content, hundreds of nodes — v2 rule: no per-row choreography). */
+
+.settings__title  { animation: pressIn 0.45s var(--ease-press) backwards; }
+.settings__tabs   { animation: pressIn 0.4s  var(--ease-press) 0.12s backwards; }
+.settings__body   { animation: pressInCard 0.42s var(--ease-press) 0.22s backwards; }
+.settings__footer { animation: pressIn 0.4s var(--ease-press) 0.32s backwards; }
+
 /* -- Reduced motion: v2 additions only (v1 has its own block) ------------- */
 
 @media (prefers-reduced-motion: reduce) {
@@ -4834,4 +4912,36 @@ body.fighting {
     animation: none !important;
   }
   .cs__btn-fight::after { display: none; }
+}
+
+/* -- Reduced motion: completion pass (F-049 scripted audit) ----------------
+   Closes every gap the audit (scripts/audit-motion.mjs) found:
+   - the full-screen wipe sweep + flash (navigation still covers
+     instantly via the static .covered rule — a state cut, not motion —
+     and reveals instantly instead of sweeping away)
+   - boot spinner keeps a non-rotating waitPulse so loading still reads
+     as active work (spec §34); loading buttons stop pulsing (cursor
+     wait + dimming already communicate the state)
+   - entrances/pulses the v1 and v2 blocks predate: roster card enter,
+     progress/results titles, current-progress dot, keybind capture
+     pulse, ms/gs ambient halftone dots, error card, settings entrances */
+
+@media (prefers-reduced-motion: reduce) {
+  #wipe.active, #wipe.exiting, #wipe.active .flash { animation: none !important; }
+  #wipe .stamp { transition: none; }
+  .game-btn--loading { animation: none; }
+  .loading-state__spinner {
+    --pulse-hi: 1;
+    --pulse-lo: 0.45;
+    animation: waitPulse 1.2s ease-in-out infinite alternate;
+  }
+  .cs__card--enter,
+  .ms__bg-dots, .gs__bg-dots,
+  .settings__keybind-btn--capturing,
+  .progress__title, .progress__dot--current,
+  .results__title,
+  .error-state,
+  .settings__title, .settings__tabs, .settings__body, .settings__footer {
+    animation: none !important;
+  }
 }

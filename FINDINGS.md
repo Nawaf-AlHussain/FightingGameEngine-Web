@@ -1648,3 +1648,75 @@ the wire, embedded config/motif template with `data/ikemen1` fallback +
 `globalThis.ikemenNet` / `ikemenVfsInit` bridge names the binary calls by
 string, and the `Ikemen_%s.log` filename (desktop-only path). Zero of these
 require an engine recompile to keep working — only a recompile removes them.
+
+## F-049 | Motion completion pass — reduced-motion gaps, sticky hover on touch, motion tokens
+
+**Context (user)**: asked whether to rebuild the frontend on rive.app.
+Verdict: no full rebuild — spec §55 forbids visual rewrites, canvas-rendered
+UI regresses §37 accessibility/SEO, and Rive's runtime has a documented
+CDN-fallback path (community report, Jan 2026) that conflicts with the
+site's self-contained constraint. Chosen path: a zero-dependency completion
+pass over the F-042 motion system, then re-evaluate a targeted Rive layer
+(rocket-squadron background) only if the itch remains.
+
+**Audit** (`scripts/audit-motion.mjs`, kept for reuse): parses every
+top-level `animation:` rule in game.css and diffs the selectors against the
+two `prefers-reduced-motion` blocks' `animation: none` lists. First run:
+13 uncovered — 12 real gaps, 1 false positive (the FIGHT-button shine is
+killed via `display:none`, which a `animation:none` matcher can't see).
+
+**Fixed (game.css only — zero JS, zero new deps)**:
+1. Third reduced-motion block ("completion pass"): the full-screen wipe
+   (wipeIn/wipeOut/flashBlast) is now disabled — navigation still covers
+   instantly via the static `.covered` rule (a state cut, not motion) and
+   reveals instantly instead of sweeping away; the boot spinner swaps spin
+   for a non-rotating waitPulse (spec §34: loading must read as active
+   work); plus roster card enter, progress/results titles, current-progress
+   dot, keybind capture pulse, ms/gs ambient halftone dots, error card,
+   settings entrances.
+2. **Sticky hover on touch — the big one.** Chrome keeps the `:hover` STATE
+   alive after a tap even when the media query says `(hover: none)`; any
+   ungated `:hover` rule carrying transform froze cards/buttons in their
+   lifted pose until the next tap elsewhere. A CSSOM sweep found 12 ungated
+   transform hovers across v1 AND v2 (mode/group/stage/roster cards,
+   cs__btn-fight's v1 lift+drop-shadow, lobby menu-item slide + caret,
+   settings save, progress quit/next, results again/lobby). All now sit
+   inside `@media (hover: hover)`. Policy: color-only hovers stay universal;
+   `:active` press feedback stays universal (touch keeps press-in). The
+   ≤768px `.cs__card:hover { transform:none }` neutralizer predates this and
+   is now redundant-but-harmless.
+3. Motion tokens `--ease-press` / `--ease-pop` at :root; every bezier
+   literal migrated 1:1 (remaining literals are genuinely different curves:
+   1.15 barIn, 1.12 pressInCard, 1 vsSlam). Gotcha: batch replace_all also
+   rewrote the definitions themselves → circular
+   `--ease-press: var(--ease-press)` → invalid; definitions re-literalized.
+4. game-btn: `transition: all` → explicit properties; `--loading` pulses via
+   waitPulse with a var-driven opacity band (`--pulse-hi`/`--pulse-lo` — one
+   keyframe serves both the button and the reduced-motion spinner).
+5. Roster cards gain `:active` press-in; the error card gains a pressIn
+   entrance.
+6. Settings entrances added — the one chrome screen v2 missed. Dormant while
+   /settings is showcase-disabled (F-041); they activate with the documented
+   restore path (settings/route.ts header).
+
+**Verification** (`scripts/verify-motion.mjs`): 3 browser contexts (desktop
+/ reducedMotion:reduce / mobile touch emulation), 34 checks — computed
+animationName probes on synthetic elements (game.css is global so one page
+hosts all probes), hover lift differential across contexts, real-screen
+spot checks (/about masthead, /results title), 9 screenshots, console clean
+(0 errors, 0 brand strings). Headless gotchas worth remembering:
+- a RUNNING animation owns `transform` and suppresses the hover cascade;
+  `cancel()` just restarts a CSS animation (animation-name re-matches) —
+  probes must inline `animation:none;transition:none` to read pure cascade
+- Chrome serializes `transform: none` as an identity matrix when a
+  transition property is set — assert on matrix tx/ty, not on 'none'
+- `CSSStyleRule.cssRules` is truthy in modern Chrome (nesting) — a naive
+  CSSOM walk treats every style rule as a container and finds no leaves
+
+**Lesson**: `(hover: hover)` gates the RULE, not the state — `:hover`
+`matches()` stays true under touch emulation, so gating must be proven by
+computed style with media-flipped contexts. And v1-era hover rules must be
+swept, not assumed: v2's gated hovers sat alongside ungated v1 twins for
+the same elements. Grouped selectors must be read in full before editing —
+`.lobby__menu-item--selected, .lobby__menu-item:hover` shared one
+declaration; splitting it wrong orphaned the selected-state transform.

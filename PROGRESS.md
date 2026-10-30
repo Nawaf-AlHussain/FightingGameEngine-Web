@@ -1275,3 +1275,38 @@ Implemented the FRONTEND_2.1_REDESIGN_SPEC across 9 phases, preserving all exist
   chunks + new build; kill by PID.
 - Noted: production Assets manifest (v3) has stale cdnBase paths (chars moved
   to source folders); DemoAssets (v5) — what the demo reads — is correct.
+
+## Session: October 30, 2026 — Zero-dependency motion completion pass (F-049)
+
+### Context
+- User asked whether to rebuild the frontend on rive.app; verdict was no
+  full rebuild (spec §55, §37, self-contained constraint) — instead a
+  zero-dependency completion pass over the F-042 Comic Print System.
+
+### Fix (game.css only — zero JS, zero new dependencies)
+- Reduced-motion completion block (third): full-screen wipe sweep + flash
+  disabled (navigation covers instantly via static .covered — a state cut,
+  not motion — and reveals instantly), boot spinner keeps a non-rotating
+  waitPulse (spec §34), roster enter / progress+results titles / progress
+  dot / keybind capture pulse / ms+gs ambient dots / error card / settings
+  entrances all disabled.
+- Sticky-hover fix: EVERY hover rule carrying transform or box-shadow now
+  sits inside `@media (hover: hover)` — 12 rules across v1 and v2 (Chrome
+  keeps the :hover state after a tap even under (hover: none), freezing
+  lifted cards until the next tap). Color-only hovers and :active press
+  feedback stay universal.
+- Motion tokens --ease-press / --ease-pop at :root, all identical bezier
+  literals migrated 1:1; game-btn transition: all → explicit properties;
+  game-btn--loading + spinner pulse via one var-driven waitPulse keyframe.
+- Roster cards gain :active press-in; error card gains a pressIn entrance;
+  settings gains the v2 entrance grammar (dormant until the F-041 restore).
+
+### Verification
+- scripts/audit-motion.mjs (new, kept): reduced-motion coverage diff —
+  13 uncovered → 1 intentional substitute (spinner's waitPulse).
+- scripts/verify-motion.mjs (new, kept): 34/34 checks across desktop /
+  reduced-motion / touch contexts — animation probes, hover differential,
+  real-screen spot checks, 9 screenshots; console 0 errors, 0 brand hits.
+- tsc clean; build 16/16.
+- Live screenshots confirm entrances settle clean on lobby, mode select,
+  match-prep (honest FAILED states intact), about, results, progress.

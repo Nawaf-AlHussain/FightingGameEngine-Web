@@ -43,6 +43,11 @@
 - ✅ Comic Print System v2 (F-042): full-page motion on every chrome
   screen — staggered entrances, ambient print-shop loops, hover/press
   micro-interactions; transform/opacity only, reduced-motion honored.
+- ✅ Motion completion pass (F-049): reduced-motion coverage closed
+  (wipe sweep, spinner pulse, entrances/pulses), every transform hover
+  gated behind (hover: hover) — no sticky lifts on touch — plus motion
+  tokens, roster press feedback, settings entrance (dormant until the
+  F-041 restore). Audit + 3-context verifier kept in /scripts.
 - ✅ Phase 4 hardening batch (Oct 25): mid-fight flow-stall watchdog +
   stream-integrity probes (F-044) and ranked ladder persistence on the
   relay (F-045) — both purely additive; the ladder goes live with one
