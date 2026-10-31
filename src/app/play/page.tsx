@@ -21,6 +21,7 @@ import { ErrorState, GameButton } from '@/components/ui';
 import { readFightResult, clearFightResult, processFightResult, getCurrentModeState, markFightStart } from '@/lib/game-modes';
 import { getDisplayModeMarker } from '@/lib/engine-config';
 import { engineGzipDecode, bootGzStats } from '@/lib/boot-decompress';
+import { installEngineDialogShim } from '@/lib/engine-dialog-shim';
 import CharacterSelect from '@/components/CharacterSelect';
 import GroupSelect from '@/components/GroupSelect';
 import StageSelect from '@/components/StageSelect';
@@ -251,6 +252,14 @@ if (typeof document !== 'undefined') {
     }
   }
 }
+
+// F-050: the engine's Go panic handler raises native Chrome dialogs via
+// js alert("I.K.E.M.E.N Error\n\n…"). Replace window.alert before ANY
+// engine code can run — module scope precedes wasm_exec.js evaluation and
+// covers both WasmRuntime constructions (first boot + net rematch). The
+// shim routes the message into the log bridge the death triage already
+// reads, so crashes still surface through the app's own error overlay.
+installEngineDialogShim();
 
 // Expose the off-main-thread gunzip to vfs.js (which is plain JS with no
 // imports): engineVfsInit's pak path calls globalThis.engineGzipDecode and

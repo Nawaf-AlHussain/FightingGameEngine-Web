@@ -137,11 +137,19 @@ const pakGz = zlib.gzipSync(pak, { level: 9 });
 fs.writeFileSync(pakPath + '.gz', pakGz);
 console.log(`Wrote game.pak.gz: ${pakGz.length.toLocaleString()} bytes (${(pakGz.length / 1e6).toFixed(1)} MB, -${Math.round((1 - pakGz.length / pak.length) * 100)}%)`);
 
-// Content-derived stamp: identical pak bytes -> identical stamp, so a
+// Content-derived stamp: identical tree bytes -> identical stamp, so a
 // rebuild that changed nothing keeps every asset URL stable and the
 // immutable cache entries valid. Date.now() busting all URLs on every
 // rebuild was pure cache waste.
-manifest.stamp = crypto.createHash('sha256').update(pak).digest('hex').slice(0, 12);
+// F-050: the stamp now covers LAZY file bytes too, not just the pak.
+// Lazy URLs carry the per-export ?v=<stamp> (vfs.js), but a stamp hashed
+// from pak bytes alone never changed on lazy-only edits — a text-asset
+// scrub (motif infobox) stayed cached up to a day (max-age=86400) for
+// returning visitors. Hashing pak + sorted lazy contents makes one regen
+// bust exactly the URLs whose bytes changed, and nothing else.
+const stampHash = crypto.createHash('sha256').update(pak);
+for (const vpath of lazyPaths) stampHash.update(fs.readFileSync(allFiles[vpath]));
+manifest.stamp = stampHash.digest('hex').slice(0, 12);
 console.log(`  Essential: ${essentialPaths.length} files, ${(essentialBytes / 1e6).toFixed(1)} MB`);
 console.log(`  Lazy:      ${lazyPaths.length} files, ${(lazyBytes / 1e6).toFixed(1)} MB`);
 console.log(`  Total:     ${essentialPaths.length + lazyPaths.length} files, ${((essentialBytes + lazyBytes) / 1e6).toFixed(1)} MB`);

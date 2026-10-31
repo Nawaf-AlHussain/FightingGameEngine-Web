@@ -1310,3 +1310,44 @@ Implemented the FRONTEND_2.1_REDESIGN_SPEC across 9 phases, preserving all exist
 - tsc clean; build 16/16.
 - Live screenshots confirm entrances settle clean on lobby, mode select,
   match-prep (honest FAILED states intact), about, results, progress.
+## Session: October 31, 2026 — No more native error popups; last brand scrub (F-050)
+
+### Context (user)
+A Chrome popup titled "I.K.E.M.E.N Error" appeared whenever the engine hit an
+issue. User asked for every Ikemen/MUGEN reference removed — or at minimum no
+native popup boxes ever.
+
+### Root cause
+The wasm binary's Go panic handler calls
+`js.Global().Call("alert", "I.K.E.M.E.N Error\n\n" + msg)`. Native dialogs are
+unstyleable, brand-bearing, and were invisible to the F-047/F-048 sweeps: the
+alert only fires on crashes, and it bypasses stdout/stderr entirely (the
+console sweep's channel). Wasm string table confirms `alert` is the engine's
+ONLY browser dialog — zero `confirm()`/`prompt()` call strings.
+
+### Fix
+- `src/lib/engine-dialog-shim.ts` (new): `window.alert` replaced at play-page
+  MODULE scope — before wasm_exec.js evaluates, covering both WasmRuntime
+  constructions (first boot + net rematch's second instance). Scrubs brand
+  strings ("I.K.E.M.E.N Error\n\nX" → "Engine error: X"), logs to console,
+  pushes into `window.__engineLog` — the buffer the death triage already
+  scans. Crashed engines therefore surface through the app's own branded
+  error overlay exactly as before; nothing native ever pops.
+- `data/motif1/system.def`: `[Infobox Text]` "Welcome to I.K.E.M.E.N GO
+  engine!" → "Welcome to OpenFighter!" (engine-rendered surface);
+  `data/motif1/{system,fight}.def` branded compatibility comments neutralized;
+  packed `data/common.const` `mugenversion 1.0 chars` comment → "legacy-format".
+  Functional `ikemenversion =` key, `ikemenVersion()`/`mugenVersion()` ZSS
+  triggers stay (engine API — renaming breaks parse/branching).
+- `scripts/generate-pak.js`: content stamp now hashes pak + sorted LAZY file
+  bytes (previously pak-only, so lazy-only text edits never busted the
+  1-day max-age cache). Regen: pak byte-identical on the lazy-only pass; the common.const scrub then
+  changed pak bytes — final stamp `a72d63a3b57a`.
+
+### Verification
+- tsc clean; build 16/16.
+- scripts/verify-engine-dialog.mjs (new): real browser, no 'dialog' event on
+  simulated engine alert, scrubbed console line + __engineLog entry present,
+  native confirm() untouched.
+- Brand sweep over served text assets: zero I.K.E.M.E.N/Ikemen/Mugen outside
+  the documented binary-bound floor + migration-only identifiers.

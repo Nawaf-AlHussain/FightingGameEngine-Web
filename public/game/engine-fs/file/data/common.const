@@ -16,7 +16,7 @@ Input.FBFlipEnemyDistance = -1      ; Positive value inverts B and F inputs when
 Input.PauseOnHitPause = 1           ; 1 makes commands be buffered during hit pause. Deprecated. See command parameters
 
 ; Backward compatibility toggles
-Default.LegacyGameDistanceSpec = 1  ; 1 prevents GameWidth/GameHeight from being affected by stage zoom for mugenversion 1.0 chars
+Default.LegacyGameDistanceSpec = 1  ; 1 prevents GameWidth/GameHeight from being affected by stage zoom for legacy-format 1.0 chars
 Default.LegacyFallYVelYAccel = 0    ; 1 sets HitDef's fall.yvelocity and yaccel defaults to fixed values, ignoring chars localcoord scaling.
 
 ; Rules

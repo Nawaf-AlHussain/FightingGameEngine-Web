@@ -1720,3 +1720,48 @@ swept, not assumed: v2's gated hovers sat alongside ungated v1 twins for
 the same elements. Grouped selectors must be read in full before editing —
 `.lobby__menu-item--selected, .lobby__menu-item:hover` shared one
 declaration; splitting it wrong orphaned the selected-state transform.
+---
+
+## F-050 — Engine error popups: never open a browser dialog + final brand scrub
+
+**Context (user)**: a Chrome popup saying "I.K.E.M.E.N Error" appeared when the
+engine hit issues; user wanted every Ikemen/MUGEN reference gone and no native
+popup boxes at all.
+
+**Root cause**: the wasm binary's Go panic handler calls
+`js.Global().Call("alert", "I.K.E.M.E.N Error\n\n" + msg)` — a NATIVE Chrome
+dialog, unstyleable and brand-bearing. The F-047/F-048 sweeps missed it because
+the alert only fires on crashes (the live-capture verification never crashed),
+and it is a separate channel from the stdout/stderr the console sweep covered.
+The wasm string table proves `alert` is the ONLY browser dialog the engine can
+raise — zero `confirm()`/`prompt()` call strings.
+
+**Fix — dialog shim (`src/lib/engine-dialog-shim.ts`)**: `window.alert` is
+replaced at play-page MODULE scope (before wasm_exec.js evaluates, covering
+both WasmRuntime constructions — first boot and the net rematch's second
+instance). The shim scrubs brand strings, logs `[engine] …` to the console,
+and pushes the line into `window.__engineLog` — the buffer the /play death
+triage already scans for `'Panic:'` / `'fatal error:'`. Net effect: a crashed
+engine shows the app's own branded error overlay (exit-code + log triage,
+unchanged), a warning-only alert stays console-visible, and NO native dialog
+can ever appear from engine code. Native `confirm()`/`prompt()` are untouched
+(engine never calls them; the settings reset uses confirm() deliberately).
+
+**Fix — last branded motif texts (`data/motif1/*.def`)**: the live motif
+(`save/config.ini` → `Motif = data/motif1/system.def`) still carried
+`Welcome to I.K.E.M.E.N GO engine! (%s - %s)` under `[Infobox Text]`
+(engine-rendered) plus two `;Version of I.K.E.M.E.N motif…` comments, plus the `mugenversion 1.0`
+comment in packed `data/common.const`. Scrubbed to neutral wording; the functional `ikemenversion =` key and the
+`ikemenVersion()` ZSS trigger stay (engine API — renaming breaks parse).
+
+**Stamp coverage fix (`scripts/generate-pak.js`)**: lazy-file URLs carry the
+per-export `?v=<stamp>`, but the stamp hashed PAK BYTES ONLY — a lazy-only
+edit never busted the 1-day `max-age=86400` cache. The stamp now hashes pak +
+sorted lazy contents, so one regen busts exactly the changed URLs. Regen
+verified: pak byte-identical on the lazy-only pass, then the common.const
+scrub changed pak bytes (essential file) — final stamp `a72d63a3b57a`.
+
+**Still binary-bound (needs engine recompile)**: the wasm-embedded default
+motif template (branded welcome, `data/ikemen1` fallback paths) — renders only
+if the live motif fails to load; the alert call string itself (dead once the
+shim owns `window.alert`).
