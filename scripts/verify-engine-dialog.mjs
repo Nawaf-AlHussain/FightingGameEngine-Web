@@ -17,7 +17,7 @@
 import { chromium } from 'playwright';
 
 const BASE = process.env.BASE || 'http://localhost:3000';
-const F050_STAMP = 'a72d63a3b57a';
+const F050_STAMP = '3a74088d9a0f';
 
 const results = [];
 const record = (name, pass, info = '') => {

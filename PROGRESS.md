@@ -1341,8 +1341,13 @@ ONLY browser dialog — zero `confirm()`/`prompt()` call strings.
   triggers stay (engine API — renaming breaks parse/branching).
 - `scripts/generate-pak.js`: content stamp now hashes pak + sorted LAZY file
   bytes (previously pak-only, so lazy-only text edits never busted the
-  1-day max-age cache). Regen: pak byte-identical on the lazy-only pass; the common.const scrub then
-  changed pak bytes — final stamp `a72d63a3b57a`.
+  1-day max-age cache). Regen: pak byte-identical on the lazy-only pass; the
+  common.const scrub then changed pak bytes — final stamp `a72d63a3b57a`.
+- Audit addendum: swept all 130 embedded template `.text` values — found the
+  live motif missing `footer.title.text`, letting the embedded branded footer
+  render bottom-left on every engine screen (canvas-internal, invisible to
+  DOM/console sweeps). Overridden with `footer.title.text = OpenFighter`.
+  Final stamp `3a74088d9a0f`; verify-engine-dialog 9/9 re-run.
 
 ### Verification
 - tsc clean; build 16/16.

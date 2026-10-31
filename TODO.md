@@ -72,8 +72,9 @@
   native `alert("I.K.E.M.E.N Error …")` dialog is intercepted on /play
   (module-scope shim) — crashes surface only through the app's own error
   overlay, brand scrubbed. Last branded motif texts ([Infobox Text]
-  welcome + def comments) neutralized; pak stamp now covers lazy bytes so
-  text scrubs actually reach returning visitors.
+  welcome + def comments + embedded footer-title fallback) neutralized;
+  pak stamp now covers lazy bytes so text scrubs actually reach
+  returning visitors.
 - [ ] Optional brand polish: rename `FightingGameEngine/DemoAssets` →
   `openfighter-assets`. Steps 1–2 of the runbook (FINDINGS F-046) need
   the FightingGameEngine account; the demo-side follow-ups (vercel.json

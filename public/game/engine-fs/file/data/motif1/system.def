@@ -140,6 +140,10 @@ loading.text = NOW LOADING...
 footer.title.font = default-3x5.def, 0, 1, 191, 191, 191, 255, -1
 footer.title.offset = 5, 721
 footer.title.scale = 3,3
+; Without .text the engine renders its embedded default footer title
+; bottom-left on every screen — the key must be overridden here, same
+; fully-prefixed spelling as the [Warning Info] keys.
+footer.title.text = OpenFighter
 
 footer.info.font = default-3x5.def, 0, 0, 191, 191, 191, 255, -1
 footer.info.offset = 640, 721

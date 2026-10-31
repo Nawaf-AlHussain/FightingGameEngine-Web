@@ -1765,3 +1765,14 @@ scrub changed pak bytes (essential file) — final stamp `a72d63a3b57a`.
 motif template (branded welcome, `data/ikemen1` fallback paths) — renders only
 if the live motif fails to load; the alert call string itself (dead once the
 shim owns `window.alert`).
+
+**Addendum (same-session audit)**: sweeping ALL 130 embedded `<key>.text =`
+template values exposed one more live render: the live motif set
+`footer.title.font/offset/scale` but never `footer.title.text`, so the
+template's branded footer title rendered bottom-left on every engine screen
+(inside the canvas — invisible to DOM/console sweeps; that's why the F-047
+live capture missed it). Fixed by adding `footer.title.text = OpenFighter` to
+`data/motif1/system.def` (fully-prefixed spelling, same as the [Warning Info]
+keys). The other embedded brand texts (`text.reload/noreload/shaders`,
+`[Infobox Text]`, `footer.info`) are all overridden by the live motif or
+neutral, so they never render. Stamp: `3a74088d9a0f`.
