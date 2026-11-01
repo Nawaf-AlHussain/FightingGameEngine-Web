@@ -1776,3 +1776,53 @@ live capture missed it). Fixed by adding `footer.title.text = OpenFighter` to
 keys). The other embedded brand texts (`text.reload/noreload/shaders`,
 `[Infobox Text]`, `footer.info`) are all overridden by the live motif or
 neutral, so they never render. Stamp: `3a74088d9a0f`.
+
+## F-051 — Returning players crashed at boot: engine panics on scrubbed WindowIcon paths
+
+**Context (user)**: "I tried to play, and got this in console:
+`[boot] ENGINE CRASHED: [alert] Engine error: Icon file can not be found.
+Panic: open external/icons/IkemenCylia_256.png: No such file or directory`"
+
+**Root cause — a brand-scrub regression that only hit RETURNING players**:
+- The engine's `system.go` reads `[Config] WindowIcon` from `save/config.ini`
+  and `os.Open`s every listed file, then `ShowErrorDialog` + `panic` on any
+  failure — a boot-fatal hard dependency on decorative window icons
+  (meaningless in a browser, where the favicon is the HTML's job).
+- F-048 (brand scrub round 2) deleted the mascot icon files
+  (`external/icons/IkemenCylia_*.png` + `.ico`/`.svg`) from the VFS tree and
+  shipped neutral `icon_{256,96,48}.png`, repointing the SERVER's
+  `save/config.ini` to them.
+- BUT the engine rewrites `save/config.ini` wholesale on save, and vfs.js
+  persists writes to localStorage under `engine-vfs12:` (`restorePersisted()`
+  shadows the server copy). Every player who saved anything before F-048 holds
+  a config still naming the DELETED branded icons.
+- Boot: engine reads the stale config → opens `external/icons/IkemenCylia_256.png`
+  → ENOENT → panic → `[boot] ENGINE CRASHED`. The F-050 shim converted what
+  would previously have been the native "I.K.E.M.E.N Error" popup into the
+  scrubbed console line the user reported.
+- The engine's EMBEDDED `defaultConfig.ini` (inside the wasm — binary-bound)
+  names the same branded paths, so any boot falling back to defaults would
+  panic too.
+
+**Why every automated verification missed it**: all Playwright suites run fresh
+browser contexts — empty localStorage → the scrubbed server config (neutral
+paths) → boot fine. Only a real returning browser with pre-scrub persisted
+state hit the panic. `scripts/verify-icon-alias.mjs` now seeds
+`engine-vfs12:save/config.ini` (the full shipped config with legacy icon names
+restored — a faithful stale-player state) and boots `/play` with match params.
+
+**Fix (vfs.js, no rebuild needed)**: `resolveDataAlias()` now maps any
+`external/icons/*` path that is not itself resolvable to the neutral
+`icon_{256,96,48}.png` (size suffix matched, default 256). Heals stale saved
+configs AND the embedded-default fallback; the engine may keep writing legacy
+names — the alias keeps healing every boot. vfs.js is served `no-cache`, so
+the fix reaches returning players on their next visit with no stamp bump.
+
+**Verification**: `verify-icon-alias.mjs` pre-fix reproduced the user's exact
+crash (stale panicked / control booted); post-fix both boot — canvas appears,
+zero panic lines. F-050 suite still 9/9 (stamp unchanged at `3a74088d9a0f`).
+
+**Proper fix deferred to the engine rebuild (F-0XX engine work)**: patch
+`system.go` to skip the WindowIcon block on `runtime.GOOS == "js"` and
+neutralize the embedded `defaultConfig.ini` icon paths — removes the failure
+class at the source instead of aliasing around it.

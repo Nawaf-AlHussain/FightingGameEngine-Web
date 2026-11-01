@@ -147,6 +147,25 @@
         (manifest.has('data/motif1/system.snd') || contents.has('data/motif1/system.snd'))) {
       return 'data/motif1/system.snd';
     }
+    // F-051: legacy icon paths. Configs written before the F-048 brand scrub
+    // (persisted in localStorage under `engine-vfs12:save/config.ini`) still
+    // name the scrubbed mascot icons external/icons/IkemenCylia_{256,96,48}.png,
+    // and the engine's EMBEDDED defaultConfig.ini names them too (binary-bound
+    // until the next engine rebuild). system.go panics at boot when a
+    // WindowIcon open fails ("Icon file can not be found." -> panic), which
+    // crashed the boot of every returning player with a stale saved config.
+    // Fresh contexts fetch the scrubbed server config (neutral icon_*.png) and
+    // never hit this - which is why every automated boot verification passed.
+    // Alias any external/icons/* path that is not itself resolvable to the
+    // neutral replacement shipped in F-048, matching the size suffix when one
+    // is present (default 256). Heals stale saved configs AND the embedded
+    // default; the engine may keep writing legacy names - the alias keeps
+    // healing every boot.
+    if (vpath.startsWith('external/icons/') &&
+        !contents.has(vpath) && !manifest.has(vpath) && !packedIndex.has(vpath)) {
+      const m = /_(256|96|48)\.[A-Za-z0-9]+$/.exec(vpath);
+      return 'external/icons/icon_' + (m ? m[1] : '256') + '.png';
+    }
     if (vpath.startsWith('data/')) return vpath;
     const aliased = 'data/' + vpath;
     if (contents.has(aliased) || manifest.has(aliased) || dirs.has(aliased)) return aliased;

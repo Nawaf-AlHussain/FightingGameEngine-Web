@@ -1356,3 +1356,40 @@ ONLY browser dialog — zero `confirm()`/`prompt()` call strings.
   native confirm() untouched.
 - Brand sweep over served text assets: zero I.K.E.M.E.N/Ikemen/Mugen outside
   the documented binary-bound floor + migration-only identifiers.
+
+---
+
+## Session: October 31, 2026 (II) — Returning-player boot crash fixed (F-051)
+
+### Work Done
+
+#### User-reported crash diagnosed end-to-end
+Console: `[boot] ENGINE CRASHED: [alert] Engine error: Icon file can not be
+found. Panic: open external/icons/IkemenCylia_256.png: No such file or
+directory`. Traced through the engine fork source (`system.go`: WindowIcon
+opens panic on failure), the F-048 deletion history
+(`git log --diff-filter=D`), and vfs.js persistence (`engine-vfs12:` prefix +
+`restorePersisted()` shadowing the server config). Root cause: brand-scrub
+regression for RETURNING players only — fresh contexts (all test suites) fetch
+the scrubbed server config and never see it.
+
+#### Reproduction harness (scripts/verify-icon-alias.mjs)
+Two /play boots with match params (Abomination/Beast/Badda_Large_Stage):
+stale case seeds localStorage `engine-vfs12:save/config.ini` with the FULL
+shipped config, legacy icon names restored (faithful to an engine-rewritten
+pre-scrub config); fresh case is the control. Success = canvas appears; the
+panic lines land in console otherwise. NOTE: full engine boot requires a
+PRODUCTION server (`npm run build && npm start`) — `next dev` stalls at
+"Loading game.pak + engine.wasm" in headless runs.
+
+#### Fix + verification
+vfs.js `resolveDataAlias()` now maps any unresolvable `external/icons/*` path
+to the neutral `icon_{256,96,48}.png` (size suffix matched, default 256) —
+heals stale saved configs AND the wasm's embedded defaultConfig.ini fallback.
+Pre-fix run reproduced the user's exact crash; post-fix both cases boot.
+F-050 suite still 9/9 (stamp unchanged, vfs.js is no-cache static).
+
+### Current Status
+- origin/web: F-051 pushed lockstep; site safe for returning players again.
+- Deferred: engine-side fix (skip WindowIcon on js + neutralize embedded
+  default) goes into the planned engine rebuild.

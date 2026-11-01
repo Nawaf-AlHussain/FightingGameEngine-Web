@@ -68,6 +68,13 @@
   About gained section 04 "Open by design" linking the repo; Credits
   credit the MUGEN community; `stageThumbUrl` regex made
   repo-name-agnostic.
+- ✅ Returning-player boot crash fixed (F-051): pre-scrub saved configs
+  (localStorage `engine-vfs12:save/config.ini`) still name the F-048-deleted
+  mascot icons and the engine panics at boot when a WindowIcon open fails.
+  vfs.js now aliases any unresolvable `external/icons/*` path to the neutral
+  `icon_{256,96,48}.png`; seeded-stale boot verified + control + F-050 9/9.
+  Engine-side fix (skip icon on js, neutralize embedded default) deferred to
+  the engine rebuild.
 - ✅ Engine error popups eliminated (F-050): the wasm panic handler's
   native `alert("I.K.E.M.E.N Error …")` dialog is intercepted on /play
   (module-scope shim) — crashes surface only through the app's own error
@@ -259,7 +266,7 @@ GOEXPERIMENT=arenas GOWASM=satconv,signext GOOS=js GOARCH=wasm CGO_ENABLED=0 \
 | F-039 | ✅ Fixed | Dead FILL/16:9 toggle removed (display always fits) |
 | F-040 | ✅ Documented | Docs drift — 9 days of shipped work missing from docs |
 
-Full list: FINDINGS.md (F-001 → F-050).
+Full list: FINDINGS.md (F-001 → F-051).
 
 ---
 
