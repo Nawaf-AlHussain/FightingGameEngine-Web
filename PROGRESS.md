@@ -1393,3 +1393,34 @@ F-050 suite still 9/9 (stamp unchanged, vfs.js is no-cache static).
 - origin/web: F-051 pushed lockstep; site safe for returning players again.
 - Deferred: engine-side fix (skip WindowIcon on js + neutralize embedded
   default) goes into the planned engine rebuild.
+
+---
+
+## Session: October 31, 2026 (III) — Deployment stress pass; offline deep links fail loudly (F-052)
+
+### Work Done
+
+#### Built scripts/stress-deployment.mjs (permanent harness)
+Stale-state matrix (fresh / F-051 stale-config / legacy ikemen-mods IDB
+migration / mid-boot reload), error paths (bad char, no params), 6-way
+concurrent boots, asset sweep, API guard checks. Run with `BASE=` against any
+target; exits nonzero on any panic/native dialog/missing boot.
+
+#### Found + fixed: offline bad-character deep links booted silently
+P1/P2 manifest misses only threw in net mode; offline modes stranded the
+player on a silent title. Both now throw unconditionally — the BOOT ERROR
+overlay explains the failure in every mode (same rule the stage path already
+applied). Validated against a local production build.
+
+#### Classified the remaining console noise (documented in FINDINGS F-052)
+Netplay.PlayerName ini warning (deliberate vfs-injected key, engine-rebuild
+fix), jsDelivr 403 on .cmd files (fallback recovers), reload teardown race
+(browser-inherent, auto-recovered), Go os.Executable noise.
+
+#### External rewind incident (3rd this session)
+Sandbox local main was reset to b879528 mid-run; remotes + live unaffected.
+Recovered; standing rule added (fetch + verify remotes after every recycle).
+
+### Current Status
+- Local validation ALL GREEN (matrix + concurrency + guards).
+- origin/web pushed with F-052; live re-verification pending Vercel deploy.

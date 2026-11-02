@@ -1826,3 +1826,60 @@ zero panic lines. F-050 suite still 9/9 (stamp unchanged at `3a74088d9a0f`).
 `system.go` to skip the WindowIcon block on `runtime.GOOS == "js"` and
 neutralize the embedded `defaultConfig.ini` icon paths — removes the failure
 class at the source instead of aliasing around it.
+
+## F-052 — Offline bad-character deep links booted silently; now fail loudly (stress pass)
+
+**Context (user)**: "Are there any more issues? Stress test the deployment" —
+a full stale-state matrix + concurrency pass was built
+(`scripts/stress-deployment.mjs`) and run against the live deployment.
+
+**Issue found**: `/play?p1=<bad>&...` in any OFFLINE mode logged
+`ERROR: Character not found in manifest` and then booted the engine anyway —
+the engine pointed at a path that does not exist and the player stranded on a
+title that never starts a fight, with no visible explanation. The stage path
+already failed loudly in every mode; the P1/P2 paths only did so in net mode
+(the net flow bounces players to the lobby, so it mattered there — offline was
+forgotten).
+
+**Fix**: the P1 and P2 manifest misses now throw unconditionally; the boot
+error overlay shows the message in every mode. Verified locally (build+start):
+bad-char case now surfaces `BOOT ERROR: Character … is not in the assets
+manifest` with no panic/dialogs.
+
+**Stress results (live + local, 6 sequential + 6 concurrent boots, asset sweep,
+API guards)**:
+- Fresh / stale-config (F-051) / legacy-`ikemen-mods`-IndexedDB migration /
+  mid-boot-reload: ALL BOOT to canvas, fights start with source-qualified refs
+  (`charsMARVEL/Abomination`), zero panics, zero native dialogs. Legacy IDB
+  rows migrate into `engine-mods`.
+- Concurrent: 6 parallel full boots — all green, ~9-13s each.
+- Asset sweep: all pages + engine assets 200; API guards hold (traversal 403,
+  missing file 404, manifest 200).
+
+**Known noise classified (not defects)**:
+1. `Warning: Failed to assign key [Netplay.PlayerName]` — vfs.js deliberately
+   injects `[Netplay] PlayerName` for the identity layer (`enginePlayerName()`
+   reads the file directly); the engine's ini struct lacks the field and logs
+   once per boot. Console-only. Proper fix lands with the engine rebuild.
+2. `jsDelivr 403` on `*.cmd` character files (both Assets and DemoAssets) —
+   recovered by the per-file `/api/cdn`→raw fallback (by design). Costs one
+   extra roundtrip per .cmd.
+3. Reload mid-boot can print a teardown race (`syscall.mapJSError` panic,
+   exit 2, "ENGINE DIED") from the DYING boot's abandoned VFS syscall; the
+   fresh boot recovers instantly and the watchdog notes the abrupt end.
+   Browser-inherent; not fixable app-side.
+4. `Error getting executable path: Executable not implemented for js` — Go
+   runtime noise on js/wasm, harmless.
+
+**Harness lessons recorded**: (a) character refs are source-qualified
+(`charsMARVEL/Abomination`) — bare ids never match the roster manifest;
+(b) full engine boots need a PRODUCTION server (`next dev` stalls headless);
+(c) canvas#ikemen-canvas appears only at engine start, so it is a valid boot
+signal; (d) /play without match params correctly refuses to boot.
+
+**Incident note**: mid-stress, an external force reset the sandbox's local
+main to `b879528` again (third occurrence this session; reflog
+`reset: moving to origin/main` against a stale tracking ref). Remotes and the
+live deployment were never affected — origin stayed `7d072f2`, web `e8409f2`.
+Recovered via stash → `reset --hard origin/main` → stash pop. Standing rule:
+`git fetch` + verify remotes before ANY local work after a sandbox recycle.

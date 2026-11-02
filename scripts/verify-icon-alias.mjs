@@ -50,7 +50,7 @@ async function bootCase(name, { seed }) {
     d.dismiss().catch(() => {});
   });
   await page.goto(
-    `${BASE}/play?p1=Abomination&p2=Beast&stage=Badda_Large_Stage&p2ai=4&qmode=arcade`,
+    `${BASE}/play?p1=charsMARVEL/Abomination&p2=charsMARVEL/Beast&stage=Badda_Large_Stage&p2ai=4&qmode=arcade`,
     { waitUntil: 'domcontentloaded' }
   );
 

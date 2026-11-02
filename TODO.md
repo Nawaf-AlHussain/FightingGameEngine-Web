@@ -68,6 +68,12 @@
   About gained section 04 "Open by design" linking the repo; Credits
   credit the MUGEN community; `stageThumbUrl` regex made
   repo-name-agnostic.
+- ✅ Offline bad-character deep links fail loudly (F-052): P1/P2 manifest
+  misses only threw in net mode; offline modes booted the engine at a
+  nonexistent path and stranded the player silently. Both throw now —
+  BOOT ERROR overlay in every mode. Full deployment stress pass green:
+  stale-state matrix, legacy IDB migration, mid-boot reload, 6-way
+  concurrent boots, asset sweep, API guards (scripts/stress-deployment.mjs).
 - ✅ Returning-player boot crash fixed (F-051): pre-scrub saved configs
   (localStorage `engine-vfs12:save/config.ini`) still name the F-048-deleted
   mascot icons and the engine panics at boot when a WindowIcon open fails.
@@ -266,7 +272,7 @@ GOEXPERIMENT=arenas GOWASM=satconv,signext GOOS=js GOARCH=wasm CGO_ENABLED=0 \
 | F-039 | ✅ Fixed | Dead FILL/16:9 toggle removed (display always fits) |
 | F-040 | ✅ Documented | Docs drift — 9 days of shipped work missing from docs |
 
-Full list: FINDINGS.md (F-001 → F-051).
+Full list: FINDINGS.md (F-001 → F-052).
 
 ---
 

@@ -2301,10 +2301,11 @@ function PlayPageInner() {
                 log(`P1 ready: ${char.id}`);
               } else {
                 log(`ERROR: Character "${effP1}" not found in manifest`);
-                // Booting the engine with a path that does not exist makes it
-                // exit silently - which in the online flow bounced the player
-                // to the lobby with no explanation. Fail loudly instead.
-                if (netMode) throw new Error(`Character "${effP1}" is not in the assets manifest - it cannot be loaded for this online match. Both players must pick a fighter that exists in the roster.`);
+                // Fail loudly in EVERY mode, not just net: booting the engine
+                // with a path that does not exist makes it exit silently (or
+                // strand the player on a title that never starts a fight) with
+                // no explanation. Same rule the stage path already applies.
+                throw new Error(`Character "${effP1}" is not in the assets manifest. Pick a fighter from the roster (the roster may have changed - re-open the select screen).`);
               }
             }
             bootPhase('p1:ready');
@@ -2329,7 +2330,8 @@ function PlayPageInner() {
                 log(`P2 ready: ${char.id}`);
               } else {
                 log(`ERROR: Character "${effP2}" not found in manifest`);
-                if (netMode) throw new Error(`Character "${effP2}" is not in the assets manifest - it cannot be loaded for this online match. Both players must pick a fighter that exists in the roster.`);
+                // Same loud-fail rule as P1 and the stage path - in every mode.
+                throw new Error(`Character "${effP2}" is not in the assets manifest. Pick a fighter from the roster (the roster may have changed - re-open the select screen).`);
               }
             }
             bootPhase('p2:ready');
