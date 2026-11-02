@@ -1976,3 +1976,89 @@ Interpretation: fps5 high + gaps>250ms late in the session → GC-cap angle
 (engine rebuild); fps5 low immediately → device CPU/GPU (wasm decode cost —
 display-mode ladder helps); fps5 fine but game feels slow → report the
 '[perf]' line anyway so the input/audio path can be checked.
+
+## F-054 — "FPS is low from the start": the fight's lazy opens were network-blocked by design; priority gate + boot-time fight.snd warm + immutable lazy caching
+
+**Context (user)**: after F-053 shipped the `?fps=1` HUD and the "no code
+regression" verdict, the reporter narrowed the symptom: **"FPS is low from
+the start"** — not late-session degradation, but the first rounds of every
+fight.
+
+**Root cause found (fetch waterfall, cold context, production server).**
+F-053 compared main-thread CPU and concluded "engine-inherent" — true for
+the CPU floor, but the waterfall split told a second story:
+
+- Boot (pre-canvas) is healthy: chars/stage load in parallel at t≈0.5–1.0s
+  (stamped `?v=3.r2`, jsDelivr direct, `.cmd` via proxy fallback), canvas at
+  ~2.5–3s.
+- The FIGHT window then streams **19.1MB / 52 fetches of menu+UI lazy files**
+  (system.sff 9.2MB, system.snd 3.7MB, fight.snd 6.4MB, fonts, shaders) with
+  **~24–26s of cumulative fetch time**, while every lazy open **blocks the
+  wasm game loop** until its fetch resolves.
+- The F-053 "+8s" warmup retiming made this WORSE, not better: in quick-match
+  the fight is already running at canvas+8s, so the background warmup
+  streamed its megabytes INTO round 1, competing with fight-critical opens
+  for bandwidth and per-host connections.
+- Contributing: the F-050 stamp bump re-URL'd every stamped asset (returning
+  browsers went cold), jsDelivr serves roster files with `max-age=604800`
+  (7 days — expiry colds every week-old session), and the Vercel lazy-file
+  header was `max-age=86400` — an aged returning session paid **52 blocking
+  revalidation roundtrips mid-fight**. "Suddenly laggy" = "came back after a
+  while / new device / cold cache and every lazy open pays the network".
+
+**Also identified — the engine opens big files mid-fight by design:**
+- `data/fight.snd` (6.4MB announcer/fight-sfx bank) is opened by the ENGINE
+  at round start (observed +5.2–6.1s post-canvas). On the memory-constrained
+  path the warmup's 512KB cap SKIPPED it, so **every session on those devices
+  cold-opened 6.4MB at round-1 start** — a 2.6s game-loop stall at 20Mbps.
+- `data/motif1/system.sff` (9.2MB screenpack) is opened by the engine at
+  canvas+0.3s — before ANY background warmup can help. First visit pays it
+  once per session (browser-cached thereafter, now immutable). Only an
+  engine-side async loader or a smaller screenpack moves it (rebuild item).
+
+**Fixes shipped (all app-side, no wasm rebuild):**
+1. **vfs.js engine-vs-background fetch priority gate**: engine-facing fetches
+   (`open`/`rename`/`truncate` → `fetchFile(v)`) are counted
+   (`engineFetches`); the background prefetch passes `{ bg: true }` and every
+   worker calls `bgYieldToEngine()` before each file — pausing while an
+   engine fetch is in flight plus a 250ms grace. A fight-time open can no
+   longer queue behind (or share start-time with) a background stream.
+2. **fight-critical lazy files warmed at vfs-init time** (fire-and-forget,
+   `FIGHT_CRITICAL_LAZY = ['data/fight.snd']`): downloads during the boot
+   window's network-idle phase (wasm compile) — measured start t≈0.4s vs
+   canvas ~2s. The engine's round-start open dedupes against the in-flight
+   fetch or hits `contents`. Also exempt from the memory cap: the on-demand
+   path retained the same bytes anyway — the cap only deferred retention to
+   the worst possible moment.
+3. **Warmup queue smallest-first** (fight-critical first, then size
+   ascending): the tiny files the engine actually opens mid-fight (font
+   defs, shader fragments, motif defs) warm early; the multi-MB menu pair
+   streams last.
+4. **Warmup start retimed +8s → +1s** after canvas (safe now because of the
+   gate) — the warmup gets 7 more seconds done before the fight's own opens
+   begin, and finishes much earlier.
+5. **vercel.json lazy files → `public, max-age=31536000, immutable`** (URLs
+   are manifest-stamped, so this is correct): returning players inside a
+   stamp stop paying 52 revalidation roundtrips per session.
+6. **Diagnostics**: the `?fps=1` COPY report now carries `res=` (canvas
+   backing store) + `dpr=` — a paste now reveals a user-side 1080p render
+   mode; the Settings "16:9 · 1080p Full HD" option is labeled "~2.25x
+   heavier per frame" (sandbox A/B: sustained 0.2–0.4 fps buckets vs
+   0.5–1.5 at 720p, worst gap 8.7s vs 5.4s — the wasm composites in
+   software, so framebuffer pixels are per-frame cost).
+
+**Verification** (`scripts/verify-prefetch-gate.mjs`, new): fight.snd fetch
+starts t≈0.4s (pre-canvas) and the engine's round-start open hits resident
+bytes; engine small opens worst-case 18–22ms (was fast locally, but now
+structurally guaranteed against background streams); warmup ≥25 unique files
+within 40s even with a saturated headless main thread. verify-fps-hud
+updated for the +1s window — PASS. F-050 dialog suite 9/9, boot-death 9/9,
+icon-alias stale+fresh PASS, display-default ALL PASS, tsc clean, prod build
+green. `diag-fps-ab.mjs` (new) A/Bs render resolutions with config seeding.
+
+**Residual (engine rebuild)**: wasm decode/composite CPU floor (~36s of
+45s fight window in sandbox), first-visit system.sff open at canvas+0.3s,
+GOGC/GOMEMLIMIT review. On a REAL cold link the fight still streams its
+lazy set — but engine opens now always win the bandwidth race, the biggest
+fight-critical file is pre-warmed, and warm sessions (now immutable) skip
+the network almost entirely.

@@ -1461,3 +1461,56 @@ verify-fps-hud PASS · F-050 9/9 · F-051 alias stale+fresh PASS · boot-death
 ### Current Status
 - Committing + pushing lockstep (origin Demo + web mirror).
 - Reporter follow-up: play with ?fps=1, COPY the panel, paste the report.
+
+---
+
+## Session (2026-11-02, II) — F-054: "FPS is low from the start" — fight-time network stalls eliminated
+
+### Reporter's narrowing
+"FPS is low from the start" (vs F-053's "suddenly laggy") — first rounds of
+every fight, not late-session degradation.
+
+### Root cause (fetch waterfall, cold context — the piece F-053's CPU-only
+### profile could not see)
+- Fight window streams 19.1MB / 52 lazy fetches (system.sff 9.2MB + snd
+  3.7MB + fight.snd 6.4MB + fonts/shaders) with ~26s cumulative fetch time;
+  every lazy open BLOCKS the wasm game loop.
+- F-053's "+8s" warmup landed INSIDE round 1 and competed with fight-critical
+  opens (the retiming measured "unchanged" locally only because localhost
+  bandwidth is infinite).
+- Engine opens big files mid-fight by design: fight.snd at round start
+  (SKIPPED by the 512KB memory cap on constrained devices → cold 6.4MB open
+  EVERY session there), system.sff at canvas+0.3s (before any warmup).
+- Cold-cache triggers stack: F-050 stamp bump re-URL'd everything, jsDelivr
+  max-age 7d, Vercel lazy files max-age 1d (aged sessions paid 52 blocking
+  revalidation roundtrips mid-fight).
+
+### Shipped
+- vfs.js: engine-vs-background fetch priority gate (engineFetches counter +
+  bgYieldToEngine; prefetch fetches with {bg:true}), FIGHT_CRITICAL_LAZY
+  (fight.snd) warmed fire-and-forget at vfs-init (boot's network-idle wasm
+  compile; t≈0.4s measured), memory-cap exemption for fight-critical files,
+  warmup queue smallest-first, warmup start +8s → +1s (play page).
+- vercel.json: lazy files immutable (stamped URLs) — kills 52 revalidations
+  per aged session.
+- fight-fps.ts: [perf] COPY report carries res=/dpr=; engine-config.ts:
+  1080p option labeled "~2.25x heavier per frame" (sandbox A/B: 0.2–0.4 vs
+  0.5–1.5 fps buckets, worst gap 8.7s vs 5.4s).
+
+### Verified
+- NEW verify-prefetch-gate.mjs PASS (fight.snd pre-canvas warm, engine opens
+  ≤22ms, warmup ≥25 files/40s on a saturated headless thread).
+- verify-fps-hud updated (+1s warmup window) PASS · F-050 9/9 · boot-death
+  9/9 · icon-alias stale+fresh PASS · display-default ALL PASS · tsc clean ·
+  prod build green. measure-first-boot not in gate (sandbox jsDelivr
+  throughput-bound at match-prep; unrelated to this change).
+- Live CDN health re-checked: jsDelivr warm 18–64ms, .cmd 403→fallback OK.
+
+### Residual (engine rebuild)
+wasm decode/composite CPU floor; first-visit system.sff open (canvas+0.3s,
+once per session); GOGC/GOMEMLIMIT review.
+
+### Reporter follow-up (updated)
+Play with `?fps=1`; if it still feels bad, tap the pill → COPY → paste. The
+report now includes `res=`/`dpr=` — it will show whether the 1080p render
+mode is in play on their machine.

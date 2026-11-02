@@ -122,6 +122,22 @@ export function installFightFpsMonitor(): void {
   }, 5000);
 }
 
+// Render-target line for the perf report (F-054): the engine composites the
+// whole game in software into the canvas backing store, so its pixel count
+// directly scales per-frame cost — a Settings "1080p Full HD" choice (1920
+// wide) costs ~2.25x the 1280-wide default per frame. Reported as res= plus
+// the device pixel ratio so a paste tells us both halves of the picture.
+function renderTargetLine(): string {
+  try {
+    const c = document.querySelector('canvas#ikemen-canvas') as HTMLCanvasElement | null;
+    const w = c && c.width > 0 ? c.width : 0;
+    const h = c && c.height > 0 ? c.height : 0;
+    return `res=${w > 0 ? w + 'x' + h : '?'} dpr=${Math.round((window.devicePixelRatio || 1) * 100) / 100}`;
+  } catch {
+    return 'res=? dpr=?';
+  }
+}
+
 // One-line summary for the HUD COPY button (chat-paste friendly).
 export function fightPerfCopyText(s: FightPerfSnapshot): string {
   const nav = navigator as unknown as { deviceMemory?: number };
@@ -129,6 +145,7 @@ export function fightPerfCopyText(s: FightPerfSnapshot): string {
     `[perf] fps5=${s.fps5} worstGap5=${s.worstGap5}ms avgFps=${s.avgFps} p90=${s.p90Delta}ms ` +
     `gaps100=${s.gaps100} gaps250=${s.gaps250} lt=${s.ltN}x${s.ltTotal}ms max=${s.ltMax}ms ` +
     `heap=${s.heapMb}MB t=${s.elapsedSec}s`,
+    renderTargetLine(),
     `dev=${nav.deviceMemory ?? '?'}GB/${navigator.hardwareConcurrency || '?'}c`,
     'ua=' + navigator.userAgent,
   ].join('\n');

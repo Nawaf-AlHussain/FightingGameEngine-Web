@@ -89,10 +89,31 @@
   chat reports), warmup retimed to canvas+8s @ 2 workers (was +2s @ 4 —
   was streaming ~15MB against round-1 fight fetches), stale kfm fixture in
   the boot-death suite fixed. Next diagnostic step: reporter runs ?fps=1.
-- [ ] Engine-rebuild perf items (F-053 deferred): GOGC/GOMEMLIMIT tuning
-  review (GC-thrash near the 800/400MiB cap is the leading suspect for
-  late-session degradation the sandbox cannot observe), skip WindowIcon on
-  GOOS=js (F-051), neutralize embedded defaultConfig.ini icon paths.
+- ✅ "FPS is low from the start" — fight-time network stalls eliminated
+  (F-054): root cause found in the fetch waterfall — the F-053 +8s warmup
+  landed INSIDE round 1, and every lazy open BLOCKS the wasm game loop, so
+  ~19MB of menu/UI assets + the round-start fight.snd open competed with
+  fight-critical fetches for bandwidth/connections on every cold-cache
+  visit (stamp bump at F-050, 7-day jsDelivr max-age, new device; the
+  1-day Vercel lazy-file cache even made aged returning sessions pay 52
+  revalidation roundtrips mid-fight). Shipped: vfs.js engine-vs-background
+  fetch priority gate (bg workers yield to engine opens), fight-critical
+  fight.snd warmed at vfs-init time (boot's network-idle phase) and exempt
+  from the memory cap (retained on the on-demand path anyway), warmup
+  queue smallest-first with warmup start retimed +8s → +1s, lazy-file
+  cache-control immutable (stamped URLs), [perf] COPY report now carries
+  res=/dpr= (settles the "1080p render mode?" question from the paste),
+  1080p Settings option labeled "~2.25x heavier per frame". Sandbox floor
+  (wasm decode/composite ~36s/45s) unchanged — engine-rebuild item.
+  verify-prefetch-gate.mjs added (fight.snd warmed at t≈0.4s, engine opens
+  <25ms, warmup progress ≥25 files/40s); fps-hud suite updated.
+- [ ] Engine-rebuild perf items (F-053/F-054 deferred): GOGC/GOMEMLIMIT
+  tuning review (GC-thrash near the 800/400MiB cap is the leading suspect
+  for late-session degradation the sandbox cannot observe), sprite decode
+  off the frame hot loop / async file loading (first-visit system.sff open
+  at canvas+0.3s still blocks once per session — only an engine-side async
+  loader or smaller screenpack moves it), skip WindowIcon on GOOS=js
+  (F-051), neutralize embedded defaultConfig.ini icon paths.
 - ✅ Engine error popups eliminated (F-050): the wasm panic handler's
   native `alert("I.K.E.M.E.N Error …")` dialog is intercepted on /play
   (module-scope shim) — crashes surface only through the app's own error
@@ -284,7 +305,7 @@ GOEXPERIMENT=arenas GOWASM=satconv,signext GOOS=js GOARCH=wasm CGO_ENABLED=0 \
 | F-039 | ✅ Fixed | Dead FILL/16:9 toggle removed (display always fits) |
 | F-040 | ✅ Documented | Docs drift — 9 days of shipped work missing from docs |
 
-Full list: FINDINGS.md (F-001 → F-053).
+Full list: FINDINGS.md (F-001 → F-054).
 
 ---
 

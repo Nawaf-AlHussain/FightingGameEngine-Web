@@ -193,7 +193,49 @@
     };
   }
 
-  async function fetchFile(vpath) {
+  // F-054: background fetches must never delay an engine-facing fetch. The
+  // wasm engine blocks its game loop inside every lazy open() until the
+  // fetch resolves, so a tiny fight-time open (a font def, a shader fragment)
+  // that queued behind the background warmup's multi-MB streams (head-of-line
+  // on the per-host connection pool, or simply shared bandwidth) stalled the
+  // game for seconds at a time — measured as 730B files taking 4.5s during
+  // round 1, i.e. "low FPS from the start" on every cold-cache visit.
+  // Engine-facing fetches are counted here; the background prefetch
+  // (fetchFile(v, { bg: true })) yields until the count is clear AND a short
+  // grace period has passed since the last engine fetch, so a fight-time
+  // open never starts its network wait behind a background stream.
+  //
+  // F-054: lazy files the ENGINE itself opens mid-fight, where a cold open
+  // blocks the game loop for the whole download. They are (a) warmed at vfs
+  // init time (fire-and-forget, during the boot window's network-idle wasm
+  // compile), (b) exempt from the memory-constrained warmup cap (they are
+  // retained on the on-demand path anyway — the cap only deferred their
+  // retention to the worst possible moment), and (c) first in the warmup
+  // queue ahead of the smallest-first ordering.
+  const FIGHT_CRITICAL_LAZY = ['data/fight.snd'];
+
+  let engineFetches = 0;
+  let lastEngineFetchAt = 0;
+  async function bgYieldToEngine() {
+    while (engineFetches > 0 || performance.now() - lastEngineFetchAt < 250) {
+      await new Promise((r) => setTimeout(r, 40));
+    }
+  }
+
+  async function fetchFile(vpath, opts) {
+    const fromEngine = !(opts && opts.bg);
+    if (fromEngine) engineFetches++;
+    try {
+      return await fetchFileInner(vpath);
+    } finally {
+      if (fromEngine) {
+        engineFetches--;
+        lastEngineFetchAt = performance.now();
+      }
+    }
+  }
+
+  async function fetchFileInner(vpath) {
     if (contents.has(vpath)) return contents.get(vpath);
     if (fetching.has(vpath)) return fetching.get(vpath);
     const p = (async () => {
@@ -1597,6 +1639,23 @@
     // engine is actually up. Anything the engine needs earlier is still
     // fetched on demand by open() -> fetchFile.
 
+    // F-054 exception — fight-critical lazy files are warmed HERE, without
+    // waiting for init to complete (fire-and-forget). data/fight.snd is the
+    // one big lazy file the ENGINE itself opens mid-fight: its round-start
+    // open blocks the game loop for the whole download, and a post-canvas
+    // warmup can never win that race (the engine's post-canvas open bursts
+    // keep the yield gate busy until it opens fight.snd itself). Starting
+    // the fetch at init time downloads it during the boot window's
+    // network-idle phase (wasm compile), so the engine's round-start open
+    // dedupes against the in-flight fetch or hits `contents`. Retention is
+    // unchanged versus the on-demand path (same bytes, retained either
+    // way); only its timing moves — out of the fight, into boot.
+    for (const p of FIGHT_CRITICAL_LAZY) {
+      if (manifest.has(p) && !contents.has(p)) {
+        fetchFile(p, { bg: true }).catch(() => {});
+      }
+    }
+
     // Combined Build ID: shipped manifest + every browser-side mod's bytes +
     // the effective theme. The boot page displays it and the netplay
     // build-check exchanges it, so two players match exactly when their
@@ -1681,9 +1740,36 @@
   // 4 parallel background streams competed with fight-critical fetches for
   // bandwidth and stretched every stall. 2 workers halve the contention;
   // the warmup is background by definition and simply finishes later.
+  //
+  // F-054: contention is now eliminated structurally, not by timing. Every
+  // worker (a) yields to engine-facing fetches via bgYieldToEngine() before
+  // each file, so a fight-time open can never queue behind a background
+  // stream, and (b) fetches with { bg: true } so its own fetches are counted
+  // as background. The queue is also re-ordered (see the ordering note
+  // inside): data/fight.snd first, then smallest-first, so the tiny files
+  // the engine actually opens mid-fight (font defs, shader fragments, motif
+  // defs) warm first and become cache-instant, while the multi-MB
+  // menu-time system.sff/system.snd stream last, in the gaps the engine
+  // leaves. Because the gate makes the warmup harmless from frame one, the
+  // boot page no longer needs to delay it into the fight (the F-053 +8s
+  // retiming landed INSIDE round 1 and only shortened the stall window).
   globalThis.engineVfsPrefetch = function (onProgress, opts) {
     const maxFileBytes = (opts && opts.maxFileBytes) || 0;
-    const pending = [...manifest.keys()];
+    // F-054 ordering: fight-critical files first (see FIGHT_CRITICAL_LAZY —
+    // data/fight.snd is warmed at init already; this guard re-orders any
+    // future additions), then smallest-first: the tiny files the engine
+    // opens mid-fight (font defs, shader fragments, motif defs) become
+    // cache-instant, while the multi-MB menu-time system.sff/system.snd
+    // stream last, in the gaps the engine leaves.
+    const prio = (p) => {
+      const i = FIGHT_CRITICAL_LAZY.indexOf(p);
+      return i < 0 ? FIGHT_CRITICAL_LAZY.length : i;
+    };
+    const pending = [...manifest.keys()].sort((a, b) => {
+      const pa = prio(a), pb = prio(b);
+      if (pa !== pb) return pa - pb;
+      return (manifest.get(a) || 0) - (manifest.get(b) || 0);
+    });
     const totalBytes = pending.reduce((n, p) => n + (manifest.get(p) || 0), 0);
     let doneBytes = 0;
     let skipped = 0;
@@ -1691,14 +1777,20 @@
       while (pending.length) {
         const vpath = pending.shift();
         const size = manifest.get(vpath) || 0;
-        if (maxFileBytes && size > maxFileBytes) {
+        // F-054: fight-critical files are NEVER skipped by the memory cap
+        // (see FIGHT_CRITICAL_LAZY above).
+        if (maxFileBytes && size > maxFileBytes && prio(vpath) >= FIGHT_CRITICAL_LAZY.length) {
           skipped++;
           doneBytes += size; // still accounted, so progress completes
           if (onProgress) onProgress(doneBytes, totalBytes);
           continue;
         }
         if (!contents.has(vpath)) {
-          await fetchFile(vpath).catch(() => {});
+          await bgYieldToEngine();
+          // The engine may have opened the file during the yield.
+          if (!contents.has(vpath)) {
+            await fetchFile(vpath, { bg: true }).catch(() => {});
+          }
         }
         doneBytes += size;
         if (onProgress) onProgress(doneBytes, totalBytes);

@@ -1846,14 +1846,16 @@ function PlayPageInner() {
           prefetchPoll = setInterval(() => {
             if (document.querySelector('canvas#ikemen-canvas')) {
               if (prefetchPoll) { clearInterval(prefetchPoll); prefetchPoll = null; }
-              // F-053: 2s -> 8s. In quick-match the fight starts the moment
-              // the canvas exists; at +2s the warmup's ~15MB streamed WHILE
-              // round 1 was loading/playing — on a real connection that
-              // bandwidth contention lengthened every fight-critical open
-              // (the engine blocks its game loop on each lazy fetch). +8s
-              // lets the intro/round-1 fetches finish first; the warmup is
-              // background by definition and loses nothing.
-              prefetchTimer = setTimeout(startVfsPrefetch, 8000);
+              // F-053 moved this 2s -> 8s to keep the warmup out of round 1;
+              // F-054 makes timing irrelevant: vfs.js prefetch workers now
+              // YIELD to engine-facing fetches (bgYieldToEngine) and fetch
+              // smallest-first, so a fight-time open can never queue behind
+              // a background stream. Starting early again means the tiny
+              // files the engine opens mid-fight (fonts, shaders, motif
+              // defs) are already resident when round 1 asks for them, and
+              // the multi-MB system.sff/snd stream in the gaps. +1s keeps a
+              // one-second clear lane for the fight's own opening fetches.
+              prefetchTimer = setTimeout(startVfsPrefetch, 1000);
             }
           }, 250);
           prefetchTimer = setTimeout(() => {

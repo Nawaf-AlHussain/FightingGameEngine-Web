@@ -11,9 +11,10 @@
 //        toggles instead; clipboard may be denied)
 // 2. fps off case: plain /play boot must NOT mount .fpsstats and must NOT
 //    define __fightPerf (normal players pay nothing).
-// 3. Warmup retiming: with ?fps=1 (fresh context), the '[boot] VFS: warming'
-//    line must appear at least 7s AFTER the canvas (8s grace minus polling
-//    jitter), proving the fight window is bandwidth-clear for round 1.
+// 3. Warmup timing (F-054 revision): the '[boot] VFS: warming' line must
+//    appear AFTER the canvas but within ~1s of it (the F-053 +8s grace was
+//    retired when vfs.js learned to yield to engine-facing fetches — early
+//    start is safe and warms round-start fight.snd during the intro).
 
 import { chromium } from 'playwright';
 
@@ -116,8 +117,12 @@ let ok = true;
     timeout: 60000,
   }).then((m) => { warmAt = Date.now(); }).catch(() => {});
   const delay = warmAt ? warmAt - canvasAt : -1;
-  console.log(`[warmup] canvas->warming delay: ${delay}ms (expect >= 7000)`);
-  if (delay < 7000) { ok = false; console.log('FAIL: warmup started too early'); }
+  // F-054: the warmup starts ~1s after the canvas again (vfs.js now yields
+  // to engine-facing fetches, so early start is safe — the F-053 +8s grace
+  // is retired). The invariant that still matters: warming starts only
+  // AFTER the engine is up (never during boot), and within a sane window.
+  console.log(`[warmup] canvas->warming delay: ${delay}ms (expect 500..8000)`);
+  if (delay < 500 || delay > 8000) { ok = false; console.log('FAIL: warmup start window'); }
   await browser.close();
 }
 
