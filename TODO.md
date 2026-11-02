@@ -81,6 +81,18 @@
   `icon_{256,96,48}.png`; seeded-stale boot verified + control + F-050 9/9.
   Engine-side fix (skip icon on js, neutralize embedded default) deferred to
   the engine rebuild.
+- ✅ "Suddenly laggy" investigated + instrumented (F-053): baseline proof
+  shows NO regression from the brand-scrub commits (pre-scrub 69f008c
+  profiles identically — see FINDINGS). Fight-time is engine-inherent CPU
+  (wasm decode/compositing ~65%, Go GC ~10% under GOGC=off). Shipped:
+  `?fps=1` fight-perf HUD (5s-FPS pill, p90/gaps/longtask/heap + COPY for
+  chat reports), warmup retimed to canvas+8s @ 2 workers (was +2s @ 4 —
+  was streaming ~15MB against round-1 fight fetches), stale kfm fixture in
+  the boot-death suite fixed. Next diagnostic step: reporter runs ?fps=1.
+- [ ] Engine-rebuild perf items (F-053 deferred): GOGC/GOMEMLIMIT tuning
+  review (GC-thrash near the 800/400MiB cap is the leading suspect for
+  late-session degradation the sandbox cannot observe), skip WindowIcon on
+  GOOS=js (F-051), neutralize embedded defaultConfig.ini icon paths.
 - ✅ Engine error popups eliminated (F-050): the wasm panic handler's
   native `alert("I.K.E.M.E.N Error …")` dialog is intercepted on /play
   (module-scope shim) — crashes surface only through the app's own error
@@ -272,7 +284,7 @@ GOEXPERIMENT=arenas GOWASM=satconv,signext GOOS=js GOARCH=wasm CGO_ENABLED=0 \
 | F-039 | ✅ Fixed | Dead FILL/16:9 toggle removed (display always fits) |
 | F-040 | ✅ Documented | Docs drift — 9 days of shipped work missing from docs |
 
-Full list: FINDINGS.md (F-001 → F-052).
+Full list: FINDINGS.md (F-001 → F-053).
 
 ---
 

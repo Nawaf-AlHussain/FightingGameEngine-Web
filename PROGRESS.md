@@ -1424,3 +1424,40 @@ Recovered; standing rule added (fetch + verify remotes after every recycle).
 ### Current Status
 - Local validation ALL GREEN (matrix + concurrency + guards).
 - origin/web pushed with F-052; live re-verification pending Vercel deploy.
+
+---
+
+## Session (2026-11-02, continued) — F-053: "suddenly laggy" investigation
+
+#### Sandbox recycled again — recovered per standing rule
+Local main had rewound to b879528 (pre-F-051); `git fetch` + `reset --hard
+origin/main` restored 26c8a1d (F-051 + F-052 present). Remotes/live never
+affected.
+
+#### Identified (see FINDINGS F-053 for the full evidence chain)
+- NO code regression: pre-scrub baseline 69f008c rebuilt + profiled with
+  the same harness — fight-window blocking identical (35.9s vs 36.5s/45s).
+- CPU profile: ~65% wasm compute (Go sprite decode + software compositing),
+  ~10% Go GC (GOGC=off churn), 3% bridge, <1% site JS. Engine-inherent.
+- GOGC=off + GOMEMLIMIT thrash near the 800/400MiB cap = leading suspect
+  for the reporter's "sudden" late-session stutter; unobservable from the
+  sandbox (wasm memory invisible to JS) → measured next via ?fps=1 HUD.
+- Warmup raced round 1 (canvas+2s, 4 workers, ~15MB) → retimed to +8s @ 2.
+- jsDelivr still 403s .cmd on both repos (fallback absorbs; 2 roundtrips).
+- fast-3G: boot alone ≈ 3min — slow links bottleneck at boot, not fights.
+
+#### Shipped
+- `?fps=1` fight-perf HUD (fight-fps.ts + FightPerfHud; pill/panel/COPY +
+  5s [perf] beacons; flag-gated install, zero cost when off).
+- Warmup retiming (play page +8s; vfs.js workers 4→2).
+- verify-fps-hud.mjs (3 cases) + fixture fix in verify-boot-death-reporting
+  (bare kfm → source-qualified refs; F-052 fail-loudly made kfm bootless).
+
+#### Verified
+verify-fps-hud PASS · F-050 9/9 · F-051 alias stale+fresh PASS · boot-death
+9/9 · tsc clean · prod build green · post-fix diag unchanged · live /play
+200 (0.3s) and live vfs.js carries the F-051 alias.
+
+### Current Status
+- Committing + pushing lockstep (origin Demo + web mirror).
+- Reporter follow-up: play with ?fps=1, COPY the panel, paste the report.

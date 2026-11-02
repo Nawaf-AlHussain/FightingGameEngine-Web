@@ -3,8 +3,11 @@
 // /play page (ErrorState + engine output + exit code), never silently bounce
 // the player back to character select (/local).
 //
-//   A) Regression: normal local quick match (kfm vs kfm AI) still boots and
-//      runs; no ErrorState; no navigation away.
+//   A) Regression: normal local quick match still boots and
+//      runs; no ErrorState; no navigation away. (URL uses source-qualified
+//      refs — since the roster manifest carries source+id, bare ids like
+//      'kfm' are NOT in the manifest; F-052 makes that fail loudly by
+//      design, which this suite's old kfm URL tripped.)
 //   B) Engine death (missing character): /play?p1=doesnotexist — the engine
 //      exits silently before the fight (proven pre-existing behavior, see
 //      the 'Booting the engine with a path that does not exist makes it exit
@@ -47,7 +50,7 @@ const bootTail = (page) => page.evaluate(
   });
   const page = await ctx.newPage();
   page.on('pageerror', (e) => console.log('A PAGEERROR: ' + e.message.slice(0, 160)));
-  await page.goto(`${BASE}/play?p1=kfm&p2=kfm&p2ai=8&stage=stages/stage0-720.def&qmode=quickvs`);
+  await page.goto(`${BASE}/play?p1=charsMARVEL/Abomination&p2=charsMARVEL/Beast&p2ai=8&stage=Badda_Large_Stage&qmode=quickvs`);
   const canvas = await poll(page, () => {
     const c = document.querySelector('canvas#ikemen-canvas');
     return !!c && c.width > 0;

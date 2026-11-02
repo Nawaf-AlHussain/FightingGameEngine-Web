@@ -1675,13 +1675,19 @@
   // tabs over the memory cliff. On constrained devices the boot page caps
   // the warmup at small files; the big ones stay on-demand (fetched the
   // first time the engine actually opens them, then retained as usual).
+  //
+  // Concurrency 2 (F-053): the warmup runs while the first fight is already
+  // underway, and the engine blocks its game loop on every lazy open - so
+  // 4 parallel background streams competed with fight-critical fetches for
+  // bandwidth and stretched every stall. 2 workers halve the contention;
+  // the warmup is background by definition and simply finishes later.
   globalThis.engineVfsPrefetch = function (onProgress, opts) {
     const maxFileBytes = (opts && opts.maxFileBytes) || 0;
     const pending = [...manifest.keys()];
     const totalBytes = pending.reduce((n, p) => n + (manifest.get(p) || 0), 0);
     let doneBytes = 0;
     let skipped = 0;
-    const workers = Array.from({ length: 4 }, async () => {
+    const workers = Array.from({ length: 2 }, async () => {
       while (pending.length) {
         const vpath = pending.shift();
         const size = manifest.get(vpath) || 0;

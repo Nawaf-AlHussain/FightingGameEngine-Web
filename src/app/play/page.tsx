@@ -22,6 +22,7 @@ import { readFightResult, clearFightResult, processFightResult, getCurrentModeSt
 import { getDisplayModeMarker } from '@/lib/engine-config';
 import { engineGzipDecode, bootGzStats } from '@/lib/boot-decompress';
 import { installEngineDialogShim } from '@/lib/engine-dialog-shim';
+import { installFightFpsMonitor, fightPerfCopyText, type FightPerfSnapshot } from '@/lib/fight-fps';
 import CharacterSelect from '@/components/CharacterSelect';
 import GroupSelect from '@/components/GroupSelect';
 import StageSelect from '@/components/StageSelect';
@@ -290,6 +291,14 @@ if (typeof window !== 'undefined') {
     const bs = q.get('bootstats');
     if (bs === '1') localStorage.setItem('fg-boot-stats', '1');
     else if (bs === '0') localStorage.removeItem('fg-boot-stats');
+    // F-053: fight-time perf HUD (?fps=1, cleared via ?fps=0). Install the
+    // rAF/longtask monitor at MODULE scope when the persisted flag is on, so
+    // it sees every frame from the first tick — including the net=1 preboot
+    // path and both engine boots. Normal players (flag off) pay nothing.
+    const fps = q.get('fps');
+    if (fps === '1') localStorage.setItem('fg-fps-stats', '1');
+    else if (fps === '0') localStorage.removeItem('fg-fps-stats');
+    if (localStorage.getItem('fg-fps-stats') === '1') installFightFpsMonitor();
   } catch { /* storage blocked — HUD and switches just stay default */ }
 }
 
@@ -454,6 +463,95 @@ function BootStatsHud({ stats }: { stats: BootStats }) {
   );
 }
 
+// F-053 — fight-time performance HUD (?fps=1, persisted until ?fps=0).
+// Top-RIGHT live pill so it never collides with the boot-stats pill. Shows
+// the trailing-5s FPS color-coded, tap expands the full session panel
+// (p90 frame delta, stall gaps, long tasks, JS heap) + COPY for pasting a
+// '[perf]' report straight into chat. Diagnostic only, zero gameplay effect.
+function FightPerfHud() {
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [snap, setSnap] = useState<FightPerfSnapshot | null>(null);
+
+  useEffect(() => {
+    const t = setInterval(() => {
+      const s = (window as unknown as { __fightPerf?: () => FightPerfSnapshot }).__fightPerf?.();
+      if (s) setSnap(s);
+    }, 500);
+    return () => clearInterval(t);
+  }, []);
+
+  const copy = async (): Promise<void> => {
+    if (!snap) return;
+    let ok = false;
+    try {
+      await navigator.clipboard.writeText(fightPerfCopyText(snap));
+      ok = true;
+    } catch { /* denied (e.g. unfocused tab) — legacy path below */ }
+    if (!ok) {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = fightPerfCopyText(snap);
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      } catch { /* give up — numbers remain readable in the panel */ }
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1600);
+  };
+
+  const fps = snap?.fps5 ?? 0;
+  const grade = fps >= 50 ? 'good' : fps >= 30 ? 'mid' : 'bad';
+  const row = (label: string, val: string): string => label.padEnd(10) + val;
+
+  return (
+    <div className="fpsstats">
+      <button
+        type="button"
+        className={`fpsstats__pill fpsstats__pill--${grade}`}
+        onClick={() => setOpen(o => !o)}
+        aria-label="Toggle performance stats"
+      >
+        {fps > 0 ? `${Math.round(fps)} FPS` : 'FPS —'}
+      </button>
+      {open && (
+        <div className="fpsstats__panel">
+          <pre className="fpsstats__rows">
+{snap
+  ? row('fps(5s)', String(snap.fps5) + '\n' +
+      row('avg fps', String(snap.avgFps)) + '\n' +
+      row('p90 frame', snap.p90Delta + 'ms') + '\n' +
+      row('worst 5s', snap.worstGap5 + 'ms') + '\n' +
+      row('gaps>100', String(snap.gaps100)) + '\n' +
+      row('gaps>250', String(snap.gaps250)) + '\n' +
+      row('longtask', `${snap.ltN}x ${snap.ltTotal}ms max=${snap.ltMax}ms`) + '\n' +
+      row('js heap', snap.heapMb >= 0 ? snap.heapMb + 'MB' : 'n/a') + '\n' +
+      row('session', snap.elapsedSec + 's'))
+  : 'waiting for frames...'}
+          </pre>
+          <div className="fpsstats__btnrow">
+            <button type="button" className="fpsstats__btn" onClick={copy} disabled={!snap}>
+              {copied ? 'COPIED' : 'COPY'}
+            </button>
+            <button
+              type="button"
+              className="fpsstats__btn fpsstats__btn--x"
+              onClick={() => setOpen(false)}
+              aria-label="Close performance stats"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // sessionStorage key: the raw query string (?p1=...&p2=...&stage=...) of the
 // most recent LOCAL fight, captured the moment the URL is stripped from the
 // address bar (clean-URL — see "Clean-URL handoff" in bootEngine). An F5 on a
@@ -492,6 +590,14 @@ function PlayPageInner() {
   const [bootStatsOn, setBootStatsOn] = useState(false);
   useEffect(() => {
     try { setBootStatsOn(localStorage.getItem('fg-boot-stats') === '1'); } catch { /* private */ }
+  }, []);
+
+  // F-053 fight-perf HUD (?fps=1 — the lag-report tool). The monitor itself
+  // is installed at module scope (above) when the persisted flag is on; this
+  // effect only flips the HUD's visibility post-mount.
+  const [fpsHudOn, setFpsHudOn] = useState(false);
+  useEffect(() => {
+    try { setFpsHudOn(localStorage.getItem('fg-fps-stats') === '1'); } catch { /* private */ }
   }, []);
 
   // ---- Online (net=1) flow state ----
@@ -1740,7 +1846,14 @@ function PlayPageInner() {
           prefetchPoll = setInterval(() => {
             if (document.querySelector('canvas#ikemen-canvas')) {
               if (prefetchPoll) { clearInterval(prefetchPoll); prefetchPoll = null; }
-              prefetchTimer = setTimeout(startVfsPrefetch, 2000);
+              // F-053: 2s -> 8s. In quick-match the fight starts the moment
+              // the canvas exists; at +2s the warmup's ~15MB streamed WHILE
+              // round 1 was loading/playing — on a real connection that
+              // bandwidth contention lengthened every fight-critical open
+              // (the engine blocks its game loop on each lazy fetch). +8s
+              // lets the intro/round-1 fetches finish first; the warmup is
+              // background by definition and loses nothing.
+              prefetchTimer = setTimeout(startVfsPrefetch, 8000);
             }
           }, 250);
           prefetchTimer = setTimeout(() => {
@@ -2997,6 +3110,7 @@ function PlayPageInner() {
           re-focuses the engine canvas via the document click handler, so it
           cannot steal input from the game. */}
       {bootStatsOn && bootStats && <BootStatsHud stats={bootStats} />}
+      {fpsHudOn && <FightPerfHud />}
 
       {/* Touch controls are loaded via vanilla JS (public/game/touch.js)
           in the useEffect above. No React component needed — the script

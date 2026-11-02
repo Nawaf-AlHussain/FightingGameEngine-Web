@@ -4570,6 +4570,77 @@ body.fighting {
 }
 
 /* ========================================
+   FIGHT PERF HUD (F-053 lag report tool)
+   Enabled via ?fps=1 (persisted until ?fps=0). Top-RIGHT, docked BELOW the
+   touch exit ✕ (which owns 12px/12px on touch). Live 5s-FPS pill,
+   color-coded; tap expands the session panel + COPY for chat reports.
+   Diagnostic tooling only — never rendered for normal players.
+   ======================================== */
+.fpsstats {
+  position: fixed;
+  top: calc(60px + env(safe-area-inset-top, 0px));
+  right: calc(12px + env(safe-area-inset-right, 0px));
+  z-index: 60;
+  text-align: right;
+}
+.fpsstats__pill {
+  appearance: none;
+  border: 2px solid var(--black);
+  font-family: var(--font-poster);
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  padding: 5px 11px 3px;
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.65);
+  cursor: pointer;
+  color: var(--white);
+}
+.fpsstats__pill--good { background: #1a7f37; }
+.fpsstats__pill--mid  { background: #9a6700; }
+.fpsstats__pill--bad  { background: var(--crimson, #c1162f); }
+.fpsstats__panel {
+  margin-top: 6px;
+  background: var(--white);
+  border: 2px solid var(--black);
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.65);
+  padding: 8px 10px;
+  width: max-content;
+  max-width: min(78vw, 300px);
+  text-align: left;
+}
+.fpsstats__rows {
+  margin: 0;
+  font-family: ui-monospace, 'Courier New', monospace;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--black);
+  white-space: pre;
+}
+.fpsstats__btnrow {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.fpsstats__btn {
+  appearance: none;
+  border: 2px solid var(--black);
+  background: var(--cyan);
+  color: var(--white);
+  font-family: var(--font-poster);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  padding: 4px 10px 2px;
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.65);
+  cursor: pointer;
+}
+.fpsstats__btn:disabled { opacity: 0.5; cursor: default; }
+.fpsstats__btn--x {
+  background: var(--white);
+  color: var(--red);
+  padding-inline: 7px;
+}
+
+/* ========================================
    COMIC PRINT SYSTEM v2 — full-page motion
    Brings the Rocket-Squadron-Rive feel to every chrome screen:
    staggered press-roller entrances, ambient print-shop loops

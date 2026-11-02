@@ -1883,3 +1883,96 @@ main to `b879528` again (third occurrence this session; reflog
 live deployment were never affected — origin stayed `7d072f2`, web `e8409f2`.
 Recovered via stash → `reset --hard origin/main` → stash pop. Standing rule:
 `git fetch` + verify remotes before ANY local work after a sandbox recycle.
+
+## F-053 — "Suddenly laggy": no code regression; fight-time is engine-inherent CPU. HUD shipped so the reporter's machine can tell us more
+
+**Context (user)**: "The game is suddenly feeling very laggy. Can you identify the issue?"
+— reported after the F-051 icon-alias fix returned them to a bootable game.
+
+**Harnesses built** (`scripts/diag-lag.mjs`, `scripts/diag-lag-profile.mjs`):
+pre-page instrumentation for a real PRODUCTION-server fight — rAF delta
+tracing split at canvas (boot vs fight), longtask observer, console-rate
+wrapper with top-lines, fetch waterfall with repeats/slowest, localStorage
+write volume + sync ms, JS heap sampler, CDP V8 sampling profile during the
+fight window, and CDP network throttling (`--throttle fast3g|slow4g`).
+
+**1. No regression — baseline proof.** The pre-scrub commit `69f008c`
+(before F-046…F-052) was rebuilt and profiled with the identical harness:
+fight-window main-thread blocking 35.9s vs 36.5s (of a 45s window), same
+rAF shape, same ~60-fetch lazy stream, same console noise (48 log / 68 warn),
+same 2× `.cmd` 403 fallbacks, localStorage quiet, JS heap flat. Every metric
+inside noise. The brand-scrub commits did NOT slow the game down.
+
+**2. Where fight-time actually goes** (30s CPU profile, fresh context):
+- ~65% `(program)` = wasm compute. The named Go frames explain what kind:
+  sprite/asset decode — `image_png.readImagePass`/`filterPaeth`, flate
+  `huffmanBlock`/`huffSym`, `RlePcxDecode`, adler32, and Go-side software
+  compositing (`image_draw.drawNRGBASrc`) — i.e. the engine decodes and
+  composites character/stage art on the CPU as it streams lazily mid-fight.
+- ~10% Go GC runtime (`addspecial`, `mallocgc`, `memclr`,
+  `heapBitsSetType`, `growMemory`) — high allocation churn from that decode.
+- 3% `wasm_exec.js` bridge (storeValue/loadString/copyBytesToGo), <1% site
+  JS (vfs.js 164ms), <1% GL. texImage2D is cheap (183ms); rendering is NOT
+  the bottleneck — decode + GC + wasm sim are.
+This cost profile is the engine build's, identical before and after our
+commits. It will only move with the engine rebuild (decode off the hot loop,
+GC tuning).
+
+**3. GOGC=off + GOMEMLIMIT — the "suddenly" mechanism we cannot observe
+from the sandbox.** The engine boots with `GOGC=off` (F-033 smoothness
+choice) and a hard cap (`GOMEMLIMIT` 800MiB desktop / 400MiB when
+`navigator.deviceMemory <= 4` or mobile-touch, F-0209-era guard). GC is
+deferred until the heap nears the cap — a long arcade ladder with heavy
+characters then triggers near-continuous collection: sudden, severe
+stutter partway through a session, on machines whose wasm heap crosses the
+band. The JS heap sampler stays flat (179MB) because wasm memory is
+invisible to JS — the sandbox can neither confirm nor refute this for the
+reporter's device. The `?fps=1` HUD exists precisely to get those numbers
+from their machine. Engine-rebuild review item recorded (GOGC/GOMEMLIMIT
+tuning or an app-callable soft-GC bridge).
+
+**4. Mid-fight network contention — the one app-side lever, pulled.**
+Every lazy open blocks the wasm game loop until the fetch resolves. The
+background warmup ("VFS: warming menu/UI assets…") started at canvas+2s
+with 4 workers — in quick-match the fight IS already running then, so
+~15MB streamed against round-1 fight-critical fetches on real connections.
+Also re-confirmed live: jsDelivr 403s `.cmd` for BOTH asset repos (edge
+malware-protection on the extension; other types 200, edge ~20ms warm) —
+each character pays one `/api/cdn`→raw fallback roundtrip per .cmd (known
+F-052 noise, unchanged).
+
+**5. Slow links: boot, not fights, is the wall.** fast-3G throttling
+(1.6Mbps/150ms): the fight window never starts — 23MB wasm + 11MB pak +
+motif stream ≈ 3 minutes of boot. If the reporter is on a slow/degraded
+connection, "laggy" may partially be boot-time streaming; the HUD's
+`session` clock disambiguates.
+
+**Fixes shipped**:
+- Warmup retimed: canvas+2s → canvas+8s (play page) and workers 4 → 2
+  (vfs.js `engineVfsPrefetch`). Round-1 fetches now win the bandwidth race;
+  the warmup finishes a few seconds later, which is what "background" means.
+- `?fps=1` fight-perf HUD (`src/lib/fight-fps.ts` + `FightPerfHud` in the
+  play page, persisted `fg-fps-stats` until `?fps=0`): top-right 5s-FPS
+  pill color-coded (≥50 green / ≥30 amber / <30 red), docked below the
+  touch exit ✕; expandable panel: avg fps, p90 frame delta, worst 5s gap,
+  gaps>100ms/>250ms, longtask n/total/max, JS heap MB, session time; COPY
+  puts a `[perf] …` report + device tags + UA on the clipboard; a `[perf]`
+  beacon logs every 5s. Monitor installs at module scope ONLY when the
+  persisted flag is on — zero cost for normal players.
+- Stale fixture: `verify-boot-death-reporting.mjs` check A booted bare
+  `p1=kfm`, which is not in the manifest — F-052's fail-loudly change now
+  correctly refuses it, so the suite's regression case "failed". Updated to
+  a source-qualified fight (`charsMARVEL/Abomination` vs `Beast`).
+
+**Verification**: `verify-fps-hud.mjs` PASS (monitor + pill + beacons +
+panel rows; control boot has no monitor/pill; canvas→warming delay 20s ≥
+7s). F-050 dialog suite 9/9; F-051 icon alias stale+fresh PASS; boot-death
+suite 9/9 after the fixture fix; tsc clean; production build green; post-fix
+diag run unchanged (boot 2.9s, fight envelope as baseline).
+
+**Next diagnostic step**: the reporter opens the game with `?fps=1` and
+plays until it feels laggy, then taps the pill → COPY and pastes the report.
+Interpretation: fps5 high + gaps>250ms late in the session → GC-cap angle
+(engine rebuild); fps5 low immediately → device CPU/GPU (wasm decode cost —
+display-mode ladder helps); fps5 fine but game feels slow → report the
+'[perf]' line anyway so the input/audio path can be checked.
